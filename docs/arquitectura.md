@@ -4,7 +4,14 @@ Fuente: `Plan.md` (secciones 1 y 4) y las decisiones en [adr/](adr/README.md). E
 
 ## Estado actual
 
-Fase 1 en curso. En `main` solo hay `Plan.md`, `CLAUDE.md` y `.claude/agents/`. Backend, frontend, infraestructura y `semantic/` se están creando en paralelo y se documentarán aquí cuando existan.
+En la fase 1 existen:
+
+- **Backend:** FastAPI con JWT, y usuarios y auditoría en PostgreSQL.
+- **Frontend:** esqueleto con navegación y login.
+- **`semantic/`:** patrón de URIs, formas SHACL mínimas y un ejemplo.
+- **Infraestructura:** Docker Compose con postgres, Fuseki, backend y frontend, y CI en GitHub Actions.
+
+Todo lo demás es objetivo de fases posteriores y está marcado como [Posterior].
 
 Leyenda: **[Fase 1]** objetivo de la fase actual; **[Posterior]** objetivo de fases posteriores.
 
@@ -57,7 +64,7 @@ JWT emitido y verificado dentro del backend, sin SSO en el MVP. Roles: lector (a
 | Publicación de un dataset | Un editor envía metadatos al backend, que los valida con SHACL, los carga en el triplestore, guarda las distribuciones en el almacenamiento y lanza la evaluación FAIR | [Posterior] fases 2 y 4 |
 | Publicación de ontologías y vocabularios | Una etiqueta de versión en Git dispara validación, documentación y publicación | [Posterior] fase 3 |
 | Consulta SPARQL | El frontend consulta a través del backend, que expone o hace de proxy del endpoint | [Posterior] fase 4 |
-| Descarga de distribución restringida | Solo para miembros o superior | [Posterior] fase 4 |
+| Descarga de distribución restringida | Cada ruta enumera los roles que admite; el backend no tiene jerarquía de roles. Según `Plan.md`, el miembro puede solicitar o descargar distribuciones restringidas. Si el admin hereda los permisos de editor es una decisión abierta del responsable | [Posterior] fase 4 |
 
 ## Contratos entre capas
 
