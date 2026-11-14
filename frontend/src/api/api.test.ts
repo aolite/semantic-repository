@@ -1,14 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { jsonResponse, mockFetch } from '../test/utils'
+import { jsonResponse, mockFetch, tokenFixture, userFixture } from '../test/utils'
 import { ApiError, fetchCurrentUser, fetchHealth, requestToken } from '.'
 
 describe('Módulo api', () => {
   it('requestToken envía username y password como form-urlencoded', async () => {
+    const token = tokenFixture({ access_token: 't', role: 'editor' })
     const fetchMock = mockFetch({
-      '/auth/token': () => jsonResponse({ access_token: 't', token_type: 'bearer' }),
+      '/auth/token': () => jsonResponse(token),
     })
 
-    await expect(requestToken('u', 'p')).resolves.toEqual({ access_token: 't', token_type: 'bearer' })
+    await expect(requestToken('u', 'p')).resolves.toEqual(token)
 
     const body = fetchMock.mock.calls[0][1]?.body as URLSearchParams
     expect(body.get('username')).toBe('u')
@@ -16,12 +17,13 @@ describe('Módulo api', () => {
     expect(body.get('grant_type')).toBe('password')
   })
 
-  it('fetchCurrentUser añade la cabecera Bearer', async () => {
+  it('fetchCurrentUser añade la cabecera Bearer y devuelve el UserRead', async () => {
+    const me = userFixture()
     const fetchMock = mockFetch({
-      '/auth/me': () => jsonResponse({ username: 'u', role: 'miembro' }),
+      '/auth/me': () => jsonResponse(me),
     })
 
-    await fetchCurrentUser('abc')
+    await expect(fetchCurrentUser('abc')).resolves.toEqual(me)
 
     expect(new Headers(fetchMock.mock.calls[0][1]?.headers).get('Authorization')).toBe('Bearer abc')
   })

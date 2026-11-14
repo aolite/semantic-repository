@@ -51,13 +51,13 @@ src/
 
 ## API
 
-El cliente usa estos endpoints (contrato de la fase 1, pendiente de `backend/openapi.json`):
+El contrato es `backend/openapi.json`. El cliente usa estos endpoints:
 
-- `POST /auth/token`: formulario OAuth2 password (`application/x-www-form-urlencoded`, campos `username` y `password`). Devuelve `{ access_token, token_type: "bearer" }`.
-- `GET /auth/me` con `Authorization: Bearer <token>`. Devuelve el usuario; el cliente usa `username` y `role` (`miembro`, `editor` o `admin`).
-- `GET /health`.
+- `POST /auth/token`: formulario OAuth2 password (`application/x-www-form-urlencoded`, campos `username` y `password`). Devuelve el esquema `Token`: `{ access_token, token_type: "bearer", expires_in, role }`. Las credenciales incorrectas devuelven 401.
+- `GET /auth/me` con `Authorization: Bearer <token>`. Devuelve el esquema `UserRead`: `{ id, username, role, is_active, created_at, updated_at }`. La navegación muestra `username` y `role` (`miembro`, `editor` o `admin`).
+- `GET /health`: esquema `HealthStatus`, `{ status: "ok" }`.
 
-Los tipos de `src/api/types.ts` están escritos a mano. Cuando el backend publique el OpenAPI se sustituirán por tipos generados.
+Los tipos de `src/api/types.ts` están copiados a mano del OpenAPI, sin generador. Si el contrato cambia, hay que actualizarlos ahí. Las respuestas ficticias de las pruebas (`src/test/utils.tsx`) usan esos tipos, así que el build falla si se desalinean.
 
 ## Sesión
 

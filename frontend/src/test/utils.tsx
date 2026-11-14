@@ -2,8 +2,29 @@ import { render } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router'
 import { vi } from 'vitest'
+import type { CurrentUser, TokenResponse } from '../api'
 import { AppRoutes } from '../App'
 import { AuthProvider } from '../auth/AuthProvider'
+
+/**
+ * Respuestas ficticias con la forma de los esquemas `Token` y `UserRead` del
+ * OpenAPI. Al estar tipadas, el build falla si se desalinean de `types.ts`.
+ */
+export function tokenFixture(overrides: Partial<TokenResponse> = {}): TokenResponse {
+  return { access_token: 'token-de-prueba', token_type: 'bearer', expires_in: 3600, role: 'miembro', ...overrides }
+}
+
+export function userFixture(overrides: Partial<CurrentUser> = {}): CurrentUser {
+  return {
+    id: '00000000-0000-4000-8000-000000000000',
+    username: 'usuario-prueba',
+    role: 'miembro',
+    is_active: true,
+    created_at: '2000-01-01T00:00:00Z',
+    updated_at: '2000-01-01T00:00:00Z',
+    ...overrides,
+  }
+}
 
 /** Renderiza la aplicación completa en la ruta indicada. */
 export function renderApp(route = '/') {

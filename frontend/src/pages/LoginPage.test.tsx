@@ -1,6 +1,6 @@
 import { screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
-import { jsonResponse, mockFetch, renderApp } from '../test/utils'
+import { jsonResponse, mockFetch, renderApp, tokenFixture, userFixture } from '../test/utils'
 
 // Credenciales ficticias de prueba: la API está mockeada.
 const USERNAME = 'usuario-prueba'
@@ -12,14 +12,14 @@ function mockAuthApi() {
     '/auth/token': (_url, init) => {
       const body = new URLSearchParams(String(init?.body))
       if (body.get('username') === USERNAME && body.get('password') === PASSWORD) {
-        return jsonResponse({ access_token: TOKEN, token_type: 'bearer' })
+        return jsonResponse(tokenFixture({ access_token: TOKEN, role: 'editor' }))
       }
       return jsonResponse({ detail: 'Incorrect username or password' }, 401)
     },
     '/auth/me': (_url, init) => {
       const auth = new Headers(init?.headers).get('Authorization')
       if (auth !== `Bearer ${TOKEN}`) return jsonResponse({ detail: 'Unauthorized' }, 401)
-      return jsonResponse({ username: USERNAME, role: 'editor' })
+      return jsonResponse(userFixture({ username: USERNAME, role: 'editor' }))
     },
   })
 }
