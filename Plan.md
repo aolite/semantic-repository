@@ -69,6 +69,8 @@ Además, la arquitectura incluye una base de datos relacional pequeña para usua
 | Almacenamiento de distribuciones | **MVP:** disco de la máquina (un volumen de Docker). **Despliegue:** Cloudflare R2, compatible con S3, cuando se configure. El backend accede a través de una interfaz de almacenamiento con dos implementaciones, disco y R2, y se elige una u otra por configuración, sin cambiar el código |
 | Ramas y commits | Ramas `<agente>/<descripción-corta>`; mensajes en formato Conventional Commits |
 | Pruebas de seguridad (`qa`) | JWT, autorización por rol, acceso a distribuciones restringidas, inyección en consultas SPARQL y análisis de dependencias |
+| Roles de usuario | **Lector:** anónimo, ve lo público. **Miembro:** usuario de la unidad, puede solicitar o descargar distribuciones restringidas. **Editor:** publica y versiona recursos. **Admin:** gestiona usuarios |
+| Python del backend | La última versión estable, gestionada con uv (hoy 3.15), fijada en `backend/.python-version` y en la imagen Docker |
 
 ### Pantallas del prototipo (contrato de la interfaz)
 

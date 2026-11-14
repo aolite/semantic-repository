@@ -19,12 +19,12 @@ Sus enlaces y cómo leerlos están en **`CLAUDE.local.md`**, un fichero local qu
 ## Stack
 
 - **Frontend:** React + TypeScript + Vite + React Router + Vitest. Implementa las 6 pantallas del prototipo: Catálogo, Ficha de dataset, Vocabularios y ontologías, Ficha de ontología, Navegador SKOS y Consola SPARQL.
-- **Backend:** Python + FastAPI. Es el único componente que escribe en el triplestore y en el almacenamiento.
+- **Backend:** Python (última versión estable, con uv) + FastAPI. Es el único componente que escribe en el triplestore y en el almacenamiento.
 - **Triplestore:** Apache Jena Fuseki (GraphDB Free como alternativa).
 - **Evaluador FAIR:** F-UJI, como servicio interno.
 - **Usuarios y auditoría:** PostgreSQL.
 - **Distribuciones:** disco de la máquina en el MVP; Cloudflare R2 en el despliegue, a través de una interfaz de almacenamiento elegida por configuración.
-- **Autenticación:** JWT dentro del backend, sin SSO en el MVP.
+- **Autenticación:** JWT dentro del backend, sin SSO en el MVP. Roles: lector (anónimo), miembro, editor y admin; detalle en `Plan.md`.
 - **Entorno:** Docker Compose en local. El proveedor cloud se decide en el piloto (Cloudflare es una opción).
 - **CI:** GitHub Actions.
 
