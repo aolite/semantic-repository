@@ -6,6 +6,7 @@
 # Secretos y entorno
 .env
 .env.*
+!.env.example
 
 # Python (backend FastAPI)
 __pycache__/
@@ -18,3 +19,6 @@ venv/
 node_modules/
 dist/
 build/
+
+# Notas locales de Claude Code (enlaces a documentos internos)
+CLAUDE.local.md

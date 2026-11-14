@@ -4,8 +4,9 @@
 
 **Fuentes de este plan**
 
-- Plan de implementación: <https://claude.ai/artifact/Ba5qns1A1MnXAcccGk1YdG>
-- Diseño (prototipo de 6 pantallas): <https://claude.ai/artifact/LdPh1cSskDWoMAYkTrZKo7>
+- **Plan de implementación** (documento interno).
+- **Diseño**: prototipo de 6 pantallas (documento interno).
+- Los enlaces a los documentos internos no se publican en este repositorio. Están en `CLAUDE.local.md`, un fichero local que no se versiona (ver `CLAUDE.md`).
 - Decisiones tomadas por el responsable del proyecto el 2026-11-14:
   - El sistema multi-agente se compone solo de **subagentes de Claude Code**.
   - Los agentes trabajan en ramas y abren **PR**. El responsable revisa, hace el merge y valida las puertas G1 a G4.
@@ -85,7 +86,7 @@ Además, la arquitectura incluye una base de datos relacional pequeña para usua
 ## 2. Principios del sistema multi-agente
 
 1. **El responsable del proyecto es quien decide.** Ningún agente hace merge, despliega en cloud ni cierra una puerta.
-2. **Una sesión principal de Claude Code orquesta** y los subagentes especializados ejecutan. Los subagentes no se lanzan entre sí, porque Claude Code no lo permite: solo la sesión principal delega.
+2. **Una sesión principal de Claude Code orquesta** y los subagentes especializados ejecutan. Claude Code sí permite que un subagente lance otros, pero aquí se desactiva: ningún subagente tiene la herramienta `Agent` en su lista `tools`, así que solo la sesión principal delega.
 3. **Cada capa tiene un dueño.** Cada agente modifica solo su zona de ficheros. Lo que cruza capas, como el contrato de la API o las formas SHACL, se acuerda mediante un artefacto compartido versionado.
 4. **Todo cambio entra por PR,** con descripción, pruebas y referencia a la fase.
 5. **La documentación se escribe junto al código** (es una mitigación del riesgo "dependencia de una sola persona"), para que nada dependa de la memoria de una conversación.
@@ -159,10 +160,10 @@ Modelos decididos por el responsable el 2026-11-14:
 | `backend` | Read, Edit, Write, Bash, Grep, Glob | Claude Opus 5.5 (`opus`) |
 | `frontend` | Read, Edit, Write, Bash, Grep, Glob | Claude Opus 5.5 (`opus`) |
 | `infra` | Read, Edit, Write, Bash, Grep, Glob | Claude Sonnet 5.5, el último Sonnet (`sonnet`) |
-| `qa` | Read, Bash, Grep, Glob (sin Edit ni Write sobre código de producción) | Claude Fable 5.2 (`fable`), para las pruebas y las pruebas de seguridad |
+| `qa` | Read, Edit, Write, Bash, Grep, Glob. Necesita escribir para crear las pruebas; la restricción de no tocar código de producción va en su system prompt, porque `tools` no se puede limitar por ruta | Claude Fable 5.2 (`fable`), para las pruebas y las pruebas de seguridad |
 | `docs` | Read, Edit, Write, Grep, Glob | Claude Sonnet 5.5, el último Sonnet (`sonnet`) |
 
-Falta comprobar que el campo `model:` de `.claude/agents/*.md` acepta el alias `fable`. Si no lo acepta, se usará el identificador completo `claude-fable-5-2`.
+La documentación de Claude Code confirma que el campo `model:` acepta los alias `opus`, `sonnet`, `haiku` y `fable`.
 
 ---
 
@@ -244,9 +245,9 @@ Las fases y las puertas son las del plan de implementación. Las semanas son ori
 
 ## 8. Puesta en marcha del sistema
 
-1. ~~Inicializar el repositorio git y enlazarlo con el remoto `https://github.com/aolite/semantic-repository.git`~~. Hecho: rama `main`, remoto `origin`, todavía sin commits.
-2. Crear `CLAUDE.md` con el resumen del proyecto y un enlace a este plan.
-3. Crear las seis definiciones en `.claude/agents/`.
+1. ~~Inicializar el repositorio git y enlazarlo con el remoto `https://github.com/aolite/semantic-repository.git`~~. Hecho: rama `main`, remoto `origin`.
+2. ~~Crear `CLAUDE.md` con el resumen del proyecto y un enlace a este plan~~. Hecho.
+3. ~~Crear las seis definiciones en `.claude/agents/`~~. Hecho.
 4. Arrancar la fase 1 con el orquestador.
 
 ---
