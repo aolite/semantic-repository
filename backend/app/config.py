@@ -5,12 +5,16 @@ son obligatorias y la aplicación no arranca sin ellas.
 """
 
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, ValidationError, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEFAULT_BASE_URI = "https://semantic.example.org/itot/"
+
+# Carpeta ``backend/``. Las rutas relativas de ``SEMANTIC_DIR`` se resuelven contra ella.
+BACKEND_DIR = Path(__file__).resolve().parent.parent
 
 JwtAlgorithm = Literal["HS256", "HS384", "HS512"]
 
@@ -35,9 +39,25 @@ class Settings(BaseSettings):
     # PostgreSQL (usuarios y auditoría). Obligatoria.
     database_url: str = Field(min_length=1, repr=False)
 
-    # Triplestore. En la fase 1 solo se usa para el health check de disponibilidad.
+    # Triplestore. Las consultas van a ``/query`` sin credenciales; las escrituras, a
+    # ``/data`` (Graph Store Protocol) con autenticación Basic. Las credenciales son
+    # opcionales al arrancar: sin ellas la lectura funciona y la ingesta falla con un
+    # error claro.
     fuseki_url: str = "http://fuseki:3030"
     fuseki_dataset: str = "itot"
+    fuseki_user: str | None = Field(default=None, repr=False)
+    fuseki_password: str | None = Field(default=None, repr=False)
+    fuseki_timeout_seconds: float = Field(default=10.0, gt=0, le=300)
+
+    # Carpeta ``semantic/`` (formas SHACL y datos). En el contenedor se monta en
+    # ``/semantic``; en desarrollo, ``../semantic`` relativo a ``backend/``.
+    semantic_dir: Path = BACKEND_DIR.parent / "semantic"
+
+    # Tamaño máximo del RDF que acepta ``POST /datasets``.
+    ingest_max_bytes: int = Field(default=10 * 1024 * 1024, gt=0)
+
+    # Frontend al que redirigen (303) las URIs persistentes cuando se pide HTML.
+    frontend_base_url: str = "http://localhost:5173"
 
     # JWT. El secreto es obligatorio y no tiene valor por defecto. El algoritmo se declara
     # antes que el secreto porque la longitud mínima del secreto depende de él.
@@ -72,10 +92,26 @@ class Settings(BaseSettings):
             raise ValueError(f"debe tener al menos {minimum} bytes con {algorithm}")
         return value
 
-    @field_validator("fuseki_url")
+    @field_validator("fuseki_url", "frontend_base_url")
     @classmethod
     def _strip_trailing_slash(cls, value: str) -> str:
         return value.strip().rstrip("/")
+
+    @field_validator("fuseki_user", "fuseki_password")
+    @classmethod
+    def _empty_is_none(cls, value: str | None) -> str | None:
+        return value or None
+
+    @field_validator("semantic_dir")
+    @classmethod
+    def _resolve_semantic_dir(cls, value: Path) -> Path:
+        return value if value.is_absolute() else (BACKEND_DIR / value).resolve()
+
+    @property
+    def fuseki_write_credentials(self) -> tuple[str, str] | None:
+        if self.fuseki_user and self.fuseki_password:
+            return (self.fuseki_user, self.fuseki_password)
+        return None
 
     @property
     def cors_origins_list(self) -> list[str]:

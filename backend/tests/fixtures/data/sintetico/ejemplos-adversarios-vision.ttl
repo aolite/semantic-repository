@@ -1,0 +1,81 @@
+# Dataset SINTÉTICO para la puerta G2: serie ejemplos-adversarios-vision con
+# su versión 0.9.0. Fuente: tarjeta del catálogo del prototipo («Corpus de
+# ejemplos adversarios en visión»).
+#
+# Marca de sintético: dct:type <vocab/tipo-dataset/sintetico> en la serie y
+# en la versión (ver semantic/uris.md y semantic/data/vocab-minimo.ttl).
+#
+# BASE_URI: el fichero no declara @base. Las URIs propias son relativas y se
+# resuelven contra la BASE_URI que se pase al leerlo. Ver semantic/uris.md.
+#
+# Placeholders del prototipo: [LICENCIA], [CONTACTO], [FECHA] y [PROYECTO]
+# se OMITEN y quedan comentados donde irían (ver semantic/README.md).
+#
+# Qué sale del prototipo y qué no:
+# - Título, descripción, temas (Evasión, Caja blanca), formatos (NPZ · JSON),
+#   versión 0.9.0 y acceso restringido: prototipo.
+# - La serie lleva el mismo título y descripción que la versión.
+# - Sin nota de versión, versión anterior, palabras clave ni procedencia: el
+#   prototipo no los da.
+# - Distribuciones: una por formato, dct:title igual al formato.
+#   · JSON: application/json (IANA).
+#   · NPZ (archivo de arrays de NumPy): no tiene tipo de medio registrado en
+#     IANA, así que se omite dcat:mediaType. El formato solo consta en
+#     dct:title.
+# - dcat:accessURL = la URI de la propia distribución (decisión del
+#   responsable, 2026-11-14).
+# - El agente no tiene URI en el prototipo: nodo en blanco.
+
+@prefix itotd: <dataset/> .
+@prefix ia:    <vocab/ia/> .
+@prefix dcat:  <http://www.w3.org/ns/dcat#> .
+@prefix dct:   <http://purl.org/dc/terms/> .
+@prefix foaf:  <http://xmlns.com/foaf/0.1/> .
+@prefix prov:  <http://www.w3.org/ns/prov#> .
+
+# --- Serie (ficha del catálogo) ---------------------------------------------
+itotd:ejemplos-adversarios-vision
+    a dcat:DatasetSeries ;
+    dct:type <vocab/tipo-dataset/sintetico> ;
+    dct:title "Corpus de ejemplos adversarios en visión"@es ;
+    dct:description "Muestras adversarias generadas en experimentos de la unidad, con parámetros del ataque y modelo objetivo."@es ;
+    dct:publisher _:unidad-itot ;
+    dcat:first <dataset/ejemplos-adversarios-vision/0.9.0> ;
+    dcat:last <dataset/ejemplos-adversarios-vision/0.9.0> .
+
+# --- Versión 0.9.0 (actual) -------------------------------------------------
+<dataset/ejemplos-adversarios-vision/0.9.0>
+    a dcat:Dataset ;
+    dct:type <vocab/tipo-dataset/sintetico> ;
+    dct:title "Corpus de ejemplos adversarios en visión"@es ;
+    dct:description "Muestras adversarias generadas en experimentos de la unidad, con parámetros del ataque y modelo objetivo."@es ;
+    dcat:version "0.9.0" ;
+    dcat:inSeries itotd:ejemplos-adversarios-vision ;
+    dct:accessRights <http://publications.europa.eu/resource/authority/access-right/RESTRICTED> ;
+    dcat:theme ia:evasion , ia:caja-blanca ;
+    dct:publisher _:unidad-itot ;
+    # dcat:contactPoint [CONTACTO] ;
+    # dct:license [LICENCIA] ;
+    # dct:issued [FECHA] ;
+    # dct:modified [FECHA] ;
+    # dct:isReferencedBy [PROYECTO] ;
+    dcat:distribution
+        <dataset/ejemplos-adversarios-vision/0.9.0/npz> ,
+        <dataset/ejemplos-adversarios-vision/0.9.0/json> .
+
+<dataset/ejemplos-adversarios-vision/0.9.0/npz>
+    a dcat:Distribution ;
+    dct:title "NPZ"@es ;
+    # dcat:mediaType: NPZ no tiene tipo de medio registrado en IANA.
+    dcat:accessURL <dataset/ejemplos-adversarios-vision/0.9.0/npz> .
+
+<dataset/ejemplos-adversarios-vision/0.9.0/json>
+    a dcat:Distribution ;
+    dct:title "JSON"@es ;
+    dcat:mediaType <http://www.iana.org/assignments/media-types/application/json> ;
+    dcat:accessURL <dataset/ejemplos-adversarios-vision/0.9.0/json> .
+
+# --- Agente -----------------------------------------------------------------
+_:unidad-itot
+    a foaf:Agent , prov:Agent ;
+    foaf:name "Eurecat · Unidad IT&OT Security" .

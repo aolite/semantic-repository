@@ -34,6 +34,7 @@ class AuditAction(enum.StrEnum):
     USER_DEACTIVATED = "user_deactivated"
     USER_REACTIVATED = "user_reactivated"
     ROLE_CHANGED = "role_changed"
+    DATASET_PUBLISHED = "dataset_published"
 
 
 class User(Base):

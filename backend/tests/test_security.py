@@ -33,7 +33,9 @@ from app.config import Settings
 from app.export_openapi import OPENAPI_PATH
 from app.models import AuditAction, AuditEvent, Role, User
 from app.security import create_access_token
-from tests.conftest import DEFAULT_PASSWORD
+from tests.conftest import DEFAULT_PASSWORD, FIXTURE_DATA_DIR
+
+_SERIES_TTL = FIXTURE_DATA_DIR / "sintetico" / "modbus-tcp-testbed.ttl"
 
 ALLOWED_ORIGIN = "http://localhost:5173"  # el de CORS_ORIGINS en conftest.py
 ATTACKER_SECRET = "secreto-del-atacante-no-es-el-del-servidor-000"
@@ -906,6 +908,13 @@ def test_audit_never_stores_passwords_tokens_or_hashes(
     member_token = client.post(
         "/auth/token", data={"username": "nuevo", "password": NEW_PASSWORD}
     ).json()["access_token"]
+    # Publicación de un dataset (admin hereda los permisos de editor).
+    published = client.post(
+        "/datasets",
+        content=_SERIES_TTL.read_bytes(),
+        headers=headers | {"Content-Type": "text/turtle"},
+    )
+    assert published.status_code == 201, published.text
 
     with session_factory() as session:
         actions = set(session.scalars(select(AuditEvent.action)))
@@ -946,8 +955,23 @@ def test_audit_details_have_only_the_expected_keys(
     client.patch(
         f"/users/{created['id']}", json={"role": "editor", "is_active": False}, headers=headers
     )
+    client.post(
+        "/datasets",
+        content=_SERIES_TTL.read_bytes(),
+        headers=headers | {"Content-Type": "text/turtle"},
+    )
 
     allowed = {
+        AuditAction.DATASET_PUBLISHED: {
+            "series",
+            "slug",
+            "graph",
+            "versions",
+            "triples",
+            "created",
+            "changed",
+            "via",
+        },
         AuditAction.LOGIN_SUCCESS: set(),
         AuditAction.LOGIN_FAILURE: {"reason"},
         AuditAction.USER_CREATED: {"role", "via"},
@@ -1049,7 +1073,17 @@ def test_openapi_password_only_appears_as_input(client: TestClient) -> None:
 def test_openapi_marks_every_private_operation_as_secured(client: TestClient) -> None:
     """Solo health y login son públicos; el resto declara el esquema Bearer."""
     schema = client.get("/openapi.json").json()
-    public = {("get", "/health"), ("get", "/health/ready"), ("post", "/auth/token")}
+    public = {
+        ("get", "/health"),
+        ("get", "/health/ready"),
+        ("post", "/auth/token"),
+        # Fase 2: lectura del catálogo para el lector anónimo (solo metadatos).
+        ("get", "/datasets"),
+        ("get", "/datasets/{slug}"),
+        ("get", "/datasets/{slug}/rdf"),
+        ("get", "/dataset/{slug}"),
+        ("get", "/dataset/{slug}/{version}"),
+    }
     seen = set()
     for path, operations in schema["paths"].items():
         for method, operation in operations.items():
@@ -1065,6 +1099,7 @@ def test_openapi_marks_every_private_operation_as_secured(client: TestClient) ->
         ("get", "/users"),
         ("post", "/users"),
         ("patch", "/users/{user_id}"),
+        ("post", "/datasets"),
     }
 
 

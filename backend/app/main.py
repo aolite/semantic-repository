@@ -8,12 +8,15 @@ from fastapi.responses import JSONResponse
 
 from app import __version__
 from app.config import Settings, get_settings
-from app.routers import auth, health, users
+from app.routers import auth, datasets, health, linked_data, users
+from app.triplestore import TriplestoreError
 
 API_TITLE = "Repositorio semántico IT&OT · API"
 API_DESCRIPTION = (
     "API del catálogo DCAT-AP del repositorio semántico IT&OT. "
-    "Fase 1: health checks, autenticación JWT y gestión de cuentas."
+    "Fase 1: health checks, autenticación JWT y gestión de cuentas. "
+    "Fase 2: lectura del catálogo, ingesta validada con SHACL y negociación de contenido "
+    "en las URIs persistentes."
 )
 
 
@@ -36,6 +39,13 @@ async def validation_exception_handler(
     )
 
 
+async def triplestore_exception_handler(_request: Request, exc: Exception) -> JSONResponse:
+    """503 si Fuseki no responde o falta configuración. El mensaje no incluye secretos."""
+    return JSONResponse(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE, content={"detail": str(exc)}
+    )
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     """Crea la aplicación. Valida la configuración: sin ``JWT_SECRET`` no arranca."""
     settings = settings or get_settings()
@@ -52,10 +62,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
 
     app.add_exception_handler(RequestValidationError, validation_exception_handler)
+    app.add_exception_handler(TriplestoreError, triplestore_exception_handler)
 
     app.include_router(health.router)
     app.include_router(auth.router)
     app.include_router(users.router)
+    app.include_router(datasets.router)
+    app.include_router(linked_data.router)
     return app
 
 
