@@ -22,3 +22,6 @@ build/
 
 # Notas locales de Claude Code (enlaces a documentos internos)
 CLAUDE.local.md
+
+# Worktrees temporales de los subagentes de Claude Code
+.claude/worktrees/

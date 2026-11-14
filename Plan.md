@@ -237,6 +237,15 @@ Las fases y las puertas son las del plan de implementación. Las semanas son ori
 - [ ] Documentación de la fase actualizada.
 - [ ] Ajustes de alcance para la fase siguiente propuestos al responsable.
 
+**Estado de las puertas**
+
+| Puerta | Estado | Fecha | Evidencia |
+|---|---|---|---|
+| G1 · Entorno local listo | Cerrada, validada por el responsable | 2026-11-14 | PR #1 a #7; CI en verde en `main`; e2e de G1 (`tests/e2e/`) con 33 casos; entorno levantado y revisado en local |
+| G2 · Primer dataset publicado | Pendiente | | |
+| G3 · Vocabularios cargados | Pendiente | | |
+| G4 · FAIR y versiones integrados | Pendiente | | |
+
 ---
 
 ## 7. Reglas que todos los agentes siguen
@@ -254,7 +263,7 @@ Las fases y las puertas son las del plan de implementación. Las semanas son ori
 1. ~~Inicializar el repositorio git y enlazarlo con el remoto `https://github.com/aolite/semantic-repository.git`~~. Hecho: rama `main`, remoto `origin`.
 2. ~~Crear `CLAUDE.md` con el resumen del proyecto y un enlace a este plan~~. Hecho.
 3. ~~Crear las seis definiciones en `.claude/agents/`~~. Hecho.
-4. ~~Arrancar la fase 1 con el orquestador~~. En curso desde el 2026-11-14.
+4. ~~Arrancar la fase 1 con el orquestador~~. Hecho: G1 cerrada el 2026-11-14.
 
 ---
 
@@ -279,3 +288,13 @@ Hay que resolverlas antes de la fase o el paso indicado.
 | 13 | Papel de ChatGPT Pro y Gemini: el plan de implementación los cita como asistentes, pero este sistema multi-agente se limita a Claude Code | Proceso | Cuando el responsable lo decida |
 | 14 | ~~Alcance y herramientas de las pruebas de seguridad~~. Decidido: JWT, autorización por rol, acceso a distribuciones restringidas, inyección en SPARQL y análisis de dependencias, con pip-audit, npm audit y pruebas pytest propias | `qa` | Cerrada |
 | 15 | Razonador para la consistencia OWL: el diseño y el plan de implementación citan HermiT; una versión anterior de este plan decía Pellet | `backend`, `semantico` | Fase 3 |
+| 16 | ¿El admin hereda los permisos de editor? Hoy no hay jerarquía de roles: cada ruta enumera los roles que admite | `backend` | Fase 2 |
+| 17 | `dcat:accessURL` de las distribuciones: el prototipo no la da y hoy es la URI de la propia distribución | `semantico`, `backend` | Fase 2 |
+| 18 | Seguridad del login: límite de intentos, si la auditoría guarda el `username` de los fallos y revocación de tokens tras una baja | `backend` | Antes del piloto |
+| 19 | Política de cuentas: contraseña mínima de 12 caracteres sin caracteres de control, sin email ni nombre completo, bajas solo lógicas y sin bloqueo propio del admin (implementado así; falta confirmarlo) | `backend` | Antes del piloto |
+| 20 | URIs pendientes en el modelo: agente publicador, nodos PROV sin URI y espacio de nombres de las formas SHACL (`{BASE_URI}shapes#` [PROPUESTA]) | `semantico` | Fase 2 |
+| 21 | Versiones semver preliminares (`-rc.1`): hoy no se admiten | `semantico` | Fase 2 |
+| 22 | Revisar las obligatoriedades de las formas SHACL contra el texto oficial de DCAT-AP 3, y si se añaden sus cardinalidades máximas | `semantico` | Fase 2 |
+| 23 | Fuente IBM Plex Mono servida desde el propio frontend (`@fontsource`) en lugar de Google Fonts, por la residencia en la UE; y los elementos de interfaz que no salen del prototipo (iconos de navegación, colores de error, bloque de sesión) | `frontend` | Fase 2 |
+| 24 | `/docs` y `/redoc` públicos en el despliegue (cargan recursos de un CDN externo) | `backend`, `infra` | Fase 5 |
+| 25 | Healthcheck del frontend en el Compose y ejecución de la e2e en CI | `infra` | Fase 2 |
