@@ -19,3 +19,7 @@ Cada decisión se guarda en un fichero `NNNN-titulo-corto.md` con las secciones 
 | [0013](0013-herramientas-seguridad-fase-1.md) | Herramientas de seguridad de la fase 1 | Aceptada | 2026-11-14 |
 | [0014](0014-alcance-docker-compose-fase-1.md) | Alcance del Docker Compose de la fase 1 | Aceptada | 2026-11-14 |
 | [0015](0015-alta-de-usuarios.md) | Alta de usuarios | Aceptada | 2026-11-14 |
+| [0016](0016-datasets-sinteticos-para-g2.md) | Datasets sintéticos para la puerta G2 | Aceptada | 2026-11-14 |
+| [0017](0017-admin-hereda-permisos-de-editor.md) | El admin hereda los permisos de editor | Aceptada | 2026-11-14 |
+| [0018](0018-access-url-de-distribuciones.md) | `dcat:accessURL` de las distribuciones | Aceptada | 2026-11-14 |
+| [0019](0019-alcance-ficha-de-dataset-g2.md) | Alcance de la ficha de dataset en G2 | Aceptada | 2026-11-14 |
