@@ -27,7 +27,7 @@ Todo lo que no sale de estas fuentes va marcado como **[PROPUESTA]**, si es una 
 | Fuera del MVP | Edición colaborativa de ontologías en la herramienta; flujos de aprobación con varios roles; federación con catálogos externos |
 | Equipo | Una persona (el responsable) con asistentes de IA; dedicación supuesta de un día a la semana, **pendiente de confirmar** |
 | Duración | Unas 16 semanas, en 5 fases separadas por 4 puertas |
-| Entorno | Desarrollo local con Docker Compose; el proveedor cloud se decide en el piloto |
+| Entorno | Desarrollo local con Docker Compose; el proveedor cloud se decide en el piloto, y Cloudflare es una opción que hay que evaluar |
 | Código | Repositorio en GitHub: <https://github.com/aolite/semantic-repository.git> |
 | Autenticación | JWT dentro del backend, sin SSO en el MVP |
 
@@ -55,7 +55,19 @@ Hay dos reglas de arquitectura que todos los agentes deben respetar:
 1. **Solo el backend escribe** en el triplestore y en el almacén, de modo que versionado, permisos y FAIR pasan siempre por el mismo punto.
 2. Las ontologías y los vocabularios **viven en Git**, y el catálogo solo publica versiones etiquetadas.
 
-Además, la arquitectura incluye una base de datos relacional pequeña para usuarios y auditoría (el motor es [ABIERTO]).
+Además, la arquitectura incluye una base de datos relacional pequeña para usuarios y auditoría: **PostgreSQL**.
+
+### Decisiones técnicas de la fase 1 (responsable, 2026-11-14)
+
+| Tema | Decisión |
+|---|---|
+| CI | GitHub Actions |
+| URIs persistentes | Base genérica y configurable mediante una única variable de entorno (`BASE_URI`, valor por defecto `https://semantic.example.org/itot/`). Ningún agente escribe el dominio a mano: todas las URIs se construyen a partir de esa variable. El placeholder `[DOMINIO]` del prototipo equivale a `BASE_URI` |
+| Frontend | React + TypeScript + Vite + React Router + Vitest |
+| Base de datos de usuarios y auditoría | PostgreSQL |
+| Almacén S3 en local | No se levanta un servicio S3 en local. **[PROPUESTA]** El backend guarda las distribuciones a través de una interfaz de almacenamiento: en local, un volumen de ficheros; en cloud, un almacén compatible con S3, sin cambiar el código |
+| Ramas y commits | Ramas `<agente>/<descripción-corta>`; mensajes en formato Conventional Commits |
+| Pruebas de seguridad (`qa`) | JWT, autorización por rol, acceso a distribuciones restringidas, inyección en consultas SPARQL y análisis de dependencias |
 
 ### Pantallas del prototipo (contrato de la interfaz)
 
@@ -77,7 +89,7 @@ Además, la arquitectura incluye una base de datos relacional pequeña para usua
 3. **Cada capa tiene un dueño.** Cada agente modifica solo su zona de ficheros. Lo que cruza capas, como el contrato de la API o las formas SHACL, se acuerda mediante un artefacto compartido versionado.
 4. **Todo cambio entra por PR,** con descripción, pruebas y referencia a la fase.
 5. **La documentación se escribe junto al código** (es una mitigación del riesgo "dependencia de una sola persona"), para que nada dependa de la memoria de una conversación.
-6. **No se inventan datos.** Los placeholders del prototipo (`[DOMINIO]`, `[LICENCIA]`, `[CONTACTO]`, `[FECHA]`, `[PROYECTO]`, `[VERSIÓN]`, `[QID]`…) se mantienen como tales hasta que el responsable aporte el valor real.
+6. **No se inventan datos.** Los placeholders del prototipo (`[LICENCIA]`, `[CONTACTO]`, `[FECHA]`, `[PROYECTO]`, `[VERSIÓN]`, `[QID]`…) se mantienen como tales hasta que el responsable aporte el valor real.
 
 ---
 
@@ -97,12 +109,12 @@ Son siete roles: la sesión principal (orquestador) y seis subagentes por capa t
 - **Zona [PROPUESTA]:** `frontend/`
 - **Responsabilidad:** implementar las 6 pantallas del prototipo en React, fieles al diseño (paleta, tipografía, navegación lateral, accesibilidad: botones reales, `aria-*`, objetivos táctiles de 44 px o más, adaptación a móvil). Consume la API mediante el contrato OpenAPI y gestiona el login JWT desde el cliente.
 - **Depende de:** el contrato de API publicado por `backend`.
-- **Decisiones [ABIERTO]:** TypeScript o JavaScript, herramienta de build, librería de routing y de estado, framework de pruebas.
+- **Stack:** TypeScript, Vite, React Router y Vitest. La librería de estado sigue [ABIERTO].
 
 ### 3.2 `backend` · API FastAPI
 
 - **Zona [PROPUESTA]:** `backend/`
-- **Responsabilidad:** la API del diagrama: catálogo DCAT-AP, versionado (series y versiones DCAT 3, PROV-O), control de acceso con JWT, distribuciones en S3 con acceso por rol, orquestación de F-UJI en cada publicación de versión, cálculo de métricas OWL en la ingesta (ROBOT u owlready2, consistencia con Pellet), proxy o exposición del endpoint SPARQL y negociación de contenido HTML/Turtle/JSON-LD sobre las URIs persistentes.
+- **Responsabilidad:** la API del diagrama: catálogo DCAT-AP, versionado (series y versiones DCAT 3, PROV-O), control de acceso con JWT, distribuciones con acceso por rol (en un volumen local o en S3, según la interfaz de almacenamiento), orquestación de F-UJI en cada publicación de versión, cálculo de métricas OWL en la ingesta (ROBOT u owlready2, consistencia con Pellet), proxy o exposición del endpoint SPARQL y negociación de contenido HTML/Turtle/JSON-LD sobre las URIs persistentes.
 - **Garantiza:** es el único componente que escribe en el triplestore y en el almacén.
 - **Publica:** el contrato OpenAPI que consume `frontend`.
 
@@ -126,7 +138,7 @@ Son siete roles: la sesión principal (orquestador) y seis subagentes por capa t
 ### 3.5 `qa` · Pruebas y verificación
 
 - **Zona [PROPUESTA]:** `tests/` y las pruebas dentro de cada capa.
-- **Responsabilidad:** pruebas de la API, validación SHACL de los datos de ejemplo, pruebas de las pantallas frente al prototipo, pruebas de extremo a extremo de cada puerta y revisión de cada PR antes de pasarla al responsable.
+- **Responsabilidad:** pruebas de la API, validación SHACL de los datos de ejemplo, pruebas de las pantallas frente al prototipo, pruebas de extremo a extremo de cada puerta, **pruebas de seguridad** y revisión de cada PR antes de pasarla al responsable.
 - **Es de solo lectura sobre el código de producción:** si encuentra un defecto, lo reporta y no lo corrige.
 
 ### 3.6 `docs` · Documentación
@@ -138,14 +150,19 @@ Son siete roles: la sesión principal (orquestador) y seis subagentes por capa t
 
 Cada subagente se define en `.claude/agents/<nombre>.md` con frontmatter `name`, `description`, `tools` y, opcionalmente, `model`. El cuerpo del fichero es su system prompt: rol, zona de ficheros, reglas de esta sección y referencia a este plan.
 
+Modelos decididos por el responsable el 2026-11-14:
+
 | Agente | Herramientas [PROPUESTA] | Modelo |
 |---|---|---|
-| `frontend` | Read, Edit, Write, Bash, Grep, Glob | [ABIERTO] |
-| `backend` | Read, Edit, Write, Bash, Grep, Glob | [ABIERTO] |
-| `semantico` | Read, Edit, Write, Bash, Grep, Glob | [ABIERTO] |
-| `infra` | Read, Edit, Write, Bash, Grep, Glob | [ABIERTO] |
-| `qa` | Read, Bash, Grep, Glob (sin Edit ni Write sobre código de producción) | [ABIERTO] |
-| `docs` | Read, Edit, Write, Grep, Glob | [ABIERTO] |
+| Orquestador (sesión principal) | Todas | Claude Opus 5.5 (se elige al abrir la sesión, no en `.claude/agents/`) |
+| `semantico` | Read, Edit, Write, Bash, Grep, Glob | Claude Opus 5.5 (`opus`) |
+| `backend` | Read, Edit, Write, Bash, Grep, Glob | Claude Opus 5.5 (`opus`) |
+| `frontend` | Read, Edit, Write, Bash, Grep, Glob | Claude Opus 5.5 (`opus`) |
+| `infra` | Read, Edit, Write, Bash, Grep, Glob | Claude Sonnet 5.5, el último Sonnet (`sonnet`) |
+| `qa` | Read, Bash, Grep, Glob (sin Edit ni Write sobre código de producción) | Claude Fable 5.2 (`fable`), para las pruebas y las pruebas de seguridad |
+| `docs` | Read, Edit, Write, Grep, Glob | Claude Sonnet 5.5, el último Sonnet (`sonnet`) |
+
+Falta comprobar que el campo `model:` de `.claude/agents/*.md` acepta el alias `fable`. Si no lo acepta, se usará el identificador completo `claude-fable-5-2`.
 
 ---
 
@@ -183,7 +200,7 @@ Responsable ──(fase / objetivo)──► Orquestador
 
 1. El responsable fija el objetivo de la sesión (una fase o una parte de ella).
 2. El orquestador divide el objetivo en tareas por capa, resuelve primero los cambios de contrato y lanza en paralelo las tareas independientes.
-3. Cada subagente trabaja en su rama [convención de nombres: ABIERTO] y deja el código, las pruebas y la documentación de su cambio.
+3. Cada subagente trabaja en su rama `<agente>/<descripción-corta>`, con commits en formato Conventional Commits, y deja el código, las pruebas y la documentación de su cambio.
 4. `qa` revisa y ejecuta las pruebas, y sus hallazgos vuelven al agente dueño.
 5. El orquestador abre la PR con resumen, fase, pruebas ejecutadas y pendientes.
 6. El responsable revisa y hace el merge.
@@ -201,7 +218,7 @@ Las fases y las puertas son las del plan de implementación. Las semanas son ori
 | 1 · Preparación | 2 | Dominio de las URIs, entorno local con Docker Compose, autenticación JWT con los usuarios de la unidad, repositorio Git, formas SHACL mínimas | `infra`, `backend` (JWT), `semantico` (SHACL, URIs) | **G1** entorno local listo |
 | 2 · Núcleo del catálogo | 4 | Triplestore, API, ingesta DCAT-AP; pantallas Catálogo y Ficha de dataset con un primer dataset real | `backend`, `frontend`, `semantico`, `infra` (Fuseki) | **G2** primer dataset publicado |
 | 3 · Vocabularios | 4 | Esquemas SKOS de dominio y corporativos; ontologías propias con métricas; flujo de Git a publicación (CI) | `semantico`, `backend` (métricas OWL), `frontend` (Vocabularios, Ficha de ontología, Navegador SKOS), `infra` (CI) | **G3** vocabularios cargados |
-| 4 · FAIR y versiones | 3 | F-UJI; series y versiones de dataset; acceso restringido a distribuciones; consola SPARQL con consultas guardadas | `backend`, `infra` (F-UJI, S3), `frontend` (FAIR, versionado, SPARQL), `semantico` (consultas) | **G4** FAIR y versiones integrados |
+| 4 · FAIR y versiones | 3 | F-UJI; series y versiones de dataset; acceso restringido a distribuciones; consola SPARQL con consultas guardadas | `backend`, `infra` (F-UJI, almacenamiento), `frontend` (FAIR, versionado, SPARQL), `semantico` (consultas) | **G4** FAIR y versiones integrados |
 | 5 · Piloto y MVP | 3 | Decisión de proveedor y despliegue del mismo Docker Compose; carga de datos reales; uso del equipo durante dos semanas; documentación de operación | `infra`, `docs`, `qa` | Cierre del MVP |
 
 `qa` y `docs` intervienen en todas las fases.
@@ -240,16 +257,17 @@ Hay que resolverlas antes de la fase o el paso indicado.
 
 | # | Decisión | Afecta a | Cuándo |
 |---|---|---|---|
-| 1 | Herramienta de CI (el código y las PR ya están decididos: GitHub) | `infra`, flujo de PR | Antes de la fase 1 |
+| 1 | ~~Herramienta de CI~~. Decidido: GitHub Actions | `infra` | Cerrada |
 | 2 | Dedicación real del responsable (el plan supone un día a la semana) | Calendario | Antes de la fase 1 |
-| 3 | Dominio de las URIs persistentes (`[DOMINIO]`) | `semantico`, `backend` | Fase 1 |
-| 4 | Detalles del frontend: TypeScript o JavaScript, build, routing, estado, pruebas | `frontend` | Fase 1 |
-| 5 | Motor de la base de datos relacional para usuarios y auditoría | `backend`, `infra` | Fase 1 |
-| 6 | Almacén S3 en local (servicio compatible) | `infra` | Fase 1 |
+| 3 | ~~Dominio de las URIs~~. Decidido: base genérica configurable con `BASE_URI`. El dominio real se fija al desplegar | `semantico`, `backend` | Cerrada (el valor real, en la fase 5) |
+| 4 | ~~Detalles del frontend~~. Decidido: TypeScript, Vite, React Router y Vitest (la librería de estado sigue abierta) | `frontend` | Cerrada |
+| 5 | ~~Motor de base de datos~~. Decidido: PostgreSQL | `backend`, `infra` | Cerrada |
+| 6 | ~~Almacén S3 en local~~. Decidido: no hay servicio S3 en local; las distribuciones van a un volumen a través de la interfaz de almacenamiento | `infra`, `backend` | Cerrada |
 | 7 | ROBOT u owlready2 para las métricas OWL | `backend`, `semantico` | Fase 3 |
-| 8 | Modelo de Claude para cada subagente | Coste y calidad | Antes de crear `.claude/agents/` |
-| 9 | Convención de ramas, formato de commits y registro de decisiones | Todos | Fase 1 |
+| 8 | ~~Modelo de Claude para cada subagente~~. Decidido: ver la tabla de la sección 3 | Coste y calidad | Cerrada |
+| 14 | ~~Alcance de las pruebas de seguridad~~. Decidido: JWT, autorización por rol, acceso a distribuciones restringidas, inyección en SPARQL y análisis de dependencias. Las herramientas concretas siguen abiertas | `qa` | Cerrada (herramientas en la fase 1) |
+| 9 | ~~Convención de ramas y commits~~. Decidido: `<agente>/<descripción-corta>` y Conventional Commits. El formato del registro de decisiones sigue abierto | Todos | Fase 1 |
 | 10 | Primer dataset real para G2 y valores reales de licencia, contacto y proyectos | `semantico`, `backend` | Fase 2 |
 | 11 | Responsable nombrado por cada esquema corporativo (mitigación de gobernanza) | `semantico` | Fase 3 |
-| 12 | Proveedor cloud | `infra` | Fase 5 |
+| 12 | Proveedor cloud. Cloudflare es una opción: hay que evaluar qué componentes pueden alojarse ahí (frontend estático, almacén de distribuciones) y cuáles necesitan otro sitio (FastAPI, Fuseki, F-UJI, PostgreSQL) | `infra` | Fase 5 |
 | 13 | Papel de ChatGPT Pro y Gemini: el plan de implementación los cita como asistentes, pero este sistema multi-agente se limita a Claude Code | Proceso | Cuando el responsable lo decida |
