@@ -1,6 +1,6 @@
 # Infraestructura local
 
-Entorno de desarrollo con Docker Compose (fase 1). Requiere Docker con Compose v2.
+Entorno de desarrollo con Docker Compose (fases 1 y 2). Requiere Docker con Compose v2.
 
 ## Arranque
 
@@ -19,6 +19,14 @@ docker compose exec -it backend python -m app.cli create-admin --username <nombr
 ```
 
 Para scripts, `create-admin` admite `--password-stdin`.
+
+Cargar los datos sintéticos en Fuseki (cuando el backend esté healthy):
+
+```bash
+docker compose exec backend python -m app.cli load-semantic
+```
+
+Carga `semantic/data/vocab-minimo.ttl` y `semantic/data/sintetico/*.ttl`, validando antes con las formas de `semantic/shapes/`. Este comando lo implementa y confirma `backend`; esta documentación se ajustará si cambia su nombre u opciones.
 
 Parar el entorno: `docker compose down`. Para borrar además los datos (PostgreSQL, Fuseki y distribuciones): `docker compose down -v`.
 
@@ -43,6 +51,19 @@ Todos los servicios solo escuchan en localhost. Si un puerto está ocupado en tu
 Si cambias `BACKEND_HOST_PORT`, ajusta también `VITE_API_BASE_URL` (por ejemplo `http://localhost:8001`): es la URL que usa el navegador, no la red interna de Compose. Si cambias `FRONTEND_HOST_PORT`, ajusta `CORS_ORIGINS`.
 
 F-UJI (evaluador FAIR) se añadirá en la fase 4.
+
+## Variables del backend añadidas en la fase 2
+
+| Variable | Valor en `.env.example` | Descripción |
+|---|---|---|
+| `FUSEKI_USER` | `admin` | Usuario con el que el backend escribe en Fuseki |
+| `FUSEKI_PASSWORD` | (no se define en `.env`) | Contraseña de escritura en Fuseki. `docker-compose.yml` la toma de `FUSEKI_ADMIN_PASSWORD` para no duplicarla |
+| `SEMANTIC_DIR` | `/semantic` | Carpeta con formas SHACL y datos de ejemplo. Compose monta `./semantic` en `/semantic` en solo lectura y fija este valor |
+| `FRONTEND_BASE_URL` | `http://localhost:5173` | URL pública del frontend; el backend redirige con 303 a la ficha del dataset. Ajústala si cambias `FRONTEND_HOST_PORT` |
+
+`FUSEKI_PASSWORD`, `FUSEKI_USER` y `SEMANTIC_DIR` se declaran en `environment` del servicio `backend`, que tiene prioridad sobre `env_file`. Fuera de Compose (por ejemplo, el backend en local con `uv`), define `FUSEKI_PASSWORD` a mano.
+
+El servicio `frontend` tiene healthcheck (Vite responde en el 5173), así que `docker compose up --wait` espera también al frontend.
 
 ## Volúmenes
 

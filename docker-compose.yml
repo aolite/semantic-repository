@@ -61,10 +61,19 @@ services:
     build: ./backend
     restart: unless-stopped
     env_file: .env
+    # Estas variables tienen prioridad sobre las del env_file.
+    environment:
+      # Ruta dentro del contenedor de los datos semánticos (montados abajo).
+      SEMANTIC_DIR: /semantic
+      # Usuario y contraseña de escritura en Fuseki: la contraseña se toma de
+      # FUSEKI_ADMIN_PASSWORD para no duplicarla en .env.
+      FUSEKI_USER: ${FUSEKI_USER:-admin}
+      FUSEKI_PASSWORD: ${FUSEKI_ADMIN_PASSWORD}
     ports:
       - "127.0.0.1:${BACKEND_HOST_PORT:-8000}:8000"
     volumes:
       - distributions:/data/distributions
+      - ./semantic:/semantic:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -89,6 +98,14 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+    healthcheck:
+      # Vite escucha en IPv4 (0.0.0.0): se usa 127.0.0.1 y no localhost, que en
+      # Alpine puede resolver a ::1. wget es el de busybox, incluido en la imagen.
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:5173/"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
 
 volumes:
   postgres-data:
