@@ -71,6 +71,10 @@ Además, la arquitectura incluye una base de datos relacional pequeña para usua
 | Pruebas de seguridad (`qa`) | JWT, autorización por rol, acceso a distribuciones restringidas, inyección en consultas SPARQL y análisis de dependencias |
 | Roles de usuario | **Lector:** anónimo, ve lo público. **Miembro:** usuario de la unidad, puede solicitar o descargar distribuciones restringidas. **Editor:** publica y versiona recursos. **Admin:** gestiona usuarios |
 | Python del backend | La última versión estable, gestionada con uv (hoy 3.15), fijada en `backend/.python-version` y en la imagen Docker |
+| Registro de decisiones | ADR: un fichero por decisión en `docs/adr/NNNN-titulo.md` |
+| Herramientas de seguridad (fase 1) | pip-audit (backend) y npm audit (frontend), en local y en CI, más pruebas pytest propias para JWT, roles e inyección SPARQL |
+| Docker Compose de la fase 1 | PostgreSQL, Fuseki, backend y frontend (esqueleto mínimo con login). F-UJI se añade en la fase 4 |
+| Alta de usuarios | El primer admin se crea con un comando CLI del backend; el admin da de alta al resto desde la API. Ningún usuario se versiona |
 
 ### Pantallas del prototipo (contrato de la interfaz)
 
@@ -117,7 +121,7 @@ Son siete roles: la sesión principal (orquestador) y seis subagentes por capa t
 ### 3.2 `backend` · API FastAPI
 
 - **Zona [PROPUESTA]:** `backend/`
-- **Responsabilidad:** la API del diagrama: catálogo DCAT-AP, versionado (series y versiones DCAT 3, PROV-O), control de acceso con JWT, distribuciones con acceso por rol (en disco durante el MVP o en Cloudflare R2 en el despliegue, a través de la interfaz de almacenamiento), orquestación de F-UJI en cada publicación de versión, cálculo de métricas OWL en la ingesta (ROBOT u owlready2, consistencia con Pellet), proxy o exposición del endpoint SPARQL y negociación de contenido HTML/Turtle/JSON-LD sobre las URIs persistentes.
+- **Responsabilidad:** la API del diagrama: catálogo DCAT-AP, versionado (series y versiones DCAT 3, PROV-O), control de acceso con JWT, distribuciones con acceso por rol (en disco durante el MVP o en Cloudflare R2 en el despliegue, a través de la interfaz de almacenamiento), orquestación de F-UJI en cada publicación de versión, cálculo de métricas OWL en la ingesta (ROBOT u owlready2, consistencia con un razonador: HermiT según el plan de implementación y el diseño, ver la decisión abierta 15), proxy o exposición del endpoint SPARQL y negociación de contenido HTML/Turtle/JSON-LD sobre las URIs persistentes.
 - **Garantiza:** es el único componente que escribe en el triplestore y en el almacén.
 - **Publica:** el contrato OpenAPI que consume `frontend`.
 
@@ -135,7 +139,7 @@ Son siete roles: la sesión principal (orquestador) y seis subagentes por capa t
 ### 3.4 `infra` · Infraestructura y despliegue
 
 - **Zona [PROPUESTA]:** `infra/`, `docker-compose.yml` y la configuración de CI.
-- **Responsabilidad:** el Docker Compose local con frontend, API, Fuseki, F-UJI. El pipeline Git que, ante una etiqueta de versión, valida, documenta y publica; copias de seguridad; en la fase 5, el despliegue en el proveedor elegido y una tarea programada con actividad real (reevaluación FAIR o backup diario) para evitar perdida de datos.
+- **Responsabilidad:** el Docker Compose local con frontend, API, Fuseki y PostgreSQL (F-UJI se añade en la fase 4). El pipeline Git que, ante una etiqueta de versión, valida, documenta y publica; copias de seguridad; en la fase 5, el despliegue en el proveedor elegido y una tarea programada con actividad real (reevaluación FAIR o backup diario) para evitar que el proveedor pause o recupere una máquina inactiva.
 - **No hace:** crear recursos cloud ni gastar dinero sin la aprobación explícita del responsable.
 
 ### 3.5 `qa` · Pruebas y verificación
@@ -208,7 +212,7 @@ Responsable ──(fase / objetivo)──► Orquestador
 5. El orquestador abre la PR con resumen, fase, pruebas ejecutadas y pendientes.
 6. El responsable revisa y hace el merge.
 
-Para que el trabajo no dependa de la memoria de una conversación, el estado se guarda en el repositorio: este Plan.md, el registro de decisiones en `docs/` y la descripción de las PR. El formato concreto (ADR, CHANGELOG…) es [ABIERTO].
+Para que el trabajo no dependa de la memoria de una conversación, el estado se guarda en el repositorio: este Plan.md, el registro de decisiones en `docs/` y la descripción de las PR. El registro de decisiones usa ADR en `docs/adr/`.
 
 ---
 
@@ -250,7 +254,7 @@ Las fases y las puertas son las del plan de implementación. Las semanas son ori
 1. ~~Inicializar el repositorio git y enlazarlo con el remoto `https://github.com/aolite/semantic-repository.git`~~. Hecho: rama `main`, remoto `origin`.
 2. ~~Crear `CLAUDE.md` con el resumen del proyecto y un enlace a este plan~~. Hecho.
 3. ~~Crear las seis definiciones en `.claude/agents/`~~. Hecho.
-4. Arrancar la fase 1 con el orquestador.
+4. ~~Arrancar la fase 1 con el orquestador~~. En curso desde el 2026-11-14.
 
 ---
 
@@ -261,16 +265,17 @@ Hay que resolverlas antes de la fase o el paso indicado.
 | # | Decisión | Afecta a | Cuándo |
 |---|---|---|---|
 | 1 | ~~Herramienta de CI~~. Decidido: GitHub Actions | `infra` | Cerrada |
-| 2 | Dedicación real del responsable (el plan supone un día a la semana) | Calendario | Antes de la fase 1 |
+| 2 | Dedicación real del responsable (el plan supone un día a la semana) | Calendario | Pendiente (la fase 1 ya arrancó) |
 | 3 | ~~Dominio de las URIs~~. Decidido: base genérica configurable con `BASE_URI`. El dominio real se fija al desplegar | `semantico`, `backend` | Cerrada (el valor real, en la fase 5) |
 | 4 | ~~Detalles del frontend~~. Decidido: TypeScript, Vite, React Router y Vitest (la librería de estado sigue abierta) | `frontend` | Cerrada |
 | 5 | ~~Motor de base de datos~~. Decidido: PostgreSQL | `backend`, `infra` | Cerrada |
 | 6 | ~~Almacenamiento de distribuciones~~. Decidido: disco de la máquina en el MVP y Cloudflare R2 en el despliegue, cuando se configure | `infra`, `backend` | Cerrada |
 | 7 | ROBOT u owlready2 para las métricas OWL | `backend`, `semantico` | Fase 3 |
 | 8 | ~~Modelo de Claude para cada subagente~~. Decidido: ver la tabla de la sección 3 | Coste y calidad | Cerrada |
-| 14 | ~~Alcance de las pruebas de seguridad~~. Decidido: JWT, autorización por rol, acceso a distribuciones restringidas, inyección en SPARQL y análisis de dependencias. Las herramientas concretas siguen abiertas | `qa` | Cerrada (herramientas en la fase 1) |
-| 9 | ~~Convención de ramas y commits~~. Decidido: `<agente>/<descripción-corta>` y Conventional Commits. El formato del registro de decisiones sigue abierto | Todos | Fase 1 |
+| 9 | ~~Convención de ramas, commits y registro de decisiones~~. Decidido: `<agente>/<descripción-corta>`, Conventional Commits y ADR en `docs/adr/` | Todos | Cerrada |
 | 10 | Primer dataset real para G2 y valores reales de licencia, contacto y proyectos | `semantico`, `backend` | Fase 2 |
 | 11 | Responsable nombrado por cada esquema corporativo (mitigación de gobernanza) | `semantico` | Fase 3 |
 | 12 | Proveedor cloud. Cloudflare es una opción: las distribuciones ya irán a R2; falta evaluar qué otros componentes pueden alojarse ahí (p. ej. el frontend estático) y cuáles necesitan otro sitio (FastAPI, Fuseki, F-UJI, PostgreSQL) | `infra` | Fase 5 |
 | 13 | Papel de ChatGPT Pro y Gemini: el plan de implementación los cita como asistentes, pero este sistema multi-agente se limita a Claude Code | Proceso | Cuando el responsable lo decida |
+| 14 | ~~Alcance y herramientas de las pruebas de seguridad~~. Decidido: JWT, autorización por rol, acceso a distribuciones restringidas, inyección en SPARQL y análisis de dependencias, con pip-audit, npm audit y pruebas pytest propias | `qa` | Cerrada |
+| 15 | Razonador para la consistencia OWL: el diseño y el plan de implementación citan HermiT; una versión anterior de este plan decía Pellet | `backend`, `semantico` | Fase 3 |
