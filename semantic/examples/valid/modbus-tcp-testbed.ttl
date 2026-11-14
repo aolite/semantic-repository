@@ -1,0 +1,112 @@
+# Ejemplo del prototipo (pantalla «Ficha de dataset»): serie
+# modbus-tcp-testbed y su versión 2.1.0.
+#
+# BASE_URI: el fichero no declara @base. Las URIs propias son relativas y se
+# resuelven contra la BASE_URI que se pase al leerlo (rdflib: publicID=...,
+# Jena: riot --base=...). Ver semantic/uris.md.
+#
+# Placeholders del prototipo: [LICENCIA], [CONTACTO], [FECHA] y [PROYECTO]
+# no tienen valor real todavía. Las propiedades que los llevarían
+# (dct:license, dcat:contactPoint, dct:issued, dct:modified,
+# dct:isReferencedBy) se OMITEN y quedan comentadas donde irían. Motivo:
+# DCAT-AP espera IRIs o fechas en esas propiedades, y un literal "[LICENCIA]"
+# rompería su rango y acabaría en el triplestore como si fuera un dato.
+#
+# Otras decisiones (ver semantic/README.md):
+# - El agente «Eurecat · Unidad IT&OT Security» no tiene URI en el prototipo:
+#   nodo en blanco.
+# - prov:wasAssociatedWith solo se pone en la actividad de extracción, que es
+#   la que el prototipo describe con URI.
+# - La actividad «Captura en banco de pruebas» y la entidad «Capturas PCAP en
+#   bruto» no tienen URI en el prototipo: nodos en blanco.
+# - dcat:accessURL de cada distribución = la URI de la propia distribución
+#   [PROPUESTA]: el prototipo no da URL de acceso; el backend la resuelve
+#   aplicando el control de acceso por rol.
+# - La versión anterior 2.0.0 solo se referencia; no se describe porque el
+#   prototipo no da sus metadatos.
+# - Los conceptos SKOS (dcat:theme) solo se referencian; se describen en la
+#   fase 3.
+
+@prefix itotd: <dataset/> .
+@prefix itota: <actividad/> .
+@prefix ot:    <vocab/ot/> .
+@prefix dcat:  <http://www.w3.org/ns/dcat#> .
+@prefix dct:   <http://purl.org/dc/terms/> .
+@prefix adms:  <http://www.w3.org/ns/adms#> .
+@prefix prov:  <http://www.w3.org/ns/prov#> .
+@prefix foaf:  <http://xmlns.com/foaf/0.1/> .
+@prefix rdfs:  <http://www.w3.org/2000/01/rdf-schema#> .
+
+# --- Serie (ficha del catálogo) ---------------------------------------------
+itotd:modbus-tcp-testbed
+    a dcat:DatasetSeries ;
+    dct:title "Tráfico Modbus/TCP del banco de pruebas OT"@es ;
+    dct:description "Capturas de red etiquetadas de un banco de pruebas industrial con controladores y estaciones de supervisión comunicando por Modbus/TCP. Incluye operación legítima y escenarios de ataque, junto con un conjunto de características por flujo para entrenar y evaluar detectores de intrusiones."@es ;
+    dcat:last <dataset/modbus-tcp-testbed/2.1.0> .
+
+# --- Versión 2.1.0 ----------------------------------------------------------
+<dataset/modbus-tcp-testbed/2.1.0>
+    a dcat:Dataset ;
+    dct:title "Tráfico Modbus/TCP del banco de pruebas OT"@es ;
+    dct:description "Capturas de red etiquetadas de un banco de pruebas industrial con controladores y estaciones de supervisión comunicando por Modbus/TCP. Incluye operación legítima y escenarios de ataque, junto con un conjunto de características por flujo para entrenar y evaluar detectores de intrusiones."@es ;
+    dcat:keyword "Modbus"@es , "ICS"@es , "detección de intrusiones"@es , "tráfico industrial"@es ;
+    dcat:version "2.1.0" ;
+    adms:versionNotes "Características por flujo en Parquet; etiquetas corregidas."@es ;
+    dcat:previousVersion <dataset/modbus-tcp-testbed/2.0.0> ;
+    dcat:inSeries itotd:modbus-tcp-testbed ;
+    dct:accessRights <http://publications.europa.eu/resource/authority/access-right/RESTRICTED> ;
+    dcat:theme ot:modbus-tcp , ot:purdue-nivel-1 ;
+    dct:conformsTo <onto/itot/1.2.0> ;
+    dct:publisher _:unidad-itot ;
+    # dcat:contactPoint [CONTACTO] ;
+    # dct:license [LICENCIA] ;
+    # dct:issued [FECHA] ;
+    # dct:modified [FECHA] ;
+    # dct:isReferencedBy [PROYECTO] ;
+    dcat:distribution
+        <dataset/modbus-tcp-testbed/2.1.0/pcap> ,
+        <dataset/modbus-tcp-testbed/2.1.0/csv> ,
+        <dataset/modbus-tcp-testbed/2.1.0/parquet> ;
+    prov:wasGeneratedBy itota:extraccion-caracteristicas .
+
+# --- Distribuciones (todas restringidas, por dct:accessRights de la versión) -
+<dataset/modbus-tcp-testbed/2.1.0/pcap>
+    a dcat:Distribution ;
+    dct:title "Capturas en bruto"@es ;
+    dcat:mediaType <http://www.iana.org/assignments/media-types/application/vnd.tcpdump.pcap> ;
+    dcat:accessURL <dataset/modbus-tcp-testbed/2.1.0/pcap> .
+
+<dataset/modbus-tcp-testbed/2.1.0/csv>
+    a dcat:Distribution ;
+    dct:title "Características por flujo"@es ;
+    dcat:mediaType <http://www.iana.org/assignments/media-types/text/csv> ;
+    dcat:accessURL <dataset/modbus-tcp-testbed/2.1.0/csv> .
+
+<dataset/modbus-tcp-testbed/2.1.0/parquet>
+    a dcat:Distribution ;
+    dct:title "Características por flujo"@es ;
+    dcat:mediaType <http://www.iana.org/assignments/media-types/application/vnd.apache.parquet> ;
+    dcat:accessURL <dataset/modbus-tcp-testbed/2.1.0/parquet> .
+
+# --- Procedencia (PROV-O) ---------------------------------------------------
+# Captura en banco de pruebas -> Capturas PCAP en bruto
+#   -> Extracción de características y etiquetado -> versión 2.1.0
+_:captura-banco
+    a prov:Activity ;
+    rdfs:label "Captura en banco de pruebas"@es .
+
+_:capturas-pcap
+    a prov:Entity ;
+    rdfs:label "Capturas PCAP en bruto"@es ;
+    prov:wasGeneratedBy _:captura-banco .
+
+itota:extraccion-caracteristicas
+    a prov:Activity ;
+    rdfs:label "Extracción de características y etiquetado"@es ;
+    prov:used _:capturas-pcap ;
+    prov:wasAssociatedWith _:unidad-itot .
+
+# --- Agente -----------------------------------------------------------------
+_:unidad-itot
+    a foaf:Agent , prov:Agent ;
+    foaf:name "Eurecat · Unidad IT&OT Security" .

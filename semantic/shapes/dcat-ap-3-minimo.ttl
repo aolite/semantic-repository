@@ -1,0 +1,73 @@
+# Formas SHACL mínimas: propiedades OBLIGATORIAS de DCAT-AP 3.
+#
+# Solo recoge las cardinalidades mínimas que DCAT-AP 3 marca como obligatorias
+# para las tres clases que usa la fase 1. Lo recomendado y lo opcional de
+# DCAT-AP 3 no se comprueba aquí. Las reglas propias de la unidad están en
+# itot-reglas.ttl.
+#
+# Este fichero no declara @base: se lee pasando BASE_URI como IRI base
+# (ver semantic/uris.md). Las formas quedan en {BASE_URI}shapes#.
+
+@prefix itsh: <shapes#> .
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix dcat: <http://www.w3.org/ns/dcat#> .
+@prefix dct:  <http://purl.org/dc/terms/> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+# --- dcat:Dataset -----------------------------------------------------------
+# DCAT-AP 3: dct:title y dct:description son obligatorias (1..n).
+itsh:DatasetShape
+    a sh:NodeShape ;
+    rdfs:label "DCAT-AP 3 · Dataset (obligatorias)"@es ;
+    sh:targetClass dcat:Dataset ;
+    sh:property itsh:Dataset-title , itsh:Dataset-description .
+
+itsh:Dataset-title
+    a sh:PropertyShape ;
+    sh:path dct:title ;
+    sh:minCount 1 ;
+    sh:nodeKind sh:Literal ;
+    sh:message "DCAT-AP 3: un dcat:Dataset necesita al menos un dct:title."@es .
+
+itsh:Dataset-description
+    a sh:PropertyShape ;
+    sh:path dct:description ;
+    sh:minCount 1 ;
+    sh:nodeKind sh:Literal ;
+    sh:message "DCAT-AP 3: un dcat:Dataset necesita al menos una dct:description."@es .
+
+# --- dcat:DatasetSeries -----------------------------------------------------
+# DCAT-AP 3: dct:title y dct:description son obligatorias (1..n).
+itsh:DatasetSeriesShape
+    a sh:NodeShape ;
+    rdfs:label "DCAT-AP 3 · Dataset Series (obligatorias)"@es ;
+    sh:targetClass dcat:DatasetSeries ;
+    sh:property itsh:DatasetSeries-title , itsh:DatasetSeries-description .
+
+itsh:DatasetSeries-title
+    a sh:PropertyShape ;
+    sh:path dct:title ;
+    sh:minCount 1 ;
+    sh:nodeKind sh:Literal ;
+    sh:message "DCAT-AP 3: una dcat:DatasetSeries necesita al menos un dct:title."@es .
+
+itsh:DatasetSeries-description
+    a sh:PropertyShape ;
+    sh:path dct:description ;
+    sh:minCount 1 ;
+    sh:nodeKind sh:Literal ;
+    sh:message "DCAT-AP 3: una dcat:DatasetSeries necesita al menos una dct:description."@es .
+
+# --- dcat:Distribution ------------------------------------------------------
+# DCAT-AP 3: dcat:accessURL es obligatoria (1..n).
+itsh:DistributionShape
+    a sh:NodeShape ;
+    rdfs:label "DCAT-AP 3 · Distribution (obligatorias)"@es ;
+    sh:targetClass dcat:Distribution ;
+    sh:property itsh:Distribution-accessURL .
+
+itsh:Distribution-accessURL
+    a sh:PropertyShape ;
+    sh:path dcat:accessURL ;
+    sh:minCount 1 ;
+    sh:message "DCAT-AP 3: una dcat:Distribution necesita al menos un dcat:accessURL."@es .
