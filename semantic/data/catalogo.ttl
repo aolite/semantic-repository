@@ -5,10 +5,9 @@
 # dcat:DatasetSeries es un dcat:Dataset). Cuando se publique un dataset nuevo,
 # su serie se añade aquí.
 #
-# Pendiente: DCAT-AP 3 marca dct:title, dct:description y dct:publisher como
-# obligatorias en dcat:Catalog. El prototipo solo da el identificador, así que
-# título y descripción se omiten hasta que el responsable los aporte. Las
-# formas de semantic/shapes/ no cubren dcat:Catalog todavía.
+# Título y descripción: el h1 y el párrafo de la pantalla Catálogo del
+# prototipo, tal cual. DCAT-AP 3 los marca como obligatorios, junto con
+# dct:publisher. Las formas de semantic/shapes/ no cubren dcat:Catalog todavía.
 #
 # BASE_URI: el fichero no declara @base; las URIs son relativas.
 
@@ -21,8 +20,8 @@
 <catalogo>
     a dcat:Catalog ;
     dct:identifier "itot-catalogo" ;
-    # dct:title [pendiente] ;
-    # dct:description [pendiente] ;
+    dct:title "Datasets y vocabularios controlados"@es ;
+    dct:description "Punto único para publicar, describir y enlazar los datos de la unidad. Cada recurso se describe con DCAT-AP y se clasifica con los esquemas SKOS de IT, OT/ICS, PQC e identidad, e IA adversaria."@es ;
     dct:publisher _:unidad-itot ;
     dcat:dataset
         itotd:modbus-tcp-testbed ,

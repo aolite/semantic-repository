@@ -117,9 +117,7 @@ Con Apache Jena: `riot --base="$BASE_URI" fichero.ttl`. Las IRIs absolutas (voca
 
 ## Pendiente
 
-- URI de agentes (`dct:publisher`, `prov:wasAssociatedWith`): el prototipo muestra «Eurecat · Unidad IT&OT Security» pero no da su URI. Por ahora, los ejemplos usan un nodo en blanco, uno por fichero; al cargar varios ficheros en el triplestore quedan como agentes distintos con el mismo `foaf:name`.
-- Título y descripción del catálogo (obligatorios en DCAT-AP 3): el prototipo solo da el identificador «itot-catalogo».
-- URIs de entidades PROV intermedias (p. ej. «Capturas PCAP en bruto») y de actividades sin URI en el prototipo («Captura en banco de pruebas»): nodos en blanco por ahora.
+- URI de agentes (`dct:publisher`, `prov:wasAssociatedWith`): el prototipo muestra «Eurecat · Unidad IT&OT Security» pero no da su URI. Por ahora, los ejemplos usan un nodo en blanco, uno por fichero; al cargar varios ficheros en el triplestore quedan como agentes distintos con el mismo `foaf:name`.- URIs de entidades PROV intermedias (p. ej. «Capturas PCAP en bruto») y de actividades sin URI en el prototipo («Captura en banco de pruebas»): nodos en blanco por ahora.
 - Espacio de nombres de los términos de la ontología `itot` (`{BASE_URI}onto/itot#Clase` o `{BASE_URI}onto/itot/Clase`): se decide en la fase 3.
 - Si se admiten versiones preliminares de SemVer.
 - Qué devuelve cada URI al resolverla (negociación de contenido HTML / Turtle / JSON-LD) y cómo se sirve la descarga de una distribución restringida: lo decide `backend`.
