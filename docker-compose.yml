@@ -1,0 +1,96 @@
+# Entorno local del repositorio semántico IT&OT (fase 1).
+# Uso: cp .env.example .env && docker compose up -d --build
+# Todos los servicios solo escuchan en 127.0.0.1.
+#
+# Fuseki: imagen secoresearch/fuseki. Es una imagen mantenida (6.2.0 publicada en
+# agosto de 2026, Jena 6.x), multi-arquitectura (amd64 y arm64) y configurable con
+# un assembler montado. stain/jena-fuseki está abandonada y no tiene arm64; el
+# proyecto Apache Jena no publica una imagen oficial lista para usar.
+
+name: itot
+
+services:
+  postgres:
+    image: postgres:17.6-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  fuseki:
+    image: secoresearch/fuseki:6.2.0
+    restart: unless-stopped
+    # Se copia infra/fuseki/shiro.ini (plantilla) antes del entrypoint original de la
+    # imagen, porque este escribe la contraseña en el fichero con sed y no admite
+    # montarlo directamente. El comando es el CMD original de la imagen.
+    entrypoint:
+      - /bin/bash
+      - -c
+      - cp /shiro.ini.template /fuseki-base/shiro.ini && exec /docker-entrypoint.sh java -cp '*:/javalibs/*' org.apache.jena.fuseki.main.cmds.FusekiServerCmd
+    environment:
+      # El entrypoint de la imagen escribe esta contraseña en shiro.ini.
+      ADMIN_PASSWORD: ${FUSEKI_ADMIN_PASSWORD}
+    ports:
+      - "127.0.0.1:${FUSEKI_HOST_PORT:-3030}:3030"
+    volumes:
+      - fuseki-data:/fuseki-base/databases
+      - ./infra/fuseki/assembler.ttl:/fuseki-base/configuration/assembler.ttl:ro
+      - ./infra/fuseki/shiro.ini:/shiro.ini.template:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:3030/$$/ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  # F-UJI (evaluador FAIR) entra en la fase 4: se añadirá aquí un servicio `fuji`
+  # con imagen fijada, sin puertos publicados, y el backend dependerá de él.
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "127.0.0.1:${BACKEND_HOST_PORT:-8000}:8000"
+    volumes:
+      - distributions:/data/distributions
+    depends_on:
+      postgres:
+        condition: service_healthy
+      fuseki:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    # Solo las variables públicas: el frontend no debe recibir secretos.
+    environment:
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL}
+      VITE_BASE_URI: ${VITE_BASE_URI}
+    ports:
+      - "127.0.0.1:${FRONTEND_HOST_PORT:-5173}:5173"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+  fuseki-data:
+  distributions:
