@@ -6,6 +6,8 @@ Entorno de desarrollo con Docker Compose (fase 1). Requiere Docker con Compose v
 
 ```bash
 cp .env.example .env          # edita los valores; .env no se versiona
+# JWT_SECRET está vacío en el ejemplo: el backend no arranca sin él.
+# Genéralo con: openssl rand -hex 32 (mínimo 32 caracteres) y pégalo en .env
 docker compose up -d --build
 docker compose ps             # espera a que todos estén healthy
 ```
@@ -50,7 +52,12 @@ F-UJI (evaluador FAIR) se añadirá en la fase 4.
 
 ## Fuseki
 
-Endpoints del dataset: `http://localhost:3030/itot/sparql` (consulta), `/itot/update`, `/itot/data` y `/itot/shacl`. La contraseña del usuario `admin` es `FUSEKI_ADMIN_PASSWORD`. Se evitan `/`, `&` y `\` en ella porque la imagen la aplica con `sed`.
+Endpoints del dataset `itot`:
+
+- Anónimos (solo lectura): `http://localhost:3030/itot/sparql` y `/itot/query`.
+- Con autenticación Basic (usuario `admin`, contraseña `FUSEKI_ADMIN_PASSWORD`): `/itot/update`, `/itot/data` (también GET) y `/itot/shacl`, además de `/$/...` y el resto de rutas. Sin credenciales devuelven 401.
+
+Así solo el backend escribe en el triplestore. La política está en `infra/fuseki/shiro.ini` (plantilla que se copia al arrancar) y en `fuseki:allowedUsers` de `infra/fuseki/assembler.ttl`. Evita `/`, `&` y `\` en `FUSEKI_ADMIN_PASSWORD`, porque la imagen la aplica con `sed`.
 
 ## CI
 

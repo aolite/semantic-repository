@@ -31,6 +31,13 @@ services:
   fuseki:
     image: secoresearch/fuseki:6.2.0
     restart: unless-stopped
+    # Se copia infra/fuseki/shiro.ini (plantilla) antes del entrypoint original de la
+    # imagen, porque este escribe la contraseña en el fichero con sed y no admite
+    # montarlo directamente. El comando es el CMD original de la imagen.
+    entrypoint:
+      - /bin/bash
+      - -c
+      - cp /shiro.ini.template /fuseki-base/shiro.ini && exec /docker-entrypoint.sh java -cp '*:/javalibs/*' org.apache.jena.fuseki.main.cmds.FusekiServerCmd
     environment:
       # El entrypoint de la imagen escribe esta contraseña en shiro.ini.
       ADMIN_PASSWORD: ${FUSEKI_ADMIN_PASSWORD}
@@ -39,6 +46,7 @@ services:
     volumes:
       - fuseki-data:/fuseki-base/databases
       - ./infra/fuseki/assembler.ttl:/fuseki-base/configuration/assembler.ttl:ro
+      - ./infra/fuseki/shiro.ini:/shiro.ini.template:ro
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:3030/$$/ping"]
       interval: 5s
@@ -72,7 +80,10 @@ services:
   frontend:
     build: ./frontend
     restart: unless-stopped
-    env_file: .env
+    # Solo las variables públicas: el frontend no debe recibir secretos.
+    environment:
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL}
+      VITE_BASE_URI: ${VITE_BASE_URI}
     ports:
       - "127.0.0.1:${FRONTEND_HOST_PORT:-5173}:5173"
     depends_on:

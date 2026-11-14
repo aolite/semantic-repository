@@ -1,5 +1,7 @@
 # Configuración de Fuseki para el repositorio semántico IT&OT.
 # Crea al arrancar el dataset persistente "itot" (TDB2) en /fuseki-base/databases/itot.
+# Las consultas son anónimas; update, data (gsp-rw) y shacl exigen el usuario admin
+# (fuseki:allowedUsers, autenticación Basic definida en shiro.ini).
 # Se monta como /fuseki-base/configuration/assembler.ttl (solo lectura).
 @prefix fuseki:  <http://jena.apache.org/fuseki#> .
 @prefix rdf:     <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
@@ -11,9 +13,9 @@
     fuseki:name "itot" ;
     fuseki:endpoint [ fuseki:operation fuseki:query ;  fuseki:name "sparql" ] ;
     fuseki:endpoint [ fuseki:operation fuseki:query ;  fuseki:name "query" ] ;
-    fuseki:endpoint [ fuseki:operation fuseki:update ; fuseki:name "update" ] ;
-    fuseki:endpoint [ fuseki:operation fuseki:gsp-rw ; fuseki:name "data" ] ;
-    fuseki:endpoint [ fuseki:operation fuseki:shacl ;  fuseki:name "shacl" ] ;
+    fuseki:endpoint [ fuseki:operation fuseki:update ; fuseki:allowedUsers "admin" ; fuseki:name "update" ] ;
+    fuseki:endpoint [ fuseki:operation fuseki:gsp-rw ; fuseki:allowedUsers "admin" ; fuseki:name "data" ] ;
+    fuseki:endpoint [ fuseki:operation fuseki:shacl ; fuseki:allowedUsers "admin" ;  fuseki:name "shacl" ] ;
     fuseki:dataset :dataset .
 
 :dataset a tdb2:DatasetTDB2 ;
