@@ -1,6 +1,6 @@
 # Entorno local del repositorio semántico IT&OT (fase 1).
 # Uso: cp .env.example .env && docker compose up -d --build
-# Fuseki y PostgreSQL solo escuchan en 127.0.0.1.
+# Todos los servicios solo escuchan en 127.0.0.1.
 #
 # Fuseki: imagen secoresearch/fuseki. Es una imagen mantenida (6.2.0 publicada en
 # agosto de 2026, Jena 6.x), multi-arquitectura (amd64 y arm64) y configurable con
@@ -54,7 +54,7 @@ services:
     restart: unless-stopped
     env_file: .env
     ports:
-      - "8000:8000"
+      - "127.0.0.1:${BACKEND_HOST_PORT:-8000}:8000"
     volumes:
       - distributions:/data/distributions
     depends_on:
@@ -74,7 +74,7 @@ services:
     restart: unless-stopped
     env_file: .env
     ports:
-      - "5173:5173"
+      - "127.0.0.1:${FRONTEND_HOST_PORT:-5173}:5173"
     depends_on:
       backend:
         condition: service_healthy

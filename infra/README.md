@@ -13,10 +13,10 @@ docker compose ps             # espera a que todos estén healthy
 Crear el primer administrador (cuando el backend esté healthy):
 
 ```bash
-docker compose exec backend uv run python -m app.cli create-admin
+docker compose exec -it backend python -m app.cli create-admin --username <nombre>
 ```
 
-El comando `create-admin` lo implementa el backend; el comando exacto y sus opciones los confirma el agente `backend`.
+Para scripts, `create-admin` admite `--password-stdin`.
 
 Parar el entorno: `docker compose down`. Para borrar además los datos (PostgreSQL, Fuseki y distribuciones): `docker compose down -v`.
 
@@ -24,12 +24,21 @@ Parar el entorno: `docker compose down`. Para borrar además los datos (PostgreS
 
 | Servicio | Imagen | Puerto en el host | Notas |
 |---|---|---|---|
-| `frontend` | build de `./frontend` | 5173 | Servidor de desarrollo de Vite |
-| `backend` | build de `./backend` | 8000 | FastAPI; `GET /health` y `GET /health/ready`; aplica las migraciones al arrancar |
+| `frontend` | build de `./frontend` | 127.0.0.1:5173 | Servidor de desarrollo de Vite |
+| `backend` | build de `./backend` | 127.0.0.1:8000 | FastAPI; `GET /health` y `GET /health/ready`; aplica las migraciones al arrancar |
 | `fuseki` | `secoresearch/fuseki:6.2.0` | 127.0.0.1:3030 | Dataset TDB2 persistente `itot`, creado desde `infra/fuseki/assembler.ttl` |
 | `postgres` | `postgres:17.6-alpine` | 127.0.0.1:5432 | Usuarios y auditoría |
 
-Fuseki y PostgreSQL solo escuchan en localhost. Si un puerto está ocupado en tu máquina, define `FUSEKI_HOST_PORT` o `POSTGRES_HOST_PORT` en `.env` (opcionales; no los usan las demás capas).
+Todos los servicios solo escuchan en localhost. Si un puerto está ocupado en tu máquina, define en `.env` (opcionales) la variable correspondiente:
+
+| Variable | Servicio | Por defecto |
+|---|---|---|
+| `POSTGRES_HOST_PORT` | postgres | 5432 |
+| `FUSEKI_HOST_PORT` | fuseki | 3030 |
+| `BACKEND_HOST_PORT` | backend | 8000 |
+| `FRONTEND_HOST_PORT` | frontend | 5173 |
+
+Si cambias `BACKEND_HOST_PORT`, ajusta también `VITE_API_BASE_URL` (por ejemplo `http://localhost:8001`): es la URL que usa el navegador, no la red interna de Compose. Si cambias `FRONTEND_HOST_PORT`, ajusta `CORS_ORIGINS`.
 
 F-UJI (evaluador FAIR) se añadirá en la fase 4.
 
