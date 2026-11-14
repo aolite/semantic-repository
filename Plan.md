@@ -42,7 +42,7 @@ Equipo IT/OT (navegador, SPARQL)        Autenticación JWT en la API
         catálogo DCAT-AP · versionado · control de acceso · orquestación FAIR · métricas OWL
         │              │                  │                     │
    Triplestore     Evaluador FAIR     Distribuciones         Ingesta
-   Fuseki          F-UJI (servicio)   almacén S3,            validación SHACL,
+   Fuseki          F-UJI (servicio)   disco (MVP) / R2,      validación SHACL,
    (GraphDB si     puntuación por     acceso por rol         carga al triplestore
    hace falta)     versión                                   ▲
                                                              │
@@ -65,7 +65,7 @@ Además, la arquitectura incluye una base de datos relacional pequeña para usua
 | URIs persistentes | Base genérica y configurable mediante una única variable de entorno (`BASE_URI`, valor por defecto `https://semantic.example.org/itot/`). Ningún agente escribe el dominio a mano: todas las URIs se construyen a partir de esa variable. El placeholder `[DOMINIO]` del prototipo equivale a `BASE_URI` |
 | Frontend | React + TypeScript + Vite + React Router + Vitest |
 | Base de datos de usuarios y auditoría | PostgreSQL |
-| Almacén S3 en local | No se levanta un servicio S3 en local. **[PROPUESTA]** El backend guarda las distribuciones a través de una interfaz de almacenamiento: en local, un volumen de ficheros; en cloud, un almacén compatible con S3, sin cambiar el código |
+| Almacenamiento de distribuciones | **MVP:** disco de la máquina (un volumen de Docker). **Despliegue:** Cloudflare R2, compatible con S3, cuando se configure. El backend accede a través de una interfaz de almacenamiento con dos implementaciones, disco y R2, y se elige una u otra por configuración, sin cambiar el código |
 | Ramas y commits | Ramas `<agente>/<descripción-corta>`; mensajes en formato Conventional Commits |
 | Pruebas de seguridad (`qa`) | JWT, autorización por rol, acceso a distribuciones restringidas, inyección en consultas SPARQL y análisis de dependencias |
 
@@ -114,7 +114,7 @@ Son siete roles: la sesión principal (orquestador) y seis subagentes por capa t
 ### 3.2 `backend` · API FastAPI
 
 - **Zona [PROPUESTA]:** `backend/`
-- **Responsabilidad:** la API del diagrama: catálogo DCAT-AP, versionado (series y versiones DCAT 3, PROV-O), control de acceso con JWT, distribuciones con acceso por rol (en un volumen local o en S3, según la interfaz de almacenamiento), orquestación de F-UJI en cada publicación de versión, cálculo de métricas OWL en la ingesta (ROBOT u owlready2, consistencia con Pellet), proxy o exposición del endpoint SPARQL y negociación de contenido HTML/Turtle/JSON-LD sobre las URIs persistentes.
+- **Responsabilidad:** la API del diagrama: catálogo DCAT-AP, versionado (series y versiones DCAT 3, PROV-O), control de acceso con JWT, distribuciones con acceso por rol (en disco durante el MVP o en Cloudflare R2 en el despliegue, a través de la interfaz de almacenamiento), orquestación de F-UJI en cada publicación de versión, cálculo de métricas OWL en la ingesta (ROBOT u owlready2, consistencia con Pellet), proxy o exposición del endpoint SPARQL y negociación de contenido HTML/Turtle/JSON-LD sobre las URIs persistentes.
 - **Garantiza:** es el único componente que escribe en el triplestore y en el almacén.
 - **Publica:** el contrato OpenAPI que consume `frontend`.
 
@@ -262,12 +262,12 @@ Hay que resolverlas antes de la fase o el paso indicado.
 | 3 | ~~Dominio de las URIs~~. Decidido: base genérica configurable con `BASE_URI`. El dominio real se fija al desplegar | `semantico`, `backend` | Cerrada (el valor real, en la fase 5) |
 | 4 | ~~Detalles del frontend~~. Decidido: TypeScript, Vite, React Router y Vitest (la librería de estado sigue abierta) | `frontend` | Cerrada |
 | 5 | ~~Motor de base de datos~~. Decidido: PostgreSQL | `backend`, `infra` | Cerrada |
-| 6 | ~~Almacén S3 en local~~. Decidido: no hay servicio S3 en local; las distribuciones van a un volumen a través de la interfaz de almacenamiento | `infra`, `backend` | Cerrada |
+| 6 | ~~Almacenamiento de distribuciones~~. Decidido: disco de la máquina en el MVP y Cloudflare R2 en el despliegue, cuando se configure | `infra`, `backend` | Cerrada |
 | 7 | ROBOT u owlready2 para las métricas OWL | `backend`, `semantico` | Fase 3 |
 | 8 | ~~Modelo de Claude para cada subagente~~. Decidido: ver la tabla de la sección 3 | Coste y calidad | Cerrada |
 | 14 | ~~Alcance de las pruebas de seguridad~~. Decidido: JWT, autorización por rol, acceso a distribuciones restringidas, inyección en SPARQL y análisis de dependencias. Las herramientas concretas siguen abiertas | `qa` | Cerrada (herramientas en la fase 1) |
 | 9 | ~~Convención de ramas y commits~~. Decidido: `<agente>/<descripción-corta>` y Conventional Commits. El formato del registro de decisiones sigue abierto | Todos | Fase 1 |
 | 10 | Primer dataset real para G2 y valores reales de licencia, contacto y proyectos | `semantico`, `backend` | Fase 2 |
 | 11 | Responsable nombrado por cada esquema corporativo (mitigación de gobernanza) | `semantico` | Fase 3 |
-| 12 | Proveedor cloud. Cloudflare es una opción: hay que evaluar qué componentes pueden alojarse ahí (frontend estático, almacén de distribuciones) y cuáles necesitan otro sitio (FastAPI, Fuseki, F-UJI, PostgreSQL) | `infra` | Fase 5 |
+| 12 | Proveedor cloud. Cloudflare es una opción: las distribuciones ya irán a R2; falta evaluar qué otros componentes pueden alojarse ahí (p. ej. el frontend estático) y cuáles necesitan otro sitio (FastAPI, Fuseki, F-UJI, PostgreSQL) | `infra` | Fase 5 |
 | 13 | Papel de ChatGPT Pro y Gemini: el plan de implementación los cita como asistentes, pero este sistema multi-agente se limita a Claude Code | Proceso | Cuando el responsable lo decida |
