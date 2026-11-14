@@ -1,0 +1,86 @@
+# Vocabulario mínimo para la fase 2 (puerta G2).
+#
+# Solo contiene lo que necesitan los datos sintéticos de semantic/data/sintetico/:
+# - Los cuatro esquemas de dominio del catálogo del prototipo (filtro
+#   «dominio» de la pantalla Catálogo). El dominio de un dataset se deduce del
+#   esquema (skos:inScheme) de sus temas (dcat:theme).
+# - Los conceptos que usan los datasets como dcat:theme, con skos:inScheme y
+#   skos:prefLabel en español, y nada más.
+# - El esquema de tipos de dataset con el concepto «Dataset sintético», que
+#   marca los datos de demostración [PROPUESTA del orquestador].
+#
+# Sin definiciones, etiquetas en ca/en, jerarquía ni mapeos externos: no hay
+# fuente para ellos todavía. El SKOS completo llega en la fase 3 y sustituye a
+# este fichero.
+#
+# BASE_URI: el fichero no declara @base; las URIs son relativas y se resuelven
+# contra BASE_URI al leerlo (ver semantic/uris.md).
+
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+
+# --- Esquemas de dominio ----------------------------------------------------
+<vocab/it>
+    a skos:ConceptScheme ;
+    skos:prefLabel "Seguridad IT"@es .
+
+<vocab/ot>
+    a skos:ConceptScheme ;
+    skos:prefLabel "OT / ICS"@es .
+
+<vocab/pqc>
+    a skos:ConceptScheme ;
+    skos:prefLabel "PQC e identidad"@es .
+
+<vocab/ia>
+    a skos:ConceptScheme ;
+    skos:prefLabel "IA adversaria"@es .
+
+# --- Temas de los datasets --------------------------------------------------
+# Seguridad IT (dataset hallazgos-auditorias-intrusion)
+<vocab/it/cwe>
+    a skos:Concept ;
+    skos:inScheme <vocab/it> ;
+    skos:prefLabel "CWE"@es .
+
+<vocab/it/control-iso-27001>
+    a skos:Concept ;
+    skos:inScheme <vocab/it> ;
+    skos:prefLabel "Control ISO/IEC 27001"@es .
+
+# OT / ICS (dataset modbus-tcp-testbed)
+<vocab/ot/modbus-tcp>
+    a skos:Concept ;
+    skos:inScheme <vocab/ot> ;
+    skos:prefLabel "Modbus/TCP"@es .
+
+<vocab/ot/purdue-nivel-1>
+    a skos:Concept ;
+    skos:inScheme <vocab/ot> ;
+    skos:prefLabel "Nivel 1 · Control básico"@es .
+
+# IA adversaria (dataset ejemplos-adversarios-vision)
+<vocab/ia/evasion>
+    a skos:Concept ;
+    skos:inScheme <vocab/ia> ;
+    skos:prefLabel "Evasión"@es .
+
+<vocab/ia/caja-blanca>
+    a skos:Concept ;
+    skos:inScheme <vocab/ia> ;
+    skos:prefLabel "Caja blanca"@es .
+
+# PQC e identidad: ningún dataset del prototipo lo usa todavía.
+
+# --- Tipos de dataset [PROPUESTA del orquestador] ---------------------------
+# dct:type <vocab/tipo-dataset/sintetico> marca la serie y cada versión de los
+# datasets sintéticos que demuestran G2. Los datos reales llegan en el piloto
+# y no llevan esta marca. La etiqueta del esquema, «Tipos de dataset», es
+# [PROPUESTA] de semantico.
+<vocab/tipo-dataset>
+    a skos:ConceptScheme ;
+    skos:prefLabel "Tipos de dataset"@es .
+
+<vocab/tipo-dataset/sintetico>
+    a skos:Concept ;
+    skos:inScheme <vocab/tipo-dataset> ;
+    skos:prefLabel "Dataset sintético"@es .

@@ -20,8 +20,10 @@
 # - La actividad «Captura en banco de pruebas» y la entidad «Capturas PCAP en
 #   bruto» no tienen URI en el prototipo: nodos en blanco.
 # - dcat:accessURL de cada distribución = la URI de la propia distribución
-#   [PROPUESTA]: el prototipo no da URL de acceso; el backend la resuelve
-#   aplicando el control de acceso por rol.
+#   (decisión del responsable, 2026-11-14): el prototipo no da URL de acceso;
+#   el backend la resuelve aplicando el control de acceso por rol.
+# - La versión completa de este dataset, con sus tres versiones, está en
+#   semantic/data/sintetico/modbus-tcp-testbed.ttl.
 # - La versión anterior 2.0.0 solo se referencia; no se describe porque el
 #   prototipo no da sus metadatos.
 # - Los conceptos SKOS (dcat:theme) solo se referencian; se describen en la

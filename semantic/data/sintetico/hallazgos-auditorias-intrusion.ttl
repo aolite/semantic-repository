@@ -1,0 +1,81 @@
+# Dataset SINTÉTICO para la puerta G2: serie hallazgos-auditorias-intrusion
+# con su versión 1.3.0. Fuente: tarjeta del catálogo del prototipo («Hallazgos
+# de auditorías y pruebas de intrusión»).
+#
+# Marca de sintético: dct:type <vocab/tipo-dataset/sintetico> en la serie y
+# en la versión (ver semantic/uris.md y semantic/data/vocab-minimo.ttl).
+#
+# BASE_URI: el fichero no declara @base. Las URIs propias son relativas y se
+# resuelven contra la BASE_URI que se pase al leerlo. Ver semantic/uris.md.
+#
+# Placeholders del prototipo: [LICENCIA], [CONTACTO], [FECHA] y [PROYECTO]
+# se OMITEN y quedan comentados donde irían (ver semantic/README.md).
+#
+# Qué sale del prototipo y qué no:
+# - Título, descripción, temas (CWE, Control ISO/IEC 27001), formatos
+#   (CSV · RDF), versión 1.3.0 y acceso restringido: prototipo.
+# - La serie lleva el mismo título y descripción que la versión.
+# - Sin nota de versión, versión anterior, palabras clave ni procedencia: el
+#   prototipo no los da. La 1.3.0 no declara dcat:previousVersion aunque su
+#   número sugiera versiones anteriores, porque no se conocen.
+# - Distribuciones: una por formato, dct:title igual al formato.
+#   · CSV: text/csv (IANA).
+#   · RDF: el prototipo no dice qué serialización. Se usa text/turtle (IANA),
+#     la serialización de todos los ficheros RDF del repositorio [PROPUESTA].
+# - dcat:accessURL = la URI de la propia distribución (decisión del
+#   responsable, 2026-11-14).
+# - El agente no tiene URI en el prototipo: nodo en blanco.
+
+@prefix itotd: <dataset/> .
+@prefix it:    <vocab/it/> .
+@prefix dcat:  <http://www.w3.org/ns/dcat#> .
+@prefix dct:   <http://purl.org/dc/terms/> .
+@prefix foaf:  <http://xmlns.com/foaf/0.1/> .
+@prefix prov:  <http://www.w3.org/ns/prov#> .
+
+# --- Serie (ficha del catálogo) ---------------------------------------------
+itotd:hallazgos-auditorias-intrusion
+    a dcat:DatasetSeries ;
+    dct:type <vocab/tipo-dataset/sintetico> ;
+    dct:title "Hallazgos de auditorías y pruebas de intrusión"@es ;
+    dct:description "Hallazgos anonimizados de proyectos, clasificados por debilidad CWE y control afectado."@es ;
+    dct:publisher _:unidad-itot ;
+    dcat:first <dataset/hallazgos-auditorias-intrusion/1.3.0> ;
+    dcat:last <dataset/hallazgos-auditorias-intrusion/1.3.0> .
+
+# --- Versión 1.3.0 (actual) -------------------------------------------------
+<dataset/hallazgos-auditorias-intrusion/1.3.0>
+    a dcat:Dataset ;
+    dct:type <vocab/tipo-dataset/sintetico> ;
+    dct:title "Hallazgos de auditorías y pruebas de intrusión"@es ;
+    dct:description "Hallazgos anonimizados de proyectos, clasificados por debilidad CWE y control afectado."@es ;
+    dcat:version "1.3.0" ;
+    dcat:inSeries itotd:hallazgos-auditorias-intrusion ;
+    dct:accessRights <http://publications.europa.eu/resource/authority/access-right/RESTRICTED> ;
+    dcat:theme it:cwe , it:control-iso-27001 ;
+    dct:publisher _:unidad-itot ;
+    # dcat:contactPoint [CONTACTO] ;
+    # dct:license [LICENCIA] ;
+    # dct:issued [FECHA] ;
+    # dct:modified [FECHA] ;
+    # dct:isReferencedBy [PROYECTO] ;
+    dcat:distribution
+        <dataset/hallazgos-auditorias-intrusion/1.3.0/csv> ,
+        <dataset/hallazgos-auditorias-intrusion/1.3.0/rdf> .
+
+<dataset/hallazgos-auditorias-intrusion/1.3.0/csv>
+    a dcat:Distribution ;
+    dct:title "CSV"@es ;
+    dcat:mediaType <http://www.iana.org/assignments/media-types/text/csv> ;
+    dcat:accessURL <dataset/hallazgos-auditorias-intrusion/1.3.0/csv> .
+
+<dataset/hallazgos-auditorias-intrusion/1.3.0/rdf>
+    a dcat:Distribution ;
+    dct:title "RDF"@es ;
+    dcat:mediaType <http://www.iana.org/assignments/media-types/text/turtle> ;
+    dcat:accessURL <dataset/hallazgos-auditorias-intrusion/1.3.0/rdf> .
+
+# --- Agente -----------------------------------------------------------------
+_:unidad-itot
+    a foaf:Agent , prov:Agent ;
+    foaf:name "Eurecat · Unidad IT&OT Security" .

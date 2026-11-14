@@ -1,0 +1,34 @@
+# Catálogo de la unidad (dcat:Catalog), identificador «itot-catalogo» en el
+# prototipo. URI: {BASE_URI}catalogo (ver semantic/uris.md).
+#
+# Lista con dcat:dataset las series del catálogo (en DCAT 3 una
+# dcat:DatasetSeries es un dcat:Dataset). Cuando se publique un dataset nuevo,
+# su serie se añade aquí.
+#
+# Pendiente: DCAT-AP 3 marca dct:title, dct:description y dct:publisher como
+# obligatorias en dcat:Catalog. El prototipo solo da el identificador, así que
+# título y descripción se omiten hasta que el responsable los aporte. Las
+# formas de semantic/shapes/ no cubren dcat:Catalog todavía.
+#
+# BASE_URI: el fichero no declara @base; las URIs son relativas.
+
+@prefix itotd: <dataset/> .
+@prefix dcat:  <http://www.w3.org/ns/dcat#> .
+@prefix dct:   <http://purl.org/dc/terms/> .
+@prefix foaf:  <http://xmlns.com/foaf/0.1/> .
+@prefix prov:  <http://www.w3.org/ns/prov#> .
+
+<catalogo>
+    a dcat:Catalog ;
+    dct:identifier "itot-catalogo" ;
+    # dct:title [pendiente] ;
+    # dct:description [pendiente] ;
+    dct:publisher _:unidad-itot ;
+    dcat:dataset
+        itotd:modbus-tcp-testbed ,
+        itotd:hallazgos-auditorias-intrusion ,
+        itotd:ejemplos-adversarios-vision .
+
+_:unidad-itot
+    a foaf:Agent , prov:Agent ;
+    foaf:name "Eurecat · Unidad IT&OT Security" .

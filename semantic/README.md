@@ -11,6 +11,9 @@ Zona del agente `semantico`. Contiene contratos que consumen otras capas: el pat
 | `shapes/itot-reglas.ttl` | Reglas propias de la unidad, cada una justificada en un comentario | `backend` (ingesta), `qa` |
 | `examples/valid/` | Datos de ejemplo del prototipo que deben cumplir las formas | `backend`, `frontend`, `qa` |
 | `examples/invalid/` | Un fichero por regla, que debe fallar exactamente en la forma indicada | `qa` |
+| `data/sintetico/` | Datasets **sintéticos** del catálogo del prototipo para la puerta G2, un fichero por dataset (serie, versiones y distribuciones), marcados con `dct:type <{BASE_URI}vocab/tipo-dataset/sintetico>` | `backend` (comando de carga), `frontend`, `qa` |
+| `data/vocab-minimo.ttl` | Esquemas de dominio (`it`, `ot`, `pqc`, `ia`), conceptos usados como temas y esquema de tipos de dataset. Mínimo hasta el SKOS de la fase 3 | `backend`, `frontend`, `qa` |
+| `data/catalogo.ttl` | El `dcat:Catalog` «itot-catalogo» con sus series | `backend`, `frontend` |
 | `scripts/validate.py` | Validación de todo lo anterior | CI, `qa` |
 
 ## Validar
@@ -22,6 +25,8 @@ uv run semantic/scripts/validate.py
 ```
 
 El script declara sus dependencias (rdflib y pyshacl) con metadatos PEP 723, así que no hace falta instalar nada aparte de uv. Comprueba la sintaxis de todos los `.ttl`, que las formas sean SHACL válido, que los ejemplos válidos las cumplan y que cada ejemplo inválido falle exactamente en las formas que indican sus líneas `# expect-violation: <NombreLocal>`. Sale con código 1 si algo falla. El CI usa este mismo comando.
+
+Para `data/`, valida cada fichero de `data/sintetico/` por separado (tal como lo ingesta el backend) y después todo `data/**/*.ttl` en un grafo. Sobre ese grafo conjunto hace además comprobaciones de coherencia que no son SHACL, porque cruzan datos y vocabulario: cada tema es un concepto de un esquema de dominio y los de una versión son de un solo dominio; las series y versiones de `data/sintetico/` llevan la marca de sintético; `dcat:inSeries`, `dcat:previousVersion`, `dcat:first` y `dcat:last` apuntan a recursos descritos de la misma serie; las URIs de versiones y distribuciones siguen `uris.md`; `dcat:accessURL` es la URI de la propia distribución, y el catálogo lista todas las series. Son reglas de los datos de este repositorio, no del contrato de ingesta: el backend puede recibir versiones cuyos conceptos están en otro grafo.
 
 ## `BASE_URI` en los ficheros RDF
 
