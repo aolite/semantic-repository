@@ -1,0 +1,26 @@
+# Ejemplo INVÁLIDO: Versión sin dcat:inSeries (regla propia).
+# Todo lo demás es válido, así que solo debe fallar la forma indicada.
+# validate.py lee las líneas «expect-violation» (nombre local en {BASE_URI}shapes#).
+# expect-violation: Dataset-inSeries
+
+@prefix itotd: <dataset/> .
+@prefix dcat:  <http://www.w3.org/ns/dcat#> .
+@prefix dct:   <http://purl.org/dc/terms/> .
+
+itotd:prueba
+    a dcat:DatasetSeries ;
+    dct:title "Serie de prueba"@es ;
+    dct:description "Serie mínima para probar las formas."@es .
+
+<dataset/prueba/1.0.0>
+    a dcat:Dataset ;
+    dct:title "Serie de prueba"@es ;
+    dct:description "Versión mínima para probar las formas."@es ;
+    dcat:version "1.0.0" ;
+    dct:accessRights <http://publications.europa.eu/resource/authority/access-right/PUBLIC> ;
+    dcat:distribution <dataset/prueba/1.0.0/csv> .
+
+<dataset/prueba/1.0.0/csv>
+    a dcat:Distribution ;
+    dcat:accessURL <dataset/prueba/1.0.0/csv> ;
+    dcat:mediaType <http://www.iana.org/assignments/media-types/text/csv> .

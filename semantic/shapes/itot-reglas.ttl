@@ -1,0 +1,148 @@
+# Formas SHACL: reglas PROPIAS de la Unidad IT&OT Security.
+#
+# Van más allá de lo obligatorio en DCAT-AP 3 (dcat-ap-3-minimo.ttl). Cada
+# regla lleva su justificación en un comentario. Se mantienen mínimas a
+# propósito: solo lo que necesitan el control de acceso, el versionado y el
+# patrón de URIs (semantic/uris.md).
+#
+# Modelo de versionado (DCAT 3): la ficha del catálogo es una
+# dcat:DatasetSeries y cada versión publicada es un dcat:Dataset con
+# dcat:inSeries hacia su serie.
+#
+# Supuestos de validación:
+# - Sin inferencia RDFS y sin cargar la ontología DCAT en el grafo de datos.
+#   En DCAT 3, dcat:DatasetSeries es subclase de dcat:Dataset; si esa
+#   jerarquía estuviera en el grafo de datos, las reglas de versión de
+#   ItotDatasetShape se aplicarían también a las series, lo que no se busca.
+# - Este fichero no declara @base: se lee pasando BASE_URI como IRI base.
+
+@prefix itsh: <shapes#> .
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix dcat: <http://www.w3.org/ns/dcat#> .
+@prefix dct:  <http://purl.org/dc/terms/> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+
+# --- dcat:Dataset (una versión) ---------------------------------------------
+itsh:ItotDatasetShape
+    a sh:NodeShape ;
+    rdfs:label "Unidad IT&OT · Versión de dataset"@es ;
+    sh:targetClass dcat:Dataset ;
+    sh:property
+        itsh:Dataset-accessRights ,
+        itsh:Dataset-version ,
+        itsh:Dataset-inSeries ,
+        itsh:Dataset-previousVersion ,
+        itsh:Dataset-distribution ,
+        itsh:Dataset-theme .
+
+# Regla propia: dct:accessRights exactamente una vez y con una IRI de la tabla
+# de autoridad europea de derechos de acceso. En DCAT-AP 3 no es obligatoria;
+# aquí sí, porque el backend decide con ella quién puede descargar las
+# distribuciones (lector, miembro…) y porque los datasets restringidos de
+# defensa no pueden publicarse sin marcar. Se comprueba el espacio de nombres
+# de la tabla y no una lista cerrada de valores, para no fijar aquí sus
+# entradas.
+itsh:Dataset-accessRights
+    a sh:PropertyShape ;
+    sh:path dct:accessRights ;
+    sh:minCount 1 ;
+    sh:maxCount 1 ;
+    sh:nodeKind sh:IRI ;
+    sh:pattern "^http://publications\\.europa\\.eu/resource/authority/access-right/[A-Z_]+$" ;
+    sh:message "Regla IT&OT: cada versión necesita exactamente un dct:accessRights del vocabulario europeo (http://publications.europa.eu/resource/authority/access-right/…)."@es .
+
+# Regla propia: dcat:version exactamente una vez, con formato
+# MAYOR.MENOR.PARCHE. Cada dcat:Dataset es una versión, y su URI termina en
+# esa misma cadena (semantic/uris.md), así que tiene que existir y ser única.
+itsh:Dataset-version
+    a sh:PropertyShape ;
+    sh:path dcat:version ;
+    sh:minCount 1 ;
+    sh:maxCount 1 ;
+    sh:datatype xsd:string ;
+    sh:pattern "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$" ;
+    sh:message "Regla IT&OT: cada versión necesita exactamente un dcat:version con formato MAYOR.MENOR.PARCHE (p. ej. 2.1.0)."@es .
+
+# Regla propia: dcat:inSeries exactamente una vez. La ficha del catálogo es la
+# serie, y la URI de la versión se construye a partir de la de su serie; una
+# versión sin serie no tendría ficha ni URI válida.
+itsh:Dataset-inSeries
+    a sh:PropertyShape ;
+    sh:path dcat:inSeries ;
+    sh:minCount 1 ;
+    sh:maxCount 1 ;
+    sh:nodeKind sh:IRI ;
+    sh:message "Regla IT&OT: cada versión pertenece exactamente a una dcat:DatasetSeries (dcat:inSeries)."@es .
+
+# Regla propia: como mucho una dcat:previousVersion, y con IRI. El historial
+# de versiones de la ficha es lineal. No se exige sh:class porque la versión
+# anterior puede estar ya en el triplestore y no en el grafo que se ingesta.
+itsh:Dataset-previousVersion
+    a sh:PropertyShape ;
+    sh:path dcat:previousVersion ;
+    sh:maxCount 1 ;
+    sh:nodeKind sh:IRI ;
+    sh:message "Regla IT&OT: una versión tiene como mucho una dcat:previousVersion, identificada por IRI."@es .
+
+# Regla propia: las distribuciones tienen IRI (patrón .../{version}/{dist}) y
+# están tipadas como dcat:Distribution en el mismo grafo. Sin el tipo, la
+# distribución escaparía a DistributionShape y no se validaría.
+itsh:Dataset-distribution
+    a sh:PropertyShape ;
+    sh:path dcat:distribution ;
+    sh:nodeKind sh:IRI ;
+    sh:class dcat:Distribution ;
+    sh:message "Regla IT&OT: cada dcat:distribution es una IRI tipada como dcat:Distribution en el mismo grafo."@es .
+
+# Regla propia: los temas son IRIs (conceptos de los esquemas SKOS de la
+# unidad o externos). No se exige sh:class skos:Concept porque los esquemas
+# se cargan en otro grafo.
+itsh:Dataset-theme
+    a sh:PropertyShape ;
+    sh:path dcat:theme ;
+    sh:nodeKind sh:IRI ;
+    sh:message "Regla IT&OT: cada dcat:theme es la IRI de un concepto SKOS."@es .
+
+# --- dcat:DatasetSeries -----------------------------------------------------
+itsh:ItotDatasetSeriesShape
+    a sh:NodeShape ;
+    rdfs:label "Unidad IT&OT · Serie de dataset"@es ;
+    sh:targetClass dcat:DatasetSeries ;
+    sh:property itsh:DatasetSeries-last .
+
+# Regla propia: como mucho un dcat:last, con IRI. La ficha muestra una única
+# versión vigente.
+itsh:DatasetSeries-last
+    a sh:PropertyShape ;
+    sh:path dcat:last ;
+    sh:maxCount 1 ;
+    sh:nodeKind sh:IRI ;
+    sh:message "Regla IT&OT: una serie tiene como mucho un dcat:last, identificado por IRI."@es .
+
+# --- dcat:Distribution ------------------------------------------------------
+itsh:ItotDistributionShape
+    a sh:NodeShape ;
+    rdfs:label "Unidad IT&OT · Distribución"@es ;
+    sh:targetClass dcat:Distribution ;
+    sh:property itsh:Distribution-accessURL-iri , itsh:Distribution-mediaType .
+
+# Regla propia: dcat:accessURL es una IRI (DCAT-AP solo exige que exista). Un
+# nodo en blanco no se puede resolver ni proteger por rol.
+itsh:Distribution-accessURL-iri
+    a sh:PropertyShape ;
+    sh:path dcat:accessURL ;
+    sh:nodeKind sh:IRI ;
+    sh:message "Regla IT&OT: dcat:accessURL tiene que ser una IRI."@es .
+
+# Regla propia: si hay dcat:mediaType, es uno solo y es una IRI del registro
+# de tipos de medio de IANA, como recomienda DCAT-AP. Así el formato es
+# interpretable por máquinas (interoperabilidad FAIR) y la ficha puede
+# mostrarlo sin ambigüedad. No es obligatorio.
+itsh:Distribution-mediaType
+    a sh:PropertyShape ;
+    sh:path dcat:mediaType ;
+    sh:maxCount 1 ;
+    sh:nodeKind sh:IRI ;
+    sh:pattern "^https?://www\\.iana\\.org/assignments/media-types/[a-z]+/[^/]+$" ;
+    sh:message "Regla IT&OT: dcat:mediaType, si aparece, es una sola IRI de IANA (http://www.iana.org/assignments/media-types/…)."@es .
