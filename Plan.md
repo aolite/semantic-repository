@@ -71,6 +71,10 @@ Además, la arquitectura incluye una base de datos relacional pequeña para usua
 | Pruebas de seguridad (`qa`) | JWT, autorización por rol, acceso a distribuciones restringidas, inyección en consultas SPARQL y análisis de dependencias |
 | Roles de usuario | **Lector:** anónimo, ve lo público. **Miembro:** usuario de la unidad, puede solicitar o descargar distribuciones restringidas. **Editor:** publica y versiona recursos. **Admin:** gestiona usuarios |
 | Python del backend | La última versión estable, gestionada con uv (hoy 3.15), fijada en `backend/.python-version` y en la imagen Docker |
+| Registro de decisiones | ADR: un fichero por decisión en `docs/adr/NNNN-titulo.md` |
+| Herramientas de seguridad (fase 1) | pip-audit (backend) y npm audit (frontend), en local y en CI, más pruebas pytest propias para JWT, roles e inyección SPARQL |
+| Docker Compose de la fase 1 | PostgreSQL, Fuseki, backend y frontend (esqueleto mínimo con login). F-UJI se añade en la fase 4 |
+| Alta de usuarios | El primer admin se crea con un comando CLI del backend; el admin da de alta al resto desde la API. Ningún usuario se versiona |
 
 ### Pantallas del prototipo (contrato de la interfaz)
 
@@ -208,7 +212,7 @@ Responsable ──(fase / objetivo)──► Orquestador
 5. El orquestador abre la PR con resumen, fase, pruebas ejecutadas y pendientes.
 6. El responsable revisa y hace el merge.
 
-Para que el trabajo no dependa de la memoria de una conversación, el estado se guarda en el repositorio: este Plan.md, el registro de decisiones en `docs/` y la descripción de las PR. El formato concreto (ADR, CHANGELOG…) es [ABIERTO].
+Para que el trabajo no dependa de la memoria de una conversación, el estado se guarda en el repositorio: este Plan.md, el registro de decisiones en `docs/` y la descripción de las PR. El registro de decisiones usa ADR en `docs/adr/`.
 
 ---
 
@@ -250,7 +254,7 @@ Las fases y las puertas son las del plan de implementación. Las semanas son ori
 1. ~~Inicializar el repositorio git y enlazarlo con el remoto `https://github.com/aolite/semantic-repository.git`~~. Hecho: rama `main`, remoto `origin`.
 2. ~~Crear `CLAUDE.md` con el resumen del proyecto y un enlace a este plan~~. Hecho.
 3. ~~Crear las seis definiciones en `.claude/agents/`~~. Hecho.
-4. Arrancar la fase 1 con el orquestador.
+4. ~~Arrancar la fase 1 con el orquestador~~. En curso desde el 2026-11-14.
 
 ---
 
@@ -268,8 +272,8 @@ Hay que resolverlas antes de la fase o el paso indicado.
 | 6 | ~~Almacenamiento de distribuciones~~. Decidido: disco de la máquina en el MVP y Cloudflare R2 en el despliegue, cuando se configure | `infra`, `backend` | Cerrada |
 | 7 | ROBOT u owlready2 para las métricas OWL | `backend`, `semantico` | Fase 3 |
 | 8 | ~~Modelo de Claude para cada subagente~~. Decidido: ver la tabla de la sección 3 | Coste y calidad | Cerrada |
-| 14 | ~~Alcance de las pruebas de seguridad~~. Decidido: JWT, autorización por rol, acceso a distribuciones restringidas, inyección en SPARQL y análisis de dependencias. Las herramientas concretas siguen abiertas | `qa` | Cerrada (herramientas en la fase 1) |
-| 9 | ~~Convención de ramas y commits~~. Decidido: `<agente>/<descripción-corta>` y Conventional Commits. El formato del registro de decisiones sigue abierto | Todos | Fase 1 |
+| 14 | ~~Alcance y herramientas de las pruebas de seguridad~~. Decidido: JWT, autorización por rol, acceso a distribuciones restringidas, inyección en SPARQL y análisis de dependencias, con pip-audit, npm audit y pruebas pytest propias | `qa` | Cerrada |
+| 9 | ~~Convención de ramas, commits y registro de decisiones~~. Decidido: `<agente>/<descripción-corta>`, Conventional Commits y ADR en `docs/adr/` | Todos | Cerrada |
 | 10 | Primer dataset real para G2 y valores reales de licencia, contacto y proyectos | `semantico`, `backend` | Fase 2 |
 | 11 | Responsable nombrado por cada esquema corporativo (mitigación de gobernanza) | `semantico` | Fase 3 |
 | 12 | Proveedor cloud. Cloudflare es una opción: las distribuciones ya irán a R2; falta evaluar qué otros componentes pueden alojarse ahí (p. ej. el frontend estático) y cuáles necesitan otro sitio (FastAPI, Fuseki, F-UJI, PostgreSQL) | `infra` | Fase 5 |
