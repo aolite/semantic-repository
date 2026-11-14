@@ -86,6 +86,25 @@ def http(
         )
 
 
+def wait_for_http(url: str, *, timeout: float = 90.0) -> Response:
+    """Reintenta un GET hasta que el servicio acepta conexiones.
+
+    Hace falta para los servicios sin healthcheck en el Compose (el frontend): para
+    ellos ``docker compose up --wait`` solo garantiza que el contenedor ha arrancado.
+    """
+    import time
+    from http.client import HTTPException
+
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            return http("GET", url)
+        except OSError, HTTPException:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(1)
+
+
 def _free_ports(count: int) -> list[int]:
     """Puertos TCP libres en 127.0.0.1 (se reservan todos antes de soltarlos)."""
     sockets = []
@@ -256,18 +275,13 @@ def _build_stack(workdir: Path) -> Stack:
     env_file.touch(mode=0o600)
     env_file.write_text("".join(f"{key}={value}\n" for key, value in env.items()), "utf-8")
 
-    # docker-compose.yml carga `env_file: .env` de la raíz. Para no leer ni pisar el .env
-    # del desarrollador, este fichero adicional apunta env_file al temporal. Es lo único
-    # que cambia: puertos, imágenes, healthchecks y dependencias son los del Compose real.
+    # En docker-compose.yml el backend carga `env_file: .env` de la raíz. Para no leer ni
+    # pisar el .env del desarrollador, este fichero adicional apunta ese env_file al
+    # temporal. Es lo único que cambia: puertos, imágenes, healthchecks, dependencias y el
+    # entorno del resto de servicios (el frontend solo recibe sus VITE_*) son los reales.
     override_file = workdir / "docker-compose.e2e.yml"
     override_file.write_text(
-        "services:\n"
-        "  backend:\n"
-        "    env_file: !override\n"
-        f"      - {env_file}\n"
-        "  frontend:\n"
-        "    env_file: !override\n"
-        f"      - {env_file}\n",
+        f"services:\n  backend:\n    env_file: !override\n      - {env_file}\n",
         "utf-8",
     )
 

@@ -17,8 +17,7 @@ import json
 import secrets
 import uuid
 
-import pytest
-from conftest import Account, Stack, http, login
+from conftest import Account, Stack, http, login, wait_for_http
 
 PHASE_1_SERVICES = {"postgres", "fuseki", "backend", "frontend"}
 
@@ -86,7 +85,8 @@ def test_fuseki_responde_a_una_consulta_ask(stack: Stack) -> None:
 
 
 def test_el_frontend_responde(stack: Stack) -> None:
-    response = http("GET", f"{stack.frontend}/")
+    # El frontend no declara healthcheck: se espera a que Vite acepte conexiones.
+    response = wait_for_http(f"{stack.frontend}/")
     assert response.status == 200
     assert '<div id="root">' in response.text
 
@@ -118,58 +118,161 @@ def test_la_administracion_de_fuseki_exige_credenciales(stack: Stack) -> None:
         assert http("POST", f"{stack.fuseki}{path}").status == 401, path
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Hallazgo de qa (gravedad alta, dueño: infra): Fuseki acepta escrituras anónimas "
-        "(SPARQL Update y Graph Store) en el dataset, desde el host y desde cualquier "
-        "contenedor de la red. Incumple la regla «solo el backend escribe en el "
-        "triplestore» (Plan.md, sección 1)."
-    ),
-)
+def _basic(username: str, password: str) -> dict[str, str]:
+    value = base64.b64encode(f"{username}:{password}".encode()).decode()
+    return {"Authorization": f"Basic {value}"}
+
+
+def _count_marker(stack: Stack, marker: str) -> int:
+    """Triples con el marcador como sujeto, en cualquier grafo (consulta anónima)."""
+    query = f"SELECT (COUNT(*) AS ?n) WHERE {{ GRAPH ?g {{ <{marker}> ?p ?o }} }}"
+    response = http(
+        "POST",
+        f"{stack.fuseki}/{stack.env['FUSEKI_DATASET']}/sparql",
+        form={"query": query},
+        headers={"Accept": "application/sparql-results+json"},
+    )
+    assert response.status == 200, response.text
+    return int(response.json()["results"]["bindings"][0]["n"]["value"])
+
+
 def test_fuseki_rechaza_escrituras_anonimas(stack: Stack) -> None:
+    """Regla «solo el backend escribe en el triplestore»: sin credenciales no se escribe.
+
+    Además del código de estado, se comprueba que ningún intento ha dejado datos.
+    """
     dataset = stack.env["FUSEKI_DATASET"]
+    base = f"{stack.fuseki}/{dataset}"
     marker = f"urn:qa-e2e:{secrets.token_hex(6)}"
-    update = http(
-        "POST",
-        f"{stack.fuseki}/{dataset}/update",
-        form={"update": f'INSERT DATA {{ GRAPH <{marker}> {{ <{marker}> <{marker}> "qa" }} }}'},
-    )
-    graph_store = http(
-        "POST",
-        f"{stack.fuseki}/{dataset}/data?graph={marker}:gsp",
-        raw_body=f'<{marker}> <{marker}> "gsp" .'.encode(),
-        headers={"Content-Type": "text/turtle"},
-    )
-    # Limpieza por si la escritura ha entrado (el entorno se destruye al terminar igualmente).
-    for graph in (marker, f"{marker}:gsp"):
-        http(
+    insert = f'INSERT DATA {{ GRAPH <{marker}> {{ <{marker}> <{marker}> "qa" }} }}'
+    turtle = f'<{marker}> <{marker}> "gsp" .'.encode()
+    turtle_headers = {"Content-Type": "text/turtle"}
+    update_headers = {"Content-Type": "application/sparql-update"}
+    wrong_password = secrets.token_hex(16)
+
+    attempts = {
+        "update (formulario)": http("POST", f"{base}/update", form={"update": insert}),
+        "update (cuerpo)": http(
+            "POST", f"{base}/update", raw_body=insert.encode(), headers=update_headers
+        ),
+        "update con barra final": http("POST", f"{base}/update/", form={"update": insert}),
+        "update en la raíz del dataset": http("POST", base, form={"update": insert}),
+        "update por el endpoint de consulta": http(
+            "POST", f"{base}/sparql", form={"update": insert}
+        ),
+        "update como consulta": http("POST", f"{base}/query", form={"query": insert}),
+        "gsp POST": http(
+            "POST", f"{base}/data?graph={marker}", raw_body=turtle, headers=turtle_headers
+        ),
+        "gsp PUT": http(
+            "PUT", f"{base}/data?graph={marker}", raw_body=turtle, headers=turtle_headers
+        ),
+        "gsp POST en la raíz": http(
+            "POST", f"{base}?graph={marker}", raw_body=turtle, headers=turtle_headers
+        ),
+        "gsp DELETE": http("DELETE", f"{base}/data?graph={marker}"),
+        "gsp GET": http("GET", f"{base}/data?graph={marker}"),
+        "shacl": http(
+            "POST", f"{base}/shacl?graph=default", raw_body=turtle, headers=turtle_headers
+        ),
+        "update con contraseña mala": http(
             "POST",
-            f"{stack.fuseki}/{dataset}/update",
-            form={"update": f"DROP SILENT GRAPH <{graph}>"},
+            f"{base}/update",
+            form={"update": insert},
+            headers=_basic("admin", wrong_password),
+        ),
+        "update con el valor ficticio de .env.example": http(
+            "POST",
+            f"{base}/update",
+            form={"update": insert},
+            headers=_basic("admin", stack.example_env["FUSEKI_ADMIN_PASSWORD"]),
+        ),
+        "update con el valor de la plantilla shiro.ini": http(
+            "POST",
+            f"{base}/update",
+            form={"update": insert},
+            headers=_basic("admin", "placeholder"),
+        ),
+    }
+    accepted = {name: r.status for name, r in attempts.items() if 200 <= r.status < 300}
+    assert accepted == {}, f"escrituras aceptadas sin credenciales válidas: {accepted}"
+    assert _count_marker(stack, marker) == 0
+    for name in ("update (formulario)", "gsp POST", "gsp PUT", "gsp DELETE", "gsp GET", "shacl"):
+        assert attempts[name].status == 401, f"{name}: {attempts[name].status}"
+
+
+def test_fuseki_admite_consultas_anonimas_y_escrituras_del_admin(stack: Stack) -> None:
+    """La protección no rompe lo que sí debe funcionar: leer sin cuenta y escribir como
+    admin (lo que hará el backend en la fase 2). Deja el dataset como estaba."""
+    dataset = stack.env["FUSEKI_DATASET"]
+    base = f"{stack.fuseki}/{dataset}"
+    marker = f"urn:qa-e2e:{secrets.token_hex(6)}"
+    auth = _basic("admin", stack.env["FUSEKI_ADMIN_PASSWORD"])
+
+    for endpoint in ("sparql", "query"):
+        ask = http(
+            "GET",
+            f"{base}/{endpoint}?query=ASK%20%7B%7D",
+            headers={"Accept": "application/sparql-results+json"},
         )
-    assert update.status in (401, 403), f"SPARQL Update anónimo: {update.status}"
-    assert graph_store.status in (401, 403), f"Graph Store anónimo: {graph_store.status}"
+        assert ask.status == 200, endpoint
+
+    insert = f'INSERT DATA {{ GRAPH <{marker}> {{ <{marker}> <{marker}> "qa" }} }}'
+    written = http("POST", f"{base}/update", form={"update": insert}, headers=auth)
+    assert 200 <= written.status < 300, written.text
+    assert _count_marker(stack, marker) == 1
+
+    dropped = http(
+        "POST", f"{base}/update", form={"update": f"DROP GRAPH <{marker}>"}, headers=auth
+    )
+    assert 200 <= dropped.status < 300, dropped.text
+    assert _count_marker(stack, marker) == 0
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Hallazgo de qa (gravedad media, dueño: infra): el servicio frontend recibe todo el "
-        ".env (`env_file: .env`), incluidos JWT_SECRET, DATABASE_URL y las contraseñas de "
-        "PostgreSQL y Fuseki, que solo necesita el backend."
-    ),
-)
 def test_el_frontend_no_recibe_los_secretos_del_backend(stack: Stack) -> None:
     result = stack.compose("exec", "-T", "frontend", "env")
     assert result.returncode == 0, result.stderr
-    names = {line.partition("=")[0] for line in result.stdout.splitlines()}
+    environment = dict(
+        line.partition("=")[::2] for line in result.stdout.splitlines() if "=" in line
+    )
     backend_only = {"JWT_SECRET", "DATABASE_URL", "POSTGRES_PASSWORD", "FUSEKI_ADMIN_PASSWORD"}
-    assert names & backend_only == set()
+    assert set(environment) & backend_only == set()
+    for name, secret in stack.sensitive.items():
+        assert secret not in result.stdout, f"el entorno del frontend contiene {name}"
+    # Lo que sí necesita: las dos variables públicas, con el valor del entorno.
+    assert environment["VITE_API_BASE_URL"] == stack.env["VITE_API_BASE_URL"]
+    assert environment["VITE_BASE_URI"] == stack.env["VITE_BASE_URI"]
+    assert {name for name in environment if name.startswith("VITE_")} == {
+        "VITE_API_BASE_URL",
+        "VITE_BASE_URI",
+    }
+
+
+def test_env_example_no_trae_un_secreto_jwt_utilizable(stack: Stack) -> None:
+    """Con `cp .env.example .env` sin editar, el backend no arranca: el secreto va vacío."""
+    assert stack.example_env["JWT_SECRET"] == ""
+    assert stack.example_env["VITE_BASE_URI"] == stack.example_env["BASE_URI"]
+
+    result = stack.compose(
+        "run",
+        "--rm",
+        "--no-deps",
+        "-T",
+        "-e",
+        "JWT_SECRET=",
+        "backend",
+        "python",
+        "-c",
+        "from app.config import get_settings; get_settings()",
+    )
+    assert result.returncode != 0, "el backend acepta un JWT_SECRET vacío"
+    assert "JWT_SECRET" in result.stdout + result.stderr
+    for name, secret in stack.sensitive.items():
+        assert secret not in result.stdout + result.stderr, f"el error muestra {name}"
 
 
 def test_vite_no_sirve_al_navegador_variables_sin_prefijo(stack: Stack) -> None:
-    """Aunque el contenedor tenga los secretos, Vite solo expone las variables ``VITE_``."""
+    """Vite solo expone al navegador las variables ``VITE_``, nunca un secreto."""
     for path in ("/src/config.ts", "/src/main.tsx", "/@vite/client", "/.env", "/@fs/app/.env"):
         response = http("GET", f"{stack.frontend}{path}")
         for name, secret in stack.sensitive.items():
@@ -269,24 +372,67 @@ def test_login_fallido_no_distingue_usuario_de_contrasena(stack: Stack, admin: A
     assert "access_token" not in bad_password.text
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Hallazgo de qa (gravedad media, dueño: backend): un byte nulo en `username` hace "
-        "que POST /auth/token devuelva 500 con PostgreSQL (psycopg.DataError), sin "
-        "autenticación y sin dejar rastro en la auditoría. Con SQLite no se reproduce."
-    ),
-)
-def test_login_con_byte_nulo_no_provoca_un_500(stack: Stack, admin: Account) -> None:
-    """PostgreSQL no admite el byte nulo en un texto: debe ser un 4xx, no un error interno."""
-    response = http(
+def test_login_con_byte_nulo_es_el_401_generico(stack: Stack, admin: Account) -> None:
+    """PostgreSQL no admite el byte nulo en un texto (con SQLite no se ve el problema).
+
+    Debe responder el mismo 401 que un usuario inexistente, quedar auditado como
+    ``invalid_username`` y no guardar el valor recibido.
+    """
+    password = secrets.token_hex(8)
+    reference = login(stack, f"e2e-fantasma-{secrets.token_hex(3)}", password)
+    before = int(stack.psql("select count(*) from audit_events")[0])
+
+    bodies = [
+        b"username=admin%00x&password=" + password.encode(),
+        b"username=%00&password=" + password.encode(),
+        admin.username.encode() + b"%00&password=" + password.encode(),
+        b"username=ad%09min%0D%0A&password=" + password.encode(),
+    ]
+    for body in bodies:
+        response = http(
+            "POST",
+            f"{stack.api}/auth/token",
+            raw_body=body if body.startswith(b"username=") else b"username=" + body,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+        assert response.status == 401, f"{response.status}: {response.text[:300]}"
+        assert response.text == reference.text
+
+    # Byte nulo en la contraseña de una cuenta que existe: 401, no un error interno.
+    nul_password = http(
         "POST",
         f"{stack.api}/auth/token",
-        raw_body=b"username=admin%00x&password=" + secrets.token_hex(8).encode(),
+        raw_body=f"username={admin.username}&password=abc%00def".encode(),
         headers={"Content-Type": "application/x-www-form-urlencoded"},
     )
-    assert response.status in (400, 401, 422), f"{response.status}: {response.text[:300]}"
+    assert nul_password.status == 401
+
+    rows = [
+        json.loads(line)
+        for line in stack.psql("select row_to_json(a) from audit_events a order by a.id")
+    ][before:]
+    invalid = [row for row in rows if row["details"].get("reason") == "invalid_username"]
+    assert len(invalid) == len(bodies)
+    for row in invalid:
+        assert row["action"] == "login_failure"
+        assert row["target_username"] is None
+        assert row["target_user_id"] is None
     assert http("GET", f"{stack.api}/health/ready").status == 200
+
+
+def test_alta_con_caracteres_de_control_es_un_422(stack: Stack, admin: Account) -> None:
+    for field, value in (("username", "e2e\u0000nulo"), ("password", "contra\u0000sena-larga")):
+        body = {
+            "username": f"e2e-ctrl-{secrets.token_hex(3)}",
+            "password": secrets.token_urlsafe(24),
+            "role": "miembro",
+            field: value,
+        }
+        response = http("POST", f"{stack.api}/users", json_body=body, token=admin.token)
+        assert response.status == 422, f"{field}: {response.status} {response.text[:200]}"
+        for error in response.json()["detail"]:
+            assert set(error) <= {"type", "loc", "msg"}
+    assert stack.psql("select count(*) from users") == ["1"]
 
 
 def test_auth_me(stack: Stack, admin: Account) -> None:
@@ -310,13 +456,14 @@ def test_tokens_manipulados_o_firmados_con_otro_secreto(stack: Stack, admin: Acc
     flipped = signature[:-2] + ("AA" if not signature.endswith("AA") else "BB")
     assert http("GET", f"{stack.api}/auth/me", token=f"{header}.{payload}.{flipped}").status == 401
 
-    # Mismo contenido, firmado con el secreto ficticio de .env.example: el entorno de
-    # la prueba no lo usa, así que debe rechazarse.
-    placeholder_secret = stack.example_env["JWT_SECRET"]
-    assert placeholder_secret != stack.env["JWT_SECRET"]
-    forged = _sign_hs256(claims, placeholder_secret)
-    assert http("GET", f"{stack.api}/auth/me", token=forged).status == 401
-    assert http("GET", f"{stack.api}/users", token=forged).status == 401
+    # Mismo contenido, firmado con secretos adivinables: el valor de .env.example (vacío),
+    # el antiguo valor ficticio de 64 ceros y otros de relleno. Deben rechazarse todos.
+    guesses = [stack.example_env["JWT_SECRET"], "0" * 64, "0" * 32, "change-me", "secret"]
+    assert stack.env["JWT_SECRET"] not in guesses
+    for guess in guesses:
+        forged = _sign_hs256(claims, guess)
+        assert http("GET", f"{stack.api}/auth/me", token=forged).status == 401
+        assert http("GET", f"{stack.api}/users", token=forged).status == 401
 
     # Sin firma (alg none).
     none_header = _b64(json.dumps({"alg": "none", "typ": "JWT"}).encode())

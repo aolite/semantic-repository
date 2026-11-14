@@ -653,8 +653,8 @@ def test_login_timing_does_not_reveal_accounts(
 
 @pytest.mark.parametrize(
     "username",
-    ["a" * 10_000, "admin'--", "admin' OR '1'='1", '"; DROP TABLE users; --', "ad\tmin", "ñandú"],
-    ids=["largo", "comentario-sql", "or-sql", "drop", "tabulador", "unicode"],
+    ["a" * 10_000, "admin'--", "admin' OR '1'='1", '"; DROP TABLE users; --', "ñandú"],
+    ids=["largo", "comentario-sql", "or-sql", "drop", "unicode"],
 )
 def test_login_with_hostile_username_is_a_plain_401(
     client: TestClient,
@@ -672,6 +672,61 @@ def test_login_with_hostile_username_is_a_plain_401(
     assert event.action == AuditAction.LOGIN_FAILURE
     assert event.target_username == username[:64]
     assert event.target_user_id is None
+
+
+@pytest.mark.parametrize(
+    "username",
+    [
+        "admin\x00",
+        "\x00",
+        "ad\x00min",
+        "ad\tmin",
+        "admin\n",
+        "admin\r\nx",
+        "ad\x1bmin",
+        "ad\x7fmin",
+    ],
+    ids=["nul-final", "solo-nul", "nul-medio", "tabulador", "lf", "crlf", "escape", "del"],
+)
+def test_login_with_control_chars_is_the_generic_401_and_is_not_stored(
+    client: TestClient,
+    make_user: Callable[..., User],
+    session_factory: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+    username: str,
+) -> None:
+    """NUL y demás caracteres de control: mismo 401 que un usuario inexistente.
+
+    PostgreSQL rechaza el NUL en un texto, así que el valor no debe llegar a la consulta
+    ni a la auditoría. La verificación argon2 se ejecuta igualmente (mismo tiempo).
+    """
+    make_user("admin", Role.ADMIN)
+    reference = client.post(
+        "/auth/token", data={"username": "no-existe", "password": DEFAULT_PASSWORD}
+    )
+
+    verified: list[str] = []
+    real_verify = security._password_hash.verify
+
+    def spy(password: str, password_hash: str) -> bool:
+        verified.append(password_hash)
+        return real_verify(password, password_hash)
+
+    monkeypatch.setattr(security._password_hash, "verify", spy)
+    response = client.post("/auth/token", data={"username": username, "password": DEFAULT_PASSWORD})
+
+    assert response.status_code == 401
+    assert response.content == reference.content
+    assert dict(response.headers) == dict(reference.headers)
+    assert len(verified) == 1
+
+    with session_factory() as session:
+        event = list(session.scalars(select(AuditEvent).order_by(AuditEvent.id)))[-1]
+    assert event.action == AuditAction.LOGIN_FAILURE
+    assert event.details == {"reason": "invalid_username"}
+    assert event.target_username is None
+    assert event.target_user_id is None
+    assert event.actor_id is None
 
 
 def test_login_ignores_client_supplied_scope_and_grant(
@@ -712,29 +767,105 @@ def test_login_does_not_accept_credentials_in_the_query_string(
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Hallazgo de qa (gravedad baja, dueño: backend): el 422 de POST /users devuelve la "
-        "contraseña enviada en el campo `input` del error de validación. Al corregirlo, "
-        "esta prueba pasará y habrá que quitar la marca."
-    ),
+SENSITIVE_VALUE = "valor-secreto-que-no-debe-volver"
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "kwargs"),
+    [
+        ("POST", "/users", {"json": {"username": "nuevo", "password": SENSITIVE_VALUE[:11]}}),
+        (
+            "POST",
+            "/users",
+            {"json": {"username": "nuevo", "password": SENSITIVE_VALUE, "role": "lector"}},
+        ),
+        (
+            "POST",
+            "/users",
+            {"json": {"username": "nuevo", "password": SENSITIVE_VALUE + "\x00", "role": "editor"}},
+        ),
+        (
+            "POST",
+            "/users",
+            {
+                "json": {
+                    "username": "nuevo",
+                    "password": SENSITIVE_VALUE,
+                    "role": "editor",
+                    "extra": SENSITIVE_VALUE,
+                }
+            },
+        ),
+        ("POST", "/users", {"json": {"username": "nuevo", "password": {"x": SENSITIVE_VALUE}}}),
+        ("POST", "/users", {"json": {"username": "nuevo", "password": SENSITIVE_VALUE * 20}}),
+        (
+            "POST",
+            "/users",
+            {
+                "content": b'{"username": "nuevo", "password": "' + SENSITIVE_VALUE.encode() + b'"',
+                "headers": {"Content-Type": "application/json"},
+            },
+        ),
+        ("POST", "/users", {"json": [SENSITIVE_VALUE]}),
+        ("PATCH", "/users/{id}", {"json": {"role": SENSITIVE_VALUE}}),
+        ("PATCH", "/users/{id}", {"json": {"password": SENSITIVE_VALUE}}),
+        ("POST", "/auth/token", {"data": {"password": SENSITIVE_VALUE}}),
+        ("POST", "/auth/token", {"json": {"username": "x", "password": SENSITIVE_VALUE}}),
+    ],
+    ids=[
+        "corta",
+        "rol-malo",
+        "nul-en-password",
+        "campo-extra",
+        "password-objeto",
+        "larga",
+        "json-roto",
+        "lista",
+        "patch-rol",
+        "patch-password",
+        "login-sin-usuario",
+        "login-json",
+    ],
 )
-def test_validation_errors_do_not_echo_the_password(
+def test_validation_errors_do_not_echo_the_values_sent(
     client: TestClient,
     make_user: Callable[..., User],
     login: Callable[..., dict[str, str]],
+    method: str,
+    path: str,
+    kwargs: dict[str, Any],
 ) -> None:
-    """Un 422 no devuelve la contraseña enviada (FastAPI incluye ``input`` por defecto)."""
+    """Un 422 solo lleva ``type``, ``loc`` y ``msg``: nunca el valor enviado."""
+    admin = make_user("admin1", Role.ADMIN)
+    headers = {**login("admin1"), **kwargs.pop("headers", {})}
+    response = client.request(method, path.format(id=admin.id), headers=headers, **kwargs)
+    assert response.status_code == 422, response.text
+    assert SENSITIVE_VALUE[:11] not in response.text
+    errors = response.json()["detail"]
+    assert errors
+    for error in errors:
+        assert set(error) <= {"type", "loc", "msg"}, error
+
+
+def test_create_user_rejects_control_chars_in_username_and_password(
+    client: TestClient,
+    make_user: Callable[..., User],
+    login: Callable[..., dict[str, str]],
+    session_factory: sessionmaker[Session],
+) -> None:
     make_user("admin1", Role.ADMIN)
-    secret_value = "corta-pero-secreta"[:11]  # menos de 12 caracteres: no pasa la validación
-    response = client.post(
-        "/users",
-        json={"username": "nuevo", "password": secret_value, "role": "miembro"},
-        headers=login("admin1"),
-    )
-    assert response.status_code == 422
-    assert secret_value not in response.text
+    headers = login("admin1")
+    for field_name, value in [
+        ("username", "nue\x00vo"),
+        ("username", "nuevo\n"),
+        ("password", NEW_PASSWORD + "\x00"),
+        ("password", "con\ttabulador-larga"),
+    ]:
+        body = {"username": "nuevo", "password": NEW_PASSWORD, "role": "miembro", field_name: value}
+        response = client.post("/users", json=body, headers=headers)
+        assert response.status_code == 422, (field_name, value)
+    with session_factory() as session:
+        assert [u.username for u in session.scalars(select(User))] == ["admin1"]
 
 
 # --- La auditoría no guarda contraseñas ni tokens ------------------------------------
