@@ -256,3 +256,48 @@ def test_patch_validation(
     target = make_user("fran")
     response = client.patch(f"/users/{target.id}", json=payload, headers=admin_headers)
     assert response.status_code == 422
+
+
+# --- Entradas con caracteres de control y respuestas 422 ---------------------------------
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"username": "nuevo\x00x", "password": NEW_PASSWORD, "role": "miembro"},
+        {"username": "\x00", "password": NEW_PASSWORD, "role": "miembro"},
+        {"username": "nuevo", "password": NEW_PASSWORD + "\x00", "role": "miembro"},
+        {"username": "nuevo", "password": NEW_PASSWORD + "\x1b", "role": "miembro"},
+    ],
+)
+def test_create_user_with_control_chars_is_rejected(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    session_factory: sessionmaker[Session],
+    payload: dict[str, str],
+) -> None:
+    response = client.post("/users", json=payload, headers=admin_headers)
+    assert response.status_code == 422
+    assert _audit(session_factory, AuditAction.USER_CREATED) == []
+    with session_factory() as session:
+        assert session.scalars(select(User).where(User.username != "admin1")).all() == []
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"username": "corta", "password": "secreto-1", "role": "miembro"},
+        {"username": "Mayusculas", "password": "secreto-que-no-debe-volver", "role": "miembro"},
+        {"username": "nulo\x00", "password": "secreto-que-no-debe-volver", "role": "root"},
+    ],
+)
+def test_validation_errors_never_echo_input(
+    client: TestClient, admin_headers: dict[str, str], payload: dict[str, str]
+) -> None:
+    response = client.post("/users", json=payload, headers=admin_headers)
+    assert response.status_code == 422
+    body = response.json()
+    assert body["detail"], body
+    for error in body["detail"]:
+        assert set(error) == {"type", "loc", "msg"}
+    assert "secreto" not in response.text

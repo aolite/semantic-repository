@@ -1,5 +1,6 @@
 """Hash de contraseñas (argon2id) y emisión/validación de JWT."""
 
+import unicodedata
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -17,6 +18,11 @@ _password_hash = PasswordHash((Argon2Hasher(),))
 _DUMMY_HASH = _password_hash.hash(uuid.uuid4().hex)
 
 PASSWORD_MIN_LENGTH = 12
+
+
+def has_control_chars(value: str) -> bool:
+    """True si contiene NUL u otro carácter de control (categoría Unicode ``Cc``)."""
+    return any(unicodedata.category(char) == "Cc" for char in value)
 
 
 def hash_password(password: str) -> str:

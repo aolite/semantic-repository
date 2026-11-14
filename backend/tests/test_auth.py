@@ -227,3 +227,38 @@ def test_decode_roundtrip(settings: Settings) -> None:
     claims = decode_access_token(settings, token)
     assert claims.user_id == user_id
     assert claims.role is Role.EDITOR
+
+
+# --- Entradas con caracteres de control ------------------------------------------------
+
+
+@pytest.mark.parametrize("username", ["admin\x00x", "\x00", "admin\x1b[0m", "admin\x7f", "a\x85b"])
+def test_login_with_control_chars_is_rejected_and_audited(
+    client: TestClient,
+    make_user: Callable[..., User],
+    session_factory: sessionmaker[Session],
+    username: str,
+) -> None:
+    """NUL rompía la consulta en PostgreSQL (500). Ahora es el 401 genérico, auditado."""
+    make_user("admin", Role.ADMIN)
+    response = client.post("/auth/token", data={"username": username, "password": DEFAULT_PASSWORD})
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Usuario o contraseña incorrectos"}
+    assert response.headers["www-authenticate"] == "Bearer"
+
+    events = _audit(session_factory)
+    assert len(events) == 1
+    assert events[0].action == AuditAction.LOGIN_FAILURE
+    assert events[0].details == {"reason": "invalid_username"}
+    # No se guarda el valor bruto ni se asocia a ninguna cuenta.
+    assert events[0].target_username is None
+    assert events[0].target_user_id is None
+    assert events[0].actor_id is None
+
+
+def test_login_with_control_chars_in_password_fails_cleanly(
+    client: TestClient, make_user: Callable[..., User]
+) -> None:
+    make_user("admin", Role.ADMIN)
+    response = client.post("/auth/token", data={"username": "admin", "password": "x\x00y"})
+    assert response.status_code == 401

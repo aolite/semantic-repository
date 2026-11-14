@@ -4,10 +4,10 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models import Role
-from app.security import PASSWORD_MIN_LENGTH
+from app.security import PASSWORD_MIN_LENGTH, has_control_chars
 
 USERNAME_PATTERN = r"^[a-z0-9][a-z0-9._-]{2,63}$"
 
@@ -39,6 +39,15 @@ class UserCreate(BaseModel):
     )
     password: str = Field(min_length=PASSWORD_MIN_LENGTH, max_length=256)
     role: Role
+
+    @field_validator("username", "password", mode="before")
+    @classmethod
+    def _no_control_chars(cls, value: object) -> object:
+        # Se comprueba antes que el patrón: NUL y demás caracteres de control nunca
+        # llegan a la base de datos (PostgreSQL rechaza NUL en texto).
+        if isinstance(value, str) and has_control_chars(value):
+            raise ValueError("no puede contener caracteres de control")
+        return value
 
 
 class UserUpdate(BaseModel):

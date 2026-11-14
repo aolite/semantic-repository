@@ -21,6 +21,39 @@ def test_jwt_secret_is_required(monkeypatch: pytest.MonkeyPatch) -> None:
         Settings(_env_file=None)  # type: ignore[call-arg]
 
 
+@pytest.mark.parametrize(("algorithm", "minimum"), [("HS256", 32), ("HS384", 48), ("HS512", 64)])
+def test_jwt_secret_minimum_depends_on_algorithm(
+    monkeypatch: pytest.MonkeyPatch, algorithm: str, minimum: int
+) -> None:
+    with pytest.raises(ValidationError, match=f"al menos {minimum} bytes"):
+        _settings(monkeypatch, JWT_ALGORITHM=algorithm, JWT_SECRET="x" * (minimum - 1))
+    settings = _settings(monkeypatch, JWT_ALGORITHM=algorithm, JWT_SECRET="x" * minimum)
+    assert settings.jwt_algorithm == algorithm
+
+
+def test_jwt_secret_length_is_measured_in_bytes(monkeypatch: pytest.MonkeyPatch) -> None:
+    # 16 caracteres de 2 bytes = 32 bytes: suficiente para HS256.
+    _settings(monkeypatch, JWT_ALGORITHM="HS256", JWT_SECRET="ñ" * 16)
+    with pytest.raises(ValidationError, match="jwt_secret"):
+        _settings(monkeypatch, JWT_ALGORITHM="HS256", JWT_SECRET="ñ" * 15)
+
+
+def test_short_secret_error_names_variable_without_value(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    secret = "y" * 40  # válido para HS256, corto para HS512
+    monkeypatch.setenv("JWT_ALGORITHM", "HS512")
+    monkeypatch.setenv("JWT_SECRET", secret)
+    monkeypatch.chdir(tmp_path)
+    get_settings.cache_clear()
+    try:
+        with pytest.raises(ConfigurationError, match="JWT_SECRET") as exc_info:
+            get_settings()
+        assert secret not in str(exc_info.value)
+    finally:
+        get_settings.cache_clear()
+
+
 def test_jwt_secret_too_short_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(ValidationError, match="jwt_secret"):
         _settings(monkeypatch, JWT_SECRET="corto")

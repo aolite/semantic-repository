@@ -38,7 +38,7 @@ Se leen del entorno o de un fichero `backend/.env` (que no se versiona). Los val
 | `DATABASE_URL` | **sí** | — | PostgreSQL de usuarios y auditoría, p. ej. `postgresql+psycopg://itot:changeme@postgres:5432/itot` |
 | `FUSEKI_URL` | no | `http://fuseki:3030` | Fuseki. En la fase 1 solo lo usa `/health/ready` |
 | `FUSEKI_DATASET` | no | `itot` | Dataset de Fuseki que comprueba `/health/ready` |
-| `JWT_SECRET` | **sí** | — | Secreto HMAC para firmar los JWT. Mínimo 32 caracteres. Sin él la API no arranca. Genera uno con `python -c "import secrets; print(secrets.token_urlsafe(48))"` |
+| `JWT_SECRET` | **sí** | — | Secreto HMAC para firmar los JWT. Longitud mínima según el algoritmo: 32 bytes con HS256, 48 con HS384 y 64 con HS512. Sin él la API no arranca. Genera uno con `python -c "import secrets; print(secrets.token_urlsafe(64))"` (vale para los tres) |
 | `JWT_ALGORITHM` | no | `HS256` | `HS256`, `HS384` o `HS512` |
 | `JWT_EXPIRE_MINUTES` | no | `60` | Validez del token |
 | `CORS_ORIGINS` | no | vacío (sin CORS) | Orígenes permitidos separados por comas; en local, `http://localhost:5173` |
@@ -91,8 +91,10 @@ Un admin no puede quitarse el rol de admin ni darse de baja a sí mismo (409), p
 
 ## Contraseñas y auditoría
 
-- Contraseñas con argon2id (`pwdlib`). Mínimo 12 caracteres. Nunca se devuelven ni se registran.
-- El login responde igual (401, mismo mensaje) si el usuario no existe, la contraseña es incorrecta o la cuenta está de baja.
+- Contraseñas con argon2id (`pwdlib`). Mínimo 12 caracteres, sin caracteres de control. Nunca se devuelven ni se registran.
+- El login responde igual (401, mismo mensaje) si el usuario no existe, la contraseña es incorrecta, la cuenta está de baja o el nombre de usuario contiene caracteres de control (NUL incluido). En este último caso no se consulta la base de datos y la auditoría registra el motivo `invalid_username` sin guardar el valor enviado.
+- Los nombres de usuario y las contraseñas con caracteres de control se rechazan en `POST /users` con 422.
+- Las respuestas 422 siguen el formato de FastAPI (`detail` con `type`, `loc` y `msg`), pero nunca devuelven el valor enviado (`input`) ni el contexto (`ctx`), para no reflejar contraseñas.
 - La tabla `audit_events` registra `login_success`, `login_failure` (con el motivo), `user_created`, `role_changed` (rol anterior y nuevo), `user_deactivated` y `user_reactivated`, con quién (`actor_*`), sobre quién (`target_*`) y cuándo (`occurred_at`, UTC). Las altas por CLI quedan con `actor_username = "cli"`.
 
 ## Primer admin (CLI)

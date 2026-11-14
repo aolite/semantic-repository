@@ -1,6 +1,6 @@
 """Login OAuth2 (password) y datos del usuario autenticado."""
 
-from typing import Annotated
+from typing import Annotated, NoReturn
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
@@ -10,7 +10,7 @@ from app import audit
 from app.deps import CurrentUser, DbDep, SettingsDep
 from app.models import AuditAction, User
 from app.schemas import Token, UserRead
-from app.security import create_access_token, verify_password
+from app.security import create_access_token, has_control_chars, verify_password
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -29,21 +29,12 @@ def login(
     db: DbDep,
     settings: SettingsDep,
 ) -> Token:
-    user = db.scalars(select(User).where(User.username == form.username)).one_or_none()
-    password_ok = verify_password(form.password, user.password_hash if user else None)
-
-    if user is None or not password_ok or not user.is_active:
-        if user is None:
-            reason = "unknown_user"
-        elif not password_ok:
-            reason = "bad_password"
-        else:
-            reason = "inactive_user"
+    def reject(reason: str, user: User | None = None, attempted: str | None = None) -> NoReturn:
         audit.record(
             db,
             AuditAction.LOGIN_FAILURE,
             target=user,
-            target_username=form.username[:_AUDIT_USERNAME_MAX],
+            target_username=attempted,
             details={"reason": reason},
         )
         db.commit()
@@ -53,6 +44,23 @@ def login(
             detail="Usuario o contraseña incorrectos",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    if has_control_chars(form.username):
+        # NUL y otros caracteres de control: PostgreSQL los rechaza y no pueden formar
+        # parte de un nombre válido. Se descarta sin consultar la BD y sin guardar el
+        # valor bruto en auditoría. Se gasta el mismo tiempo que en un login normal.
+        verify_password(form.password, None)
+        reject("invalid_username")
+
+    user = db.scalars(select(User).where(User.username == form.username)).one_or_none()
+    password_ok = verify_password(form.password, user.password_hash if user else None)
+
+    if user is None:
+        reject("unknown_user", attempted=form.username[:_AUDIT_USERNAME_MAX])
+    if not password_ok:
+        reject("bad_password", user=user)
+    if not user.is_active:
+        reject("inactive_user", user=user)
 
     token, expires_in = create_access_token(
         settings, user_id=user.id, username=user.username, role=user.role
