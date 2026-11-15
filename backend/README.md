@@ -94,7 +94,10 @@ El contrato completo está en [`openapi.json`](openapi.json). Los campos siguen 
 
 ### Ingesta (`POST /datasets` y `load-semantic`)
 
+0. **Autenticación primero:** el token y el rol (editor o admin) se comprueban antes de mirar el `Content-Type` o leer el cuerpo. Un anónimo recibe 401 y un miembro 403, nunca 413 ni 415.
 1. **Análisis**, con las IRIs relativas resueltas contra `BASE_URI`. En JSON-LD se rechazan los contextos remotos (`@context` con URL o `@import`) para que el servidor no descargue documentos externos.
+   - **Anidamiento máximo: 64 niveles**, tanto de JSON en JSON-LD como de cadenas de nodos en blanco anidados (`[ p [ p … ] ]`) en cualquier formato; las listas RDF (`rdf:rest`) no cuentan. Un DCAT-AP real usa unos pocos niveles, y el límite queda lejos de la recursión de Python (1000) que usan analizadores y serializadores. Si se supera, 422 `syntax` (también si el analizador agota la recursión).
+   - **IRIs válidas:** toda IRI del grafo (sujeto, predicado, objeto o tipo de dato de un literal) es absoluta y no contiene los caracteres que excluye la producción `IRIREF` de Turtle/N-Triples/SPARQL (espacio, controles, `<>"{}|^`` ` ``\`). Si no, 422 `uri` con la IRI en el `issue`, antes de SHACL y de escribir nada.
 2. **Estructura y URIs** (`semantic/uris.md`): exactamente una `dcat:DatasetSeries` con URI `{BASE_URI}dataset/{slug}`; cada `dcat:Dataset` es `{serie}/{version}`, con `dcat:inSeries` hacia la serie y `dcat:version` igual al último segmento; cada distribución cuelga de su versión. Todo sujeto con IRI cuelga de `BASE_URI` y, en concreto, de la serie o de `{BASE_URI}actividad/`: una ingesta no puede reescribir otra serie, el vocabulario ni el catálogo.
 3. **SHACL** con pyshacl: todas las formas de `SEMANTIC_DIR/shapes/*.ttl` y, como grafo de soporte, `SEMANTIC_DIR/data/vocab-minimo.ttl`. Sin inferencia y sin la ontología DCAT.
 4. **Guardado** en el grafo con nombre `{BASE_URI}dataset/{slug}`.
@@ -113,7 +116,10 @@ Si falla un paso, la respuesta es 422 con `kind` (`syntax`, `structure`, `uri` o
 | `{BASE_URI}vocab/` | `data/vocab-minimo.ttl` (esquemas de dominio, temas y tipos de dataset) [PROPUESTA] |
 | `{BASE_URI}catalogo` | `data/catalogo.ttl` (el `dcat:Catalog`) |
 
-Las consultas usan siempre `GRAPH ?g`, así que no dependen de `tdb2:unionDefaultGraph`.
+La lectura solo consulta grafos publicados a propósito, nombrados en cada patrón `GRAPH`, así que no depende de `tdb2:unionDefaultGraph`:
+
+- **Series:** el grafo de una serie es su propia URI (`GRAPH ?s { ?s a dcat:DatasetSeries }`, bajo `{BASE_URI}dataset/`). Una serie guardada en cualquier otro grafo (otro nombre o el grafo de otra serie) no aparece ni en el listado ni en la ficha.
+- **Vocabulario:** las etiquetas y el esquema de los temas y de los dominios se leen solo del grafo `{BASE_URI}vocab/` (parámetro `$vocab`, IRI escapada). Un tema que apunte a un recurso descrito en otro grafo no expone sus etiquetas: aparece con `label` y `scheme` a `null`.
 
 ### SPARQL seguro
 

@@ -35,8 +35,15 @@ RDF_BODY_SCHEMA = {"type": "string", "description": "RDF serializado"}
 NOT_FOUND = {"model": schemas.ErrorResponse, "description": "La serie o la versión no existe"}
 
 
-async def read_rdf_body(request: Request, settings: SettingsDep) -> tuple[bytes, ingest.RdfFormat]:
-    """Lee el cuerpo con límite de tamaño y deduce el formato de ``Content-Type``."""
+async def read_rdf_body(
+    request: Request, settings: SettingsDep, _editor: EditorUser
+) -> tuple[bytes, ingest.RdfFormat]:
+    """Lee el cuerpo con límite de tamaño y deduce el formato de ``Content-Type``.
+
+    Depende de ``EditorUser``: autenticación y rol se comprueban **antes** de mirar el
+    ``Content-Type`` o leer un solo byte del cuerpo (QA-G2-03). Un anónimo recibe 401 y
+    un miembro 403, sin que el servidor lea hasta ``INGEST_MAX_BYTES``.
+    """
     content_type = request.headers.get("content-type", "").split(";")[0].strip().lower()
     rdf_format = INGEST_MEDIA_TYPES.get(content_type)
     if rdf_format is None:
@@ -111,8 +118,8 @@ def _ingest_error(exc: ingest.IngestError) -> JSONResponse:
     },
 )
 def create_dataset(
+    editor: EditorUser,  # primero: autenticación y rol antes que el cuerpo
     body: Annotated[tuple[bytes, ingest.RdfFormat], Depends(read_rdf_body)],
-    editor: EditorUser,
     db: DbDep,
     store: StoreDep,
     uris: UrisDep,

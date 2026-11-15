@@ -19,6 +19,7 @@ Flujo (compartido por ``POST /datasets`` y ``python -m app.cli load-semantic``):
 """
 
 import json
+import re
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
@@ -45,6 +46,12 @@ VOCAB_FILE = Path("data") / "vocab-minimo.ttl"
 CATALOG_FILE = Path("data") / "catalogo.ttl"
 SYNTHETIC_DIR = Path("data") / "sintetico"
 SHAPES_DIR = Path("shapes")
+
+# Anidamiento máximo admitido en la ingesta: niveles de JSON en JSON-LD y cadenas de
+# nodos en blanco anidados en cualquier formato. Un dataset DCAT-AP real usa unos pocos
+# niveles (versión -> distribución -> procedencia); 64 deja mucho margen y queda lejos del
+# límite de recursión de Python (1000) que usan los analizadores y serializadores.
+MAX_NESTING_DEPTH = 64
 
 
 @dataclass
@@ -115,6 +122,30 @@ def _context_has_reference(context: Any) -> bool:
     return False
 
 
+def _json_depth_exceeds(document: Any, limit: int) -> bool:
+    """¿Supera el documento ``limit`` niveles de anidamiento? Iterativo, sin recursión."""
+    stack: list[tuple[Any, int]] = [(document, 1)]
+    while stack:
+        value, depth = stack.pop()
+        if isinstance(value, dict):
+            children = value.values()
+        elif isinstance(value, list):
+            children = value
+        else:
+            continue
+        if depth > limit:
+            return True
+        stack.extend((child, depth + 1) for child in children)
+    return False
+
+
+def _too_deep() -> IngestError:
+    return IngestError(
+        "syntax",
+        f"El RDF supera el anidamiento máximo de {MAX_NESTING_DEPTH} niveles",
+    )
+
+
 def parse_rdf(data: bytes, rdf_format: RdfFormat, base_uri: str) -> Graph:
     try:
         text = data.decode("utf-8")
@@ -127,6 +158,10 @@ def parse_rdf(data: bytes, rdf_format: RdfFormat, base_uri: str) -> Graph:
             raise IngestError(
                 "syntax", f"JSON-LD no válido: {exc.msg} (línea {exc.lineno})"
             ) from exc
+        except RecursionError as exc:
+            raise _too_deep() from exc
+        if _json_depth_exceeds(document, MAX_NESTING_DEPTH):
+            raise _too_deep()
         if _remote_context(document):
             raise IngestError(
                 "syntax",
@@ -136,11 +171,76 @@ def parse_rdf(data: bytes, rdf_format: RdfFormat, base_uri: str) -> Graph:
     graph = Graph()
     try:
         graph.parse(data=text, format=rdf_format, publicID=base_uri)
+    except RecursionError as exc:
+        raise _too_deep() from exc
     except Exception as exc:
         raise IngestError("syntax", f"RDF no válido ({rdf_format}): {_short(exc)}") from exc
     if len(graph) == 0:
         raise IngestError("syntax", "El RDF está vacío")
+    check_terms(graph)
     return graph
+
+
+def check_terms(graph: Graph) -> None:
+    """IRIs válidas y anidamiento de nodos en blanco acotado (QA-G2-01 y QA-G2-02).
+
+    - Toda IRI del grafo (sujeto, predicado, objeto o tipo de dato de un literal) debe ser
+      absoluta y no contener los caracteres que excluyen la producción IRIREF de
+      Turtle/N-Triples/SPARQL (espacio, controles, ``<>"{}|^`\\``). rdflib las deja pasar
+      al analizar, pero después rompen el N-Triples que se envía a Fuseki o la lectura.
+    - Una cadena de nodos en blanco anidados (cada uno referenciado una sola vez, como
+      ``[ p [ p [ … ] ] ]``) no puede superar ``MAX_NESTING_DEPTH`` niveles: los
+      serializadores los anidan de forma recursiva al devolver el RDF. Las listas RDF
+      (``rdf:rest``) no cuentan como anidamiento.
+    """
+    bad: dict[str, Issue] = {}
+    for triple in graph:
+        for position, term in zip(("sujeto", "predicado", "objeto"), triple, strict=True):
+            candidates = [term]
+            if isinstance(term, RdfLiteral) and term.datatype is not None:
+                candidates = [term.datatype]
+            for candidate in candidates:
+                if isinstance(candidate, URIRef) and not _valid_iri(str(candidate)):
+                    key = str(candidate)
+                    bad.setdefault(
+                        key,
+                        Issue(
+                            "IRI no válida: debe ser absoluta y no puede contener espacios, "
+                            'caracteres de control ni <>"{}|^`\\',
+                            focus_node=None if position == "sujeto" else _node_text(triple[0]),
+                            value=repr(key)[1:-1],
+                        ),
+                    )
+    if bad:
+        raise IngestError("uri", "Hay IRIs no válidas", list(bad.values()))
+
+    # Padre único de cada nodo en blanco que solo aparece una vez como objeto.
+    parents: dict[BNode, Any] = {}
+    seen_twice: set[BNode] = set()
+    for subject, predicate, obj in graph:
+        if isinstance(obj, BNode) and predicate != RDF.rest:
+            if obj in parents:
+                seen_twice.add(obj)
+            parents[obj] = subject
+    for node in seen_twice:
+        parents.pop(node, None)
+    for start in parents:
+        depth, node = 0, start
+        visited: set[Any] = set()
+        while isinstance(node, BNode) and node in parents and node not in visited:
+            visited.add(node)  # un ciclo de nodos en blanco no es anidamiento infinito
+            depth += 1
+            if depth > MAX_NESTING_DEPTH:
+                raise _too_deep()
+            node = parents[node]
+
+
+_IRI_FORBIDDEN = re.compile(r'[<>"{}|^`\\\x00-\x20\x7f]')
+_IRI_SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.\-]*:")
+
+
+def _valid_iri(value: str) -> bool:
+    return bool(_IRI_SCHEME.match(value)) and not _IRI_FORBIDDEN.search(value)
 
 
 def _short(exc: Exception, limit: int = 300) -> str:
@@ -322,6 +422,7 @@ def validate_shacl(graph: Graph, semantic_dir: Path, base_uri: str) -> None:
 
 def validate_plain(graph: Graph, semantic_dir: Path, base_uri: str) -> None:
     """SHACL sobre un grafo que no es una serie (vocabulario, catálogo)."""
+    check_terms(graph)
     validate_shacl(graph, semantic_dir, base_uri)
 
 
@@ -329,6 +430,8 @@ def validate_plain(graph: Graph, semantic_dir: Path, base_uri: str) -> None:
 
 
 def prepare_series(graph: Graph, uris: Uris, semantic_dir: Path) -> PreparedSeries:
+    check_terms(graph)  # antes que la estructura y SHACL (también si el grafo no viene
+    # de parse_rdf, como en las pruebas o en un uso futuro)
     prepared = check_structure(graph, uris)
     validate_shacl(graph, semantic_dir, uris.base)
     return prepared
@@ -368,6 +471,7 @@ def parse_file(path: Path, base_uri: str) -> Graph:
         graph.parse(path, format="turtle", publicID=base_uri)
     except Exception as exc:
         raise IngestError("syntax", f"{path.name}: Turtle no válido: {_short(exc)}") from exc
+    check_terms(graph)
     return graph
 
 

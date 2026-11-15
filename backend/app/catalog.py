@@ -44,6 +44,13 @@ PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
 
 # Proyección para las tarjetas. Cada rama de la UNION trae un tipo de triple, sin
 # productos cartesianos entre propiedades multivaluadas.
+#
+# Solo se leen grafos publicados a propósito (QA-G2-04):
+# - Grafos de serie: el grafo con nombre de una serie es su propia URI
+#   (``GRAPH ?s { ?s a dcat:DatasetSeries }``), bajo ``{BASE_URI}dataset/``. Una serie
+#   guardada en cualquier otro grafo no aparece.
+# - Grafo del vocabulario (``$vocab``): de ahí, y solo de ahí, salen las etiquetas de
+#   temas y dominios.
 CATALOG_QUERY = (
     PREFIXES
     + """CONSTRUCT {
@@ -54,27 +61,27 @@ CATALOG_QUERY = (
   ?sch skos:prefLabel ?schl .
 } WHERE {
   {
-    GRAPH ?g { ?s a dcat:DatasetSeries ; ?sp ?so . }
+    GRAPH ?s { ?s a dcat:DatasetSeries ; ?sp ?so . }
     VALUES ?sp { dct:title dct:description dcat:last dct:type }
     FILTER(STRSTARTS(STR(?s), $dataset_ns))
   } UNION {
-    GRAPH ?g { ?v a dcat:Dataset ; dcat:inSeries ?vs ; ?vp ?vo . }
+    GRAPH ?vs { ?vs a dcat:DatasetSeries . ?v a dcat:Dataset ; dcat:inSeries ?vs ; ?vp ?vo . }
     VALUES ?vp { rdf:type dcat:inSeries dcat:version dct:title dct:description
                  dct:accessRights dcat:theme dct:type dcat:distribution }
     FILTER(STRSTARTS(STR(?vs), $dataset_ns))
   } UNION {
-    GRAPH ?g { ?dv dcat:inSeries ?ds ; dcat:distribution ?d . ?d ?dp ?do . }
+    GRAPH ?ds { ?ds a dcat:DatasetSeries . ?dv dcat:inSeries ?ds ; dcat:distribution ?d .
+                ?d ?dp ?do . }
     VALUES ?dp { dcat:mediaType dct:title }
     FILTER(STRSTARTS(STR(?ds), $dataset_ns))
   } UNION {
-    GRAPH ?g { ?tv dcat:inSeries ?ts ; dcat:theme ?c . }
-    GRAPH ?g2 { ?c ?cp ?co . }
+    GRAPH ?ts { ?ts a dcat:DatasetSeries . ?tv dcat:inSeries ?ts ; dcat:theme ?c . }
+    GRAPH $vocab { ?c ?cp ?co . }
     VALUES ?cp { skos:prefLabel skos:altLabel skos:inScheme }
     FILTER(STRSTARTS(STR(?ts), $dataset_ns))
   } UNION {
-    GRAPH ?g { ?lv dcat:inSeries ?ls ; dcat:theme ?lc . }
-    GRAPH ?g2 { ?lc skos:inScheme ?sch . }
-    GRAPH ?g3 { ?sch skos:prefLabel ?schl . }
+    GRAPH ?ls { ?ls a dcat:DatasetSeries . ?lv dcat:inSeries ?ls ; dcat:theme ?lc . }
+    GRAPH $vocab { ?lc skos:inScheme ?sch . ?sch skos:prefLabel ?schl . }
     FILTER(STRSTARTS(STR(?ls), $dataset_ns))
   }
 }"""
@@ -90,12 +97,11 @@ THEME_LABELS_QUERY = (
 } WHERE {
   {
     GRAPH $graph { ?v dcat:theme ?c . }
-    GRAPH ?g2 { ?c ?cp ?co . }
+    GRAPH $vocab { ?c ?cp ?co . }
     VALUES ?cp { skos:prefLabel skos:altLabel skos:inScheme }
   } UNION {
     GRAPH $graph { ?v dcat:theme ?c . }
-    GRAPH ?g2 { ?c skos:inScheme ?sch . }
-    GRAPH ?g3 { ?sch skos:prefLabel ?schl . }
+    GRAPH $vocab { ?c skos:inScheme ?sch . ?sch skos:prefLabel ?schl . }
   }
 }"""
 )
@@ -355,7 +361,9 @@ def list_datasets(
     page: int = 1,
     page_size: int = 20,
 ) -> schemas.DatasetPage:
-    graph = store.construct(render(CATALOG_QUERY, dataset_ns=literal(uris.dataset_ns)))
+    graph = store.construct(
+        render(CATALOG_QUERY, dataset_ns=literal(uris.dataset_ns), vocab=iri(uris.vocab_graph))
+    )
     cards: list[schemas.DatasetCard] = []
     for node in sorted_nodes(graph.subjects(RDF.type, DCAT.DatasetSeries)):
         if not isinstance(node, URIRef):
@@ -390,7 +398,9 @@ def load_series(store: TripleStore, uris: Uris, slug: str) -> SeriesView:
     node = URIRef(uris.series(slug))
     if (node, RDF.type, DCAT.DatasetSeries) not in graph:
         raise NotFoundError(slug)
-    labels = store.construct(render(THEME_LABELS_QUERY, graph=iri(uris.series(slug))))
+    labels = store.construct(
+        render(THEME_LABELS_QUERY, graph=iri(uris.series(slug)), vocab=iri(uris.vocab_graph))
+    )
     for triple in labels:
         graph.add(triple)
     return SeriesView(graph, node, uris)

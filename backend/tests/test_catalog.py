@@ -9,12 +9,13 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-from rdflib import Graph, URIRef
+from rdflib import Graph, Literal, URIRef
 from rdflib.compare import isomorphic
 
 from app import ingest
+from app.models import Role
 from app.triplestore import MemoryStore
-from app.uris import Uris
+from app.uris import SKOS, Uris
 from tests.conftest import BASE_URI, REPO_SEMANTIC_DIR
 
 MODBUS = f"{BASE_URI}dataset/modbus-tcp-testbed"
@@ -359,6 +360,90 @@ def test_rdf_not_found(api: TestClient) -> None:
 
 
 # --- Errores del triplestore ----------------------------------------------------------
+
+
+# --- QA-G2-04: solo grafos publicados ---------------------------------------------------
+
+PRIVATE_GRAPH = f"{BASE_URI}privado/borrador"
+PUBLIC = "http://publications.europa.eu/resource/authority/access-right/PUBLIC"
+SECRET = "Texto de un grafo no publicado"
+HIDDEN_SERIES = """
+@prefix dcat: <http://www.w3.org/ns/dcat#> .
+@prefix dct:  <http://purl.org/dc/terms/> .
+<dataset/oculta> a dcat:DatasetSeries ; dct:title "TEXTO"@es ; dct:description "d"@es ;
+    dcat:last <dataset/oculta/1.0.0> .
+<dataset/oculta/1.0.0> a dcat:Dataset ; dct:title "TEXTO"@es ; dct:description "d"@es ;
+    dcat:version "1.0.0" ; dcat:inSeries <dataset/oculta> .
+""".replace("TEXTO", SECRET)
+
+
+def _public_text(client: TestClient) -> str:
+    parts = [client.get("/datasets", params={"page_size": 100}).text]
+    for slug in ("modbus-tcp-testbed", "hallazgos-auditorias-intrusion", "oculta", "prueba"):
+        parts.append(client.get(f"/datasets/{slug}").text)
+        parts.append(client.get(f"/datasets/{slug}/rdf").text)
+    return "\n".join(parts)
+
+
+def test_series_outside_its_own_graph_is_not_read(
+    api: TestClient, loaded_store: MemoryStore
+) -> None:
+    hidden = Graph().parse(data=HIDDEN_SERIES, format="turtle", publicID=BASE_URI)
+    loaded_store.put_graph(PRIVATE_GRAPH, hidden)
+    # También en el grafo de OTRA serie publicada: no es el suyo.
+    loaded_store.put_graph(f"{BASE_URI}dataset/otra", hidden)
+    assert api.get("/datasets").json()["total"] == 3
+    assert api.get("/datasets/oculta").status_code == 404
+    assert api.get("/dataset/oculta").status_code == 404
+    assert SECRET not in _public_text(api)
+
+
+def test_theme_labels_come_only_from_the_vocabulary_graph(
+    api: TestClient, loaded_store: MemoryStore, editor_headers_factory
+) -> None:
+    hidden = URIRef(f"{BASE_URI}interno/recurso")
+    private = Graph()
+    private.add((hidden, SKOS.prefLabel, Literal(SECRET, lang="es")))
+    private.add((hidden, SKOS.inScheme, URIRef(f"{BASE_URI}vocab/ot")))
+    loaded_store.put_graph(PRIVATE_GRAPH, private)
+    series = (
+        "@prefix dcat: <http://www.w3.org/ns/dcat#> .\n"
+        "@prefix dct: <http://purl.org/dc/terms/> .\n"
+        '<dataset/prueba> a dcat:DatasetSeries ; dct:title "P"@es ; dct:description "d"@es ;\n'
+        "    dcat:last <dataset/prueba/1.0.0> .\n"
+        '<dataset/prueba/1.0.0> a dcat:Dataset ; dct:title "P"@es ; dct:description "d"@es ;\n'
+        '    dcat:version "1.0.0" ; dcat:inSeries <dataset/prueba> ;\n'
+        f"    dct:accessRights <{PUBLIC}> ;\n"
+        f"    dcat:theme <{hidden}> .\n"
+    )
+    response = api.post(
+        "/datasets", content=series.encode(), headers=editor_headers_factory() | TURTLE_CT
+    )
+    assert response.status_code == 201, response.text
+    assert SECRET not in _public_text(api)
+    assert api.get("/datasets", params={"q": SECRET}).json()["total"] == 0
+    card = next(c for c in api.get("/datasets").json()["items"] if c["slug"] == "prueba")
+    assert card["themes"] == [{"uri": str(hidden), "label": None, "scheme": None}]
+    assert card["domain"] is None  # el inScheme del grafo privado tampoco cuenta
+
+
+def test_read_queries_name_their_graphs(api: TestClient, loaded_store: MemoryStore) -> None:
+    api.get("/datasets")
+    api.get("/datasets/modbus-tcp-testbed")
+    for query in loaded_store.queries:
+        assert "GRAPH ?g " not in query and "GRAPH ?g2" not in query and "GRAPH ?g3" not in query
+
+
+TURTLE_CT = {"Content-Type": "text/turtle"}
+
+
+@pytest.fixture
+def editor_headers_factory(make_user, login):
+    def _factory() -> dict[str, str]:
+        make_user("editora", Role.EDITOR)
+        return login("editora")
+
+    return _factory
 
 
 def test_triplestore_down_gives_503(client: TestClient) -> None:
