@@ -31,3 +31,14 @@ Cada decisión se guarda en un fichero `NNNN-titulo-corto.md` con las secciones 
 | [0023](0023-responsable-de-esquema-corporativo-placeholder.md) | Responsable de esquema corporativo como placeholder | Aceptada | 2026-11-15 |
 | [0024](0024-vocabularios-corporativos-bajo-base-uri.md) | Vocabularios corporativos bajo `BASE_URI` | Aceptada | 2026-11-15 |
 | [0025](0025-publicacion-por-release-de-github.md) | Publicación por Release de GitHub | Aceptada | 2026-11-15 |
+| [0026](0026-login-y-revocacion-de-tokens.md) | Límite de intentos de login y revocación de tokens | Aceptada | 2026-11-15 |
+| [0027](0027-versiones-inmutables.md) | Versiones inmutables | Aceptada | 2026-11-15 |
+| [0028](0028-busqueda-por-uri-y-303-al-html.md) | Búsqueda por URI y 303 al HTML en las URIs persistentes | Aceptada | 2026-11-15 |
+| [0029](0029-playwright-para-pruebas-de-pantallas.md) | Playwright para las pruebas de pantallas | Aceptada | 2026-11-15 |
+| [0030](0030-excepcion-de-trivy-con-caducidad.md) | Excepción de Trivy con caducidad | Aceptada | 2026-11-15 |
+| [0031](0031-acceso-a-distribuciones-y-defensa.md) | Acceso a distribuciones y `NON_PUBLIC` como defensa | Aceptada | 2026-11-15 |
+| [0032](0032-ficheros-de-distribucion-sinteticos.md) | Ficheros de distribución sintéticos | Aceptada | 2026-11-15 |
+| [0033](0033-sparql-publico-con-limites.md) | SPARQL público de solo lectura con límites | Aceptada | 2026-11-15 |
+| [0034](0034-consultas-guardadas.md) | Consultas guardadas | Aceptada | 2026-11-15 |
+| [0035](0035-correccion-de-itot-1-2-0.md) | Corrección de itot 1.2.0 | Aceptada | 2026-11-15 |
+| [0036](0036-nivel-fair-de-f-uji.md) | Nivel FAIR: el que devuelve F-UJI | Aceptada | 2026-11-15 |
