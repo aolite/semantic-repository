@@ -52,11 +52,8 @@ export function CatalogPage() {
   const [type, setType] = useState<TypeFilter>('all')
   const q = useDebouncedValue(query.trim(), SEARCH_DEBOUNCE_MS)
 
-  // Las tarjetas de `/vocabularies` no traen dominio: con un dominio elegido no se pueden filtrar
-  // y no se muestran (se avisa debajo de los filtros).
   const fetchesDatasets = type !== 'vocab'
-  const fetchesVocabularies = type !== 'dataset' && domain === 'all'
-  const vocabHiddenByDomain = type !== 'dataset' && domain !== 'all'
+  const fetchesVocabularies = type !== 'dataset'
 
   const loader = useCallback(
     async (signal: AbortSignal): Promise<CatalogResult> => {
@@ -64,7 +61,9 @@ export function CatalogPage() {
         fetchesDatasets
           ? listDatasets({ q, domain: domain === 'all' ? undefined : domain, pageSize: PAGE_SIZE }, signal)
           : null,
-        fetchesVocabularies ? listVocabularies({ q }, signal) : null,
+        fetchesVocabularies
+          ? listVocabularies({ q, domain: domain === 'all' ? undefined : domain }, signal)
+          : null,
       ])
       return { datasets, vocabularies }
     },
@@ -139,11 +138,6 @@ export function CatalogPage() {
             ))}
           </div>
         </div>
-        {vocabHiddenByDomain && (
-          <p className="catalog__note" role="note">
-            Los vocabularios y ontologías no se filtran por dominio todavía: elige «Todos los dominios» para verlos.
-          </p>
-        )}
       </div>
 
       <div className="section-bar">

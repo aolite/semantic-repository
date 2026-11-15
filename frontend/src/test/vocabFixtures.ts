@@ -30,6 +30,7 @@ export function vocabCardFixture(overrides: Partial<VocabularyCard> = {}): Vocab
     version: '1.2.0',
     metrics: { classes: 13, properties: 7 },
     concepts: null,
+    domain: null,
     synthetic: false,
     ...overrides,
   }
@@ -76,6 +77,7 @@ export function vocabCardsFixture(): VocabularyCard[] {
       version: '1.0',
       metrics: null,
       concepts: 6,
+      domain: { slug: 'ot', uri: `${BASE}vocab/dominio/ot`, label: 'Dominio de prueba' },
       synthetic: true,
     }),
   ]
@@ -204,19 +206,26 @@ export function ontologyFixture(overrides: Partial<OntologyDetail> = {}): Ontolo
 
 const SCHEME = `${BASE}vocab/esq-prueba`
 
-function node(slug: string, label: string, children: ConceptNode[] = [], top = false): ConceptNode {
-  return { uri: `${SCHEME}/${slug}`, slug, label, top_concept: top, children }
+function node(slug: string, label: string, children: ConceptNode[] = [], top = false, alt: string[] = []): ConceptNode {
+  return {
+    uri: `${SCHEME}/${slug}`,
+    slug,
+    label,
+    top_concept: top,
+    alt_labels: alt.map((value) => ({ value, lang: 'es' })),
+    children,
+  }
 }
 
 /**
  * Árbol de prueba:
  * - Grupo A → Concepto A1, Concepto Á2 (→ Concepto A2X)
- * - Grupo B → Concepto B1
+ * - Grupo B → Concepto B1 (altLabel «Sinónimo Beta»)
  */
 export function treeFixture(): ConceptNode[] {
   return [
     node('grupo-a', 'Grupo A', [node('concepto-a1', 'Concepto A1'), node('concepto-a2', 'Concepto Á2', [node('concepto-a2x', 'Concepto A2X')])], true),
-    node('grupo-b', 'Grupo B', [node('concepto-b1', 'Concepto B1')], true),
+    node('grupo-b', 'Grupo B', [node('concepto-b1', 'Concepto B1', [], false, ['Sinónimo Beta'])], true),
   ]
 }
 

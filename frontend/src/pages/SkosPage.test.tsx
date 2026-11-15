@@ -81,7 +81,7 @@ describe('Navegador SKOS', () => {
     await renderSkos()
     expect(screen.getByRole('link', { name: 'Exportar Turtle' })).toHaveAttribute(
       'href',
-      'http://api.test/schemes/esq-prueba/rdf?format=turtle',
+      'http://api.test/schemes/esq-prueba/rdf?format=turtle&download=1',
     )
     expect(screen.queryByRole('button', { name: 'Nuevo concepto' })).not.toBeInTheDocument()
   })
@@ -98,6 +98,9 @@ describe('Navegador SKOS', () => {
     const corp = within(schemes).getByRole('link', { name: 'Esquema corporativo de prueba' })
     expect(corp).toHaveAttribute('href', '/vocabularios/corp/corp-prueba')
     expect(corp).not.toHaveAttribute('aria-current')
+    // Color del dominio si el esquema lo tiene; si no, el del tipo.
+    expect(current.querySelector('.sidebar__swatch')?.getAttribute('style')).toContain('var(--domain-ot)')
+    expect(corp.querySelector('.sidebar__swatch')?.getAttribute('style')).toContain('var(--kind-corp)')
     // Las ontologías no son esquemas.
     expect(within(schemes).queryByRole('link', { name: /Ontología/ })).not.toBeInTheDocument()
   })
@@ -175,6 +178,13 @@ describe('Navegador SKOS', () => {
     await user.clear(input)
     await user.type(input, 'concepto a2')
     expect(item('Concepto Á2')).toBeInTheDocument()
+
+    // También busca por altLabel.
+    await user.clear(input)
+    await user.type(input, 'sinonimo beta')
+    expect(item('Grupo B')).toBeInTheDocument()
+    expect(item('Concepto B1')).toBeInTheDocument()
+    expect(within(tree()).queryByRole('treeitem', { name: 'Grupo A' })).not.toBeInTheDocument()
 
     await user.clear(input)
     await user.type(input, 'zzz')
@@ -307,7 +317,7 @@ describe('Navegador SKOS', () => {
     expect(within(header).getByText('Responsable: [RESPONSABLE]')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Exportar Turtle' })).toHaveAttribute(
       'href',
-      'http://api.test/schemes/corp/corp-prueba/rdf?format=turtle',
+      'http://api.test/schemes/corp/corp-prueba/rdf?format=turtle&download=1',
     )
     expect(screen.getByText('[N] conceptos')).toBeInTheDocument()
     expect(screen.getByText('Este esquema no tiene conceptos cargados todavía.')).toBeInTheDocument()

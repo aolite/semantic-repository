@@ -169,18 +169,22 @@ describe('Catálogo', () => {
     expect(datasetsCalls(fetchMock).at(-1)!.searchParams.get('q')).toBe('prueba')
   })
 
-  it('con un dominio elegido no muestra vocabularios (no traen dominio) y lo avisa', async () => {
-    const fetchMock = mockCatalog(undefined, () => vocabPageFixture())
+  it('con un dominio elegido pide también los vocabularios con domain y los colorea', async () => {
+    const fetchMock = mockCatalog(undefined, (url) =>
+      vocabPageFixture(vocabCardsFixture().filter((c) => !url.searchParams.has('domain') || c.domain !== null)),
+    )
     const { user } = renderApp('/')
     await screen.findByRole('link', { name: 'Ontología de prueba' })
-    const before = callsTo(fetchMock, '/vocabularies').length
+    expect(callsTo(fetchMock, '/vocabularies')[0].searchParams.has('domain')).toBe(false)
 
     await user.click(within(screen.getByRole('group', { name: 'Dominio' })).getByRole('button', { name: 'OT / ICS' }))
-    await waitFor(() => expect(datasetsCalls(fetchMock).at(-1)!.searchParams.get('domain')).toBe('ot'))
-    expect(await screen.findByText('1 recurso')).toBeInTheDocument()
+    await waitFor(() => expect(callsTo(fetchMock, '/vocabularies').at(-1)!.searchParams.get('domain')).toBe('ot'))
+    expect(datasetsCalls(fetchMock).at(-1)!.searchParams.get('domain')).toBe('ot')
+    expect(await screen.findByText('2 recursos')).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: 'Ontología de prueba' })).not.toBeInTheDocument()
-    expect(screen.getByRole('note')).toHaveTextContent('no se filtran por dominio todavía')
-    expect(callsTo(fetchMock, '/vocabularies').length).toBe(before)
+    const scheme = screen.getByRole('link', { name: 'Esquema de dominio de prueba' }).closest('article')!
+    expect(within(scheme).getByText('OT / ICS')).toBeInTheDocument()
+    expect(screen.queryByRole('note')).not.toBeInTheDocument()
   })
 
   it('mantiene el placeholder del buscador (decisión abierta 30)', () => {

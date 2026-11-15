@@ -58,7 +58,7 @@ src/
 
 - Búsqueda con debounce de 300 ms que lanza `GET /datasets?q=`; chips de dominio (`aria-pressed`) que lanzan `domain` (`it`, `ot`, `pqc`, `ia`); se pide `page_size=100` (la interfaz de paginación está pendiente).
 - Selector de tipo: «Datasets» pide `GET /datasets`; «Vocabularios y ontologías» pide `GET /vocabularies?q=` y muestra sus tarjetas con el mismo estilo; «Todo» pide las dos y muestra primero los datasets y después los vocabularios.
-- Las tarjetas de `/vocabularies` no traen dominio: con un dominio elegido los vocabularios no se piden ni se muestran, y una nota lo indica.
+- Con un dominio elegido, los vocabularios se piden con `GET /vocabularies?domain=`: solo quedan los esquemas de dominio de ese dominio.
 - El placeholder del buscador sigue siendo «Título, concepto o URI», aunque la API no busca por URI (decisión abierta 30).
 - El contador suma los `total` de las dos respuestas. Hay estados de carga (`role="status"`), vacío y error (`role="alert"` con «Reintentar»).
 - No se muestran «Importar SKOS» ni «Publicar recurso» (sin funcionalidad todavía) ni la barra FAIR (fase 4).
@@ -75,14 +75,14 @@ src/
 ### Vocabularios y ontologías (`/vocabularios`)
 
 - Tarjetas de estadísticas por tipo con los recuentos de `counts` (botones `aria-pressed`; pulsar la activa vuelve a «Todos»), búsqueda con debounce que lanza `q` y chips de tipo que lanzan `kind`.
-- Cada tarjeta: tipo RDF, tipo de vocabulario, estado (Publicada, Borrador o Referenciada), «Sintético» si `synthetic`, prefijo y espacio de nombres, descripción, métricas (`N clases · N propiedades`, «Externa · referencia» o `N conceptos`) y versión.
+- Cada tarjeta: tipo RDF, tipo de vocabulario, dominio con su color (solo esquemas de dominio), estado (Publicada, Borrador o Referenciada), «Sintético» si `synthetic`, prefijo y espacio de nombres, descripción, métricas (`N clases · N propiedades`, «Externa · referencia» o `N conceptos`) y versión.
 - Destinos: ontología propia → `/ontologias/{slug}`; esquema de dominio → `/vocabularios/{slug}`; corporativo → `/vocabularios/corp/{slug}`. Las ontologías externas no tienen ficha: enlazan a su IRI oficial.
 - No se muestran «Catalogar externa» ni «Nuevo vocabulario» (sin funcionalidad todavía). Los chips de la tarjeta del prototipo («OWL 2 DL», «Importa SOSA, SAREF»…) no se muestran: la API no los da.
 
 ### Ficha de ontología (`/ontologias/:slug`)
 
 - El backend redirige aquí (303) desde `onto/{slug}`; `?version=X.Y.Z` muestra una versión antigua (URI de la versión y descargas con `version`).
-- «Descargar Turtle» y las serializaciones (Turtle, RDF/XML, JSON-LD) son enlaces a `GET /ontologies/{slug}/rdf?format=`. «Copiar URI» copia la URI de la ontología (o el `owl:versionIRI` en una versión antigua).
+- «Descargar Turtle» y las serializaciones (Turtle, RDF/XML, JSON-LD) son enlaces a `GET /ontologies/{slug}/rdf?format=&download=1` (el backend responde con `Content-Disposition: attachment`). «Copiar URI» copia la URI de la ontología (o el `owl:versionIRI` en una versión antigua).
 - Métricas del fichero (clases, propiedades de objeto y de datos, individuos, axiomas lógicos, imports), perfil OWL (con los perfiles compatibles aproximados), expresividad DL («Sin calcular»: la API la manda siempre `null`), consistencia con el razonador que devuelve la API (con el motivo si `consistent` es `null`) y cobertura de documentación.
 - Imports y alineamientos (relación abreviada, número de axiomas y correspondencias desplegables), versionado (`owl:versionIRI`, `owl:priorVersion`, `owl:backwardCompatibleWith` e historial), uso en el catálogo y metadatos VANN y DCT con los vocabularios SKOS usados.
 - No se muestran «Documentación» ni la fila de documentación WIDOCO (sin funcionalidad todavía). 404 o 422 de la API: «Ontología no encontrada».
@@ -90,10 +90,10 @@ src/
 ### Navegador SKOS (`/vocabularios/:slug` y `/vocabularios/corp/:slug`)
 
 - El backend redirige aquí (303) desde `vocab/…`; `?concepto=` elige el concepto. Sin `?concepto=` se muestra el primero del árbol.
-- Lista de esquemas («De dominio» y «Corporativos») a partir de `GET /vocabularies`, con el actual marcado con `aria-current`.
-- Árbol con el patrón «tree» de WAI-ARIA (`role="tree"`, `treeitem` con `aria-expanded`, `aria-selected` y `aria-level`, foco itinerante): flechas arriba y abajo, derecha (abrir o bajar al primer hijo), izquierda (cerrar o subir al padre), Inicio, Fin, e Intro o Espacio para seleccionar. El filtro no distingue mayúsculas ni acentos, abre las ramas y conserva los antepasados. Solo filtra por `prefLabel`: el árbol de la API no trae `altLabel`.
+- Lista de esquemas («De dominio» y «Corporativos») a partir de `GET /vocabularies`, con el actual marcado con `aria-current` y el color del dominio cuando el esquema lo tiene.
+- Árbol con el patrón «tree» de WAI-ARIA (`role="tree"`, `treeitem` con `aria-expanded`, `aria-selected` y `aria-level`, foco itinerante): flechas arriba y abajo, derecha (abrir o bajar al primer hijo), izquierda (cerrar o subir al padre), Inicio, Fin, e Intro o Espacio para seleccionar. El filtro busca por `prefLabel` y `altLabel` sin distinguir mayúsculas ni acentos, abre las ramas y conserva los antepasados. Los conceptos salen en el orden de la API (hoy, alfabético): el contrato no trae un orden y el frontend no lo fuerza.
 - Detalle del concepto: `prefLabel` por idioma (es, ca, en y el resto), `altLabel`, `broader` y `related` enlazados, mapeos externos («Sin mapeos externos todavía» si no hay; los que contienen placeholders no se enlazan) y recursos que lo usan.
-- «Exportar Turtle» enlaza a `GET /schemes/…/rdf?format=turtle`. No se muestra «Nuevo concepto». Los corporativos muestran «Responsable: [RESPONSABLE]».
+- «Exportar Turtle» enlaza a `GET /schemes/…/rdf?format=turtle&download=1`. No se muestra «Nuevo concepto». Los corporativos muestran «Responsable: [RESPONSABLE]».
 
 ### Navegación lateral
 
@@ -120,7 +120,7 @@ El contrato es `backend/openapi.json`. El cliente usa estos endpoints:
 - `GET /datasets?q=&domain=&page=&page_size=`: esquema `DatasetPage` con `DatasetCard`.
 - `GET /datasets/{slug}?version=`: esquema `DatasetDetail` (serie, `VersionDetail` e historial `VersionSummary`).
 - `GET /datasets/{slug}/rdf?format=turtle|jsonld&version=`: RDF en texto.
-- `GET /vocabularies?q=&kind=`: esquema `VocabularyPage` con `VocabularyCard` y `counts`.
+- `GET /vocabularies?q=&kind=&domain=`: esquema `VocabularyPage` con `VocabularyCard` y `counts`.
 - `GET /ontologies/{slug}?version=`: esquema `OntologyDetail`. `GET /ontologies/{slug}/rdf?format=turtle|rdfxml|jsonld&version=`: enlace de descarga.
 - `GET /schemes/{slug}` y `/schemes/corp/{slug}`: esquema `SchemeDetail` con el árbol `ConceptNode`. `…/concepts/{concept}`: esquema `ConceptDetail`. `…/rdf?format=`: enlace de descarga.
 

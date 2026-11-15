@@ -2,7 +2,7 @@ import { Link } from 'react-router'
 import type { VocabularyCard } from '../api'
 import { metricsLine, prefixLabel, versionLabel } from '../vocab/labels'
 import { vocabularyHref } from '../vocab/routes'
-import { KindTag, StatusTag, SyntheticTag, TypeTag } from './Tags'
+import { DomainTag, KindTag, StatusTag, SyntheticTag, TypeTag } from './Tags'
 
 /**
  * Tarjeta de una ontología o un esquema SKOS (pantalla Vocabularios y
@@ -18,6 +18,7 @@ export function VocabularyCardView({ item }: { item: VocabularyCard }) {
       <div className="card__tags">
         <TypeTag>{item.rdf_type}</TypeTag>
         <KindTag kind={item.kind} />
+        {item.domain && <DomainTag slug={item.domain.slug} />}
         {item.synthetic && <SyntheticTag label="Sintético" />}
         <span className="card__status">
           <StatusTag status={item.status} pill />

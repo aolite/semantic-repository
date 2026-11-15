@@ -228,8 +228,3 @@
   color: var(--color-brand);
 }
 
-.catalog__note {
-  margin: 0;
-  font-size: 14px;
-  color: var(--color-text-secondary);
-}

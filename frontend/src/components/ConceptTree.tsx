@@ -10,6 +10,9 @@ import { normalizeText } from '../vocab/labels'
  * izquierda (contraer o subir al padre), Inicio, Fin, e Intro o Espacio para
  * seleccionar el concepto.
  *
+ * Los conceptos se muestran en el orden en que los manda la API (hoy,
+ * alfabético): el contrato no trae un orden propio y no se fuerza aquí.
+ *
  * Un concepto puede aparecer bajo varios padres (polijerarquía): cada
  * aparición se identifica por su ruta de URIs.
  */
@@ -37,13 +40,14 @@ function nodeLabel(node: ConceptNode): string {
   return node.label ?? node.slug ?? node.uri
 }
 
-/** Poda el árbol: quedan los nodos que coinciden con el filtro y sus antepasados. */
+/** Poda el árbol: quedan los nodos cuyo prefLabel o altLabel coincide con el filtro, y sus antepasados. */
 function filterNodes(nodes: ConceptNode[], needle: string): ConceptNode[] {
   if (!needle) return nodes
   const result: ConceptNode[] = []
   for (const node of nodes) {
     const children = filterNodes(node.children, needle)
-    const matches = normalizeText(`${node.label ?? ''} ${node.slug ?? ''}`).includes(needle)
+    const text = [node.label ?? '', node.slug ?? '', ...node.alt_labels.map((l) => l.value)].join(' ')
+    const matches = normalizeText(text).includes(needle)
     if (matches || children.length > 0) result.push({ ...node, children: matches ? node.children : children })
   }
   return result

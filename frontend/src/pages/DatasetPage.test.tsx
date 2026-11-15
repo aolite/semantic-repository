@@ -154,11 +154,10 @@ describe('Ficha de dataset', () => {
     expect(turtle).toHaveAttribute('aria-pressed', 'false')
     expect(await within(rdf).findByText('{"@id": "prueba-jsonld"}')).toBeInTheDocument()
 
-    const formats = fetchMock.mock.calls
-      .map(([u]) => new URL(String(u)))
-      .filter((u) => u.pathname === `${PATH}/rdf`)
-      .map((u) => u.searchParams.get('format'))
-    expect(formats).toEqual(['turtle', 'jsonld'])
+    const rdfCalls = fetchMock.mock.calls.map(([u]) => new URL(String(u))).filter((u) => u.pathname === `${PATH}/rdf`)
+    expect(rdfCalls.map((u) => u.searchParams.get('format'))).toEqual(['turtle', 'jsonld'])
+    // La pestaña muestra el RDF en la página: sin download=1.
+    expect(rdfCalls.every((u) => !u.searchParams.has('download'))).toBe(true)
   })
 
   it('muestra la Evaluación FAIR como disponible en la fase 4, sin puntuaciones', async () => {

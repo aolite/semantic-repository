@@ -11,7 +11,7 @@ import {
   type SchemeDetail,
   type VocabularyCard,
 } from '../api'
-import { NOT_STATED } from '../catalog/labels'
+import { DOMAINS, NOT_STATED } from '../catalog/labels'
 import { ConceptTree } from '../components/ConceptTree'
 import { DomainTag, KindTag, StatusTag, SyntheticTag, TypeTag } from '../components/Tags'
 import { useApiLoad } from '../hooks/useApiLoad'
@@ -211,6 +211,8 @@ function SchemeList({ current }: { current: SchemeDetail }) {
                 if (!item.slug) return null
                 const isCurrent = item.slug === current.slug && g.corp === current.corp
                 const kind = g.corp ? 'skos_corp' : 'skos_domain'
+                // Color del dominio si el esquema lo tiene; si no, el del tipo de vocabulario.
+                const swatch = item.domain ? DOMAINS[item.domain.slug].swatch : KINDS[kind].swatch
                 return (
                   <li key={item.uri}>
                     <Link
@@ -218,7 +220,7 @@ function SchemeList({ current }: { current: SchemeDetail }) {
                       className="skos__scheme-link"
                       aria-current={isCurrent ? 'page' : undefined}
                     >
-                      <span className="sidebar__swatch" style={{ background: KINDS[kind].swatch }} aria-hidden="true" />
+                      <span className="sidebar__swatch" style={{ background: swatch }} aria-hidden="true" />
                       {item.title ?? item.slug}
                     </Link>
                   </li>

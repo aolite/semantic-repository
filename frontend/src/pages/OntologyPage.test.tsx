@@ -69,21 +69,21 @@ describe('Ficha de ontología', () => {
     await renderOntology()
     expect(screen.getByRole('link', { name: 'Descargar Turtle' })).toHaveAttribute(
       'href',
-      'http://api.test/ontologies/onto-prueba/rdf?format=turtle',
+      'http://api.test/ontologies/onto-prueba/rdf?format=turtle&download=1',
     )
     const meta = section('Metadatos')
     const formats = field(meta, 'Serializaciones')
     expect(within(formats).getByRole('link', { name: 'Turtle' })).toHaveAttribute(
       'href',
-      'http://api.test/ontologies/onto-prueba/rdf?format=turtle',
+      'http://api.test/ontologies/onto-prueba/rdf?format=turtle&download=1',
     )
     expect(within(formats).getByRole('link', { name: 'RDF/XML' })).toHaveAttribute(
       'href',
-      'http://api.test/ontologies/onto-prueba/rdf?format=rdfxml',
+      'http://api.test/ontologies/onto-prueba/rdf?format=rdfxml&download=1',
     )
     expect(within(formats).getByRole('link', { name: 'JSON-LD' })).toHaveAttribute(
       'href',
-      'http://api.test/ontologies/onto-prueba/rdf?format=jsonld',
+      'http://api.test/ontologies/onto-prueba/rdf?format=jsonld&download=1',
     )
   })
 
@@ -231,7 +231,7 @@ describe('Ficha de ontología', () => {
     expect(within(header).getByText('http://uri.test/itot/onto/onto-prueba/1.0.0')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Descargar Turtle' })).toHaveAttribute(
       'href',
-      'http://api.test/ontologies/onto-prueba/rdf?format=turtle&version=1.0.0',
+      'http://api.test/ontologies/onto-prueba/rdf?format=turtle&version=1.0.0&download=1',
     )
     const versioning = section('Versionado')
     expect(field(versioning, 'owl:priorVersion')).toHaveTextContent('Ninguna')

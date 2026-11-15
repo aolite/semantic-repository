@@ -13,6 +13,8 @@ describe('API de vocabularios', () => {
     expect(url.searchParams.get('kind')).toBe('skos_corp')
     await listVocabularies()
     expect(String(fetchMock.mock.calls[1][0])).toBe('http://api.test/vocabularies')
+    await listVocabularies({ domain: 'pqc' })
+    expect(new URL(String(fetchMock.mock.calls[2][0])).searchParams.get('domain')).toBe('pqc')
   })
 
   it('fetchOntology pide la ficha y, si se indica, ?version=', async () => {
@@ -43,11 +45,11 @@ describe('API de vocabularios', () => {
   })
 
   it('construye las URL de descarga de RDF con VITE_API_BASE_URL', () => {
-    expect(ontologyRdfUrl('onto-prueba', 'rdfxml')).toBe('http://api.test/ontologies/onto-prueba/rdf?format=rdfxml')
+    expect(ontologyRdfUrl('onto-prueba', 'rdfxml')).toBe('http://api.test/ontologies/onto-prueba/rdf?format=rdfxml&download=1')
     expect(ontologyRdfUrl('onto-prueba', 'turtle', '1.0.0')).toBe(
-      'http://api.test/ontologies/onto-prueba/rdf?format=turtle&version=1.0.0',
+      'http://api.test/ontologies/onto-prueba/rdf?format=turtle&version=1.0.0&download=1',
     )
-    expect(schemeRdfUrl('trl', true, 'turtle')).toBe('http://api.test/schemes/corp/trl/rdf?format=turtle')
+    expect(schemeRdfUrl('trl', true, 'turtle')).toBe('http://api.test/schemes/corp/trl/rdf?format=turtle&download=1')
   })
 
   it('propaga el 404 como ApiError', async () => {

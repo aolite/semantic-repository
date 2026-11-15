@@ -228,6 +228,8 @@ export interface VocabularyCard {
   metrics: MetricsSummary | null
   /** Número de conceptos (solo esquemas). */
   concepts: number | null
+  /** Dominio (dct:subject): solo lo tienen los esquemas de dominio. */
+  domain: DomainRef | null
   synthetic: boolean
 }
 
@@ -244,7 +246,7 @@ export interface VocabularyPage {
   items: VocabularyCard[]
   /** Tarjetas que cumplen los filtros. */
   total: number
-  /** Recuento por tipo de todo el repositorio, sin aplicar `q` ni `kind`. */
+  /** Recuento por tipo de todo el repositorio, sin aplicar `q`, `kind` ni `domain`. */
   counts: VocabularyCounts
 }
 
@@ -456,6 +458,8 @@ export interface ConceptNode {
   label: string | null
   /** skos:topConceptOf o skos:hasTopConcept. */
   top_concept: boolean
+  /** skos:altLabel por idioma. */
+  alt_labels: LangLiteral[]
   /** skos:narrower e inversa de skos:broader. */
   children: ConceptNode[]
 }
