@@ -131,10 +131,8 @@ def test_ill_typed_literal_is_422_and_writes_nothing(
     assert response.status_code == 422, response.text
     payload = response.json()
     assert payload["kind"] == "syntax"
-    assert (
-        (payload["issues"]
-        and payload["issues"][0]["value"].endswith(f"^^<{XSD}integer>"))
-        or (payload["issues"][0]["value"].endswith(f"^^<{XSD}decimal>"))
+    assert (payload["issues"] and payload["issues"][0]["value"].endswith(f"^^<{XSD}integer>")) or (
+        payload["issues"][0]["value"].endswith(f"^^<{XSD}decimal>")
     )
     assert "owlready2" not in response.text and "Traceback" not in response.text
     _nothing_written(store, session_factory)
