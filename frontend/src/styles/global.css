@@ -22,6 +22,27 @@
   --domain-pqc: #c9a6dc;
   --domain-ai: #a3a3e0;
 
+  /* Etiquetas de dominio (fondo y texto) en tarjetas y fichas */
+  --domain-it-bg: #e3ecf8;
+  --domain-it-fg: #2b5a9c;
+  --domain-ot-bg: #f6e4f0;
+  --domain-ot-fg: #8e3a7a;
+  --domain-pqc-bg: #ede3f3;
+  --domain-pqc-fg: #662483;
+  --domain-ai-bg: #e4e4f3;
+  --domain-ai-fg: #3c3d91;
+
+  /* Superficies y detalles (pantallas Catálogo y Ficha de dataset) */
+  --color-surface: #ffffff;
+  --color-surface-muted: #f0edf3;
+  --color-segmented-bg: #e8e4ee;
+  --color-divider: #ece9f0;
+  --color-prov: #8682b8;
+  --color-code-bg: #3c3c3b;
+  --color-code-text: #eceaee;
+  --color-code-tabs: #555554;
+  --radius-card: 12px;
+
   /* Tipografía */
   --font-sans: 'Trebuchet MS', 'Today Sans', 'Segoe UI', sans-serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
@@ -160,7 +181,8 @@ a:hover {
   background: rgb(255 255 255 / 0.08);
 }
 
-.sidebar__link[aria-current='page'] {
+.sidebar__link[aria-current='page'],
+.sidebar__link[aria-current='true'] {
   background: var(--color-brand-dark);
   color: var(--color-white);
   font-weight: 700;
@@ -261,6 +283,17 @@ a:hover {
   background: var(--color-brand-dark);
 }
 
+.button--secondary {
+  background: var(--color-surface);
+  border-color: var(--color-border);
+  color: var(--color-text);
+}
+
+.button--secondary:hover {
+  border-color: var(--color-brand);
+  color: var(--color-brand);
+}
+
 .button--ghost {
   background: transparent;
   border-color: var(--color-nav-muted);
@@ -312,4 +345,99 @@ a:hover {
   border-radius: var(--radius);
   background: #fbeceb;
   color: #8c1d18;
+}
+
+/* Etiquetas (tarjetas del catálogo y cabecera de la ficha) */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.tag--type {
+  padding: 3px 8px;
+  border: 1px solid var(--color-border);
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.tag--neutral {
+  background: var(--color-surface-muted);
+  color: var(--color-text);
+}
+
+/* Marca «Dataset sintético»: no está en el prototipo (decisión de G2). */
+.tag--synthetic {
+  padding: 2px 8px;
+  border: 1px dashed var(--color-prov);
+  background: var(--color-surface-muted);
+  color: var(--color-text);
+}
+
+.tag--version {
+  font-weight: 500;
+  background: var(--color-brand);
+  color: var(--color-white);
+}
+
+.eyebrow {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+/* Estados de carga, vacío y error */
+.state {
+  margin: 0;
+  padding: 32px;
+  text-align: center;
+  color: var(--color-text-muted);
+  background: var(--color-surface);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-card);
+}
+
+.state--error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid #b3261e;
+  background: #fbeceb;
+  color: #8c1d18;
+}
+
+.state--error p {
+  margin: 0;
+}
+
+/* Selector segmentado (tipo de recurso, serialización RDF) */
+.segmented {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px;
+  background: var(--color-segmented-bg);
+  border-radius: 10px;
+}
+
+.segmented__button {
+  min-height: var(--touch-target);
+  padding: 0 14px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 400;
+  cursor: pointer;
+}
+
+.segmented__button[aria-pressed='true'] {
+  background: var(--color-surface);
+  font-weight: 700;
 }

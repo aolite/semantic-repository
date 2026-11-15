@@ -1,11 +1,12 @@
-import { Link, NavLink, useNavigate } from 'react-router'
+import { Link, NavLink, useLocation, useNavigate } from 'react-router'
 import { useAuth } from '../auth/useAuth'
 import { ROLE_LABELS } from '../auth/roles'
+import { DOMAINS, DOMAIN_SLUGS } from '../catalog/labels'
 import { getSparqlEndpointUrl } from '../config'
 import { CatalogIcon, LogoIcon, SparqlIcon, VocabularyIcon } from './icons'
 
-const NAV_LINKS = [
-  { to: '/', label: 'Catálogo', Icon: CatalogIcon },
+const NAV_LINKS: { to: string; label: string; Icon: typeof CatalogIcon; section?: string[] }[] = [
+  { to: '/', label: 'Catálogo', Icon: CatalogIcon, section: ['/datasets/'] },
   { to: '/vocabularios', label: 'Vocabularios', Icon: VocabularyIcon },
   { to: '/sparql', label: 'Consulta SPARQL', Icon: SparqlIcon },
 ]
@@ -15,16 +16,12 @@ const NAV_LINKS = [
  * Provisional: en la fase 3 la lista vendrá de la API (los colores siguen
  * siendo del diseño).
  */
-const CONCEPT_SCHEMES = [
-  { label: 'Seguridad IT', color: 'var(--domain-it)' },
-  { label: 'OT / ICS', color: 'var(--domain-ot)' },
-  { label: 'PQC e identidad', color: 'var(--domain-pqc)' },
-  { label: 'IA adversaria', color: 'var(--domain-ai)' },
-]
+const CONCEPT_SCHEMES = DOMAIN_SLUGS.map((slug) => ({ label: DOMAINS[slug].label, color: DOMAINS[slug].swatch }))
 
 export function Sidebar() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
+  const { pathname } = useLocation()
 
   function handleLogout() {
     logout()
@@ -42,14 +39,26 @@ export function Sidebar() {
       </div>
 
       <ul className="sidebar__links">
-        {NAV_LINKS.map(({ to, label, Icon }) => (
-          <li key={to}>
-            <NavLink to={to} end className="sidebar__link">
-              <Icon />
-              <span>{label}</span>
-            </NavLink>
-          </li>
-        ))}
+        {NAV_LINKS.map(({ to, label, Icon, section }) => {
+          // Dentro de la sección (p. ej. una ficha de dataset) el enlace se marca
+          // como activo, como en el prototipo, con aria-current="true".
+          const inSection = section?.some((prefix) => pathname.startsWith(prefix)) ?? false
+          return (
+            <li key={to}>
+              {inSection ? (
+                <Link to={to} className="sidebar__link" aria-current="true">
+                  <Icon />
+                  <span>{label}</span>
+                </Link>
+              ) : (
+                <NavLink to={to} end className="sidebar__link">
+                  <Icon />
+                  <span>{label}</span>
+                </NavLink>
+              )}
+            </li>
+          )
+        })}
       </ul>
 
       <section className="sidebar__section" aria-labelledby="sidebar-schemes">
