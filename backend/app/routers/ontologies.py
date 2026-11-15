@@ -4,8 +4,10 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response, status
 from fastapi.responses import JSONResponse
+from rdflib import URIRef
+from rdflib.namespace import OWL
 
-from app import catalog, ingest, schemas, vocab_ingest, vocabularies
+from app import catalog, downloads, ingest, schemas, vocab_ingest, vocabularies
 from app.deps import DbDep, SettingsDep, StoreDep, UrisDep
 from app.negotiation import JSONLD, TURTLE
 from app.routers.datasets import (
@@ -150,10 +152,16 @@ def get_ontology_rdf(
     uris: UrisDep,
     version: VersionQuery = None,
     rdf_format: Annotated[RdfFormatParam | None, Query(alias="format")] = None,
+    download: downloads.DownloadQuery = False,
 ) -> Response:
     media = choose_media(request, rdf_format)
     try:
         graph = vocabularies.ontology_rdf(store, uris, slug, version)
     except catalog.NotFoundError as exc:
         raise _not_found(exc) from exc
-    return graph_response(graph, uris, media)
+    number = version
+    if number is None:
+        for value in graph.objects(URIRef(uris.ontology(slug)), OWL.versionIRI):
+            parts = uris.ontology_version_parts(str(value))
+            number = parts[1] if parts else None
+    return downloads.apply(graph_response(graph, uris, media), download, [slug, number], media)

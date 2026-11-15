@@ -166,7 +166,7 @@ Lo mismo vale para `{BASE_URI}onto/*` y `{BASE_URI}vocab/*` (fase 3). El resto d
 |---|---|---|
 | `POST /ontologies` | editor (y admin) | Ingesta de **una versión** de ontología en Turtle o JSON-LD. Calcula métricas y consistencia antes de escribir. 201 si la versión es nueva, 200 si se sustituye (`changed=false` si era idéntica), 422 con el informe si no es válida |
 | `POST /schemes` | editor (y admin) | Ingesta de un esquema SKOS con sus conceptos. Mismos códigos |
-| `GET /vocabularies` | público | Tarjetas de ontologías propias (versión actual), externas y esquemas SKOS. Filtros `q` (nombre, prefijo o espacio de nombres) y `kind` (`own`, `external`, `skos_corp`, `skos_domain`); `counts` por tipo, sin filtros |
+| `GET /vocabularies` | público | Tarjetas de ontologías propias (versión actual), externas y esquemas SKOS. Filtros `q` (nombre, prefijo o espacio de nombres), `kind` (`own`, `external`, `skos_corp`, `skos_domain`) y `domain` (`it`, `ot`, `pqc`, `ia`); `counts` por tipo, sin filtros |
 | `GET /ontologies/{slug}` | público | Ficha: metadatos VANN y DCT, versionado e historial, métricas, perfil, consistencia, cobertura de documentación, imports, alineamientos, uso en el catálogo y esquemas SKOS usados. `?version=` para otra versión |
 | `GET /ontologies/{slug}/rdf` | público | RDF de la versión (actual o `?version=`): `?format=turtle\|rdfxml\|jsonld` o `Accept` |
 | `GET /schemes/{slug}` y `GET /schemes/corp/{slug}` | público | Metadatos, dominio y árbol de conceptos |
@@ -174,6 +174,8 @@ Lo mismo vale para `{BASE_URI}onto/*` y `{BASE_URI}vocab/*` (fase 3). El resto d
 | `GET /schemes/{slug}/rdf` (y con `corp/`) | público | RDF del esquema |
 | `GET /onto/{slug}`, `GET /onto/{slug}/{version}` | público | URI persistente de la ontología (versión actual) o de una versión. HTML: 303 a `{FRONTEND_BASE_URL}/ontologias/{slug}` (`?version=`). Los términos `{BASE_URI}onto/{slug}#Término` se resuelven con la ontología |
 | `GET /vocab/{slug}`, `GET /vocab/{slug}/{concepto}` (y con `corp/`) | público | URI persistente del esquema o del concepto. HTML: 303 a `{FRONTEND_BASE_URL}/vocabularios/{slug}` o `/vocabularios/corp/{slug}` (`?concepto=`) |
+
+**Descarga del RDF:** `GET /datasets/{slug}/rdf`, `GET /ontologies/{slug}/rdf` y `GET /schemes/…/rdf` aceptan `?download=true` (o `1`). Con él, la respuesta lleva `Content-Disposition: attachment; filename="…"`, con un nombre hecho solo de slugs y versiones validados: `{slug}-{versión}.ttl` para datasets y ontologías (la versión pedida o la actual), `{slug}-{versión}` o `corp-{slug}-{versión}` (`owl:versionInfo`) para esquemas, con extensión `.ttl`, `.jsonld` o `.rdf` según el formato. Sin el parámetro (o con `false`) el RDF se sirve en línea, como hasta ahora.
 
 **Rutas de los esquemas:** igual que sus URIs. Los de dominio en `/schemes/{slug}` (`{BASE_URI}vocab/{slug}`) y los corporativos en `/schemes/corp/{slug}` (`{BASE_URI}vocab/corp/{slug}`). `corp` es un slug reservado (no puede haber un esquema de dominio con ese nombre) y `externas` lo es en las ontologías. Todas las URIs persistentes ofrecen Turtle (por defecto), JSON-LD, RDF/XML y HTML (303); un recurso inexistente da 404 en cualquier formato.
 
@@ -191,6 +193,7 @@ Lo mismo vale para `{BASE_URI}onto/*` y `{BASE_URI}vocab/*` (fase 3). El resto d
 - **Prefijo y espacio de nombres:** `vann:preferredNamespacePrefix` y `vann:preferredNamespaceUri` (IRI o literal); si falta el espacio de nombres, `{ontología}#` o `{esquema}/`.
 - **Versión:** de una ontología, el último segmento de su `owl:versionIRI`; de un esquema o una externa, `owl:versionInfo`.
 - **Versión actual de una ontología:** la de mayor número de entre las cargadas.
+- **Dominio de la tarjeta (`domain`):** el mismo `DomainRef` que en los datasets, solo para los esquemas de dominio (su `dct:subject`). Las ontologías (propias y externas) y los esquemas corporativos no tienen dominio en el RDF: `null`. No se deduce de los `dct:subject` de una ontología. Con el filtro `domain`, las tarjetas sin dominio no aparecen.
 - **Responsable del esquema:** `responsible` es siempre `null` hasta que se decida (decisión abierta 11).
 - **Placeholders:** licencia, autores, fechas… que no están en el RDF se devuelven como `null` o lista vacía.
 
@@ -204,7 +207,7 @@ Lo mismo vale para `{BASE_URI}onto/*` y `{BASE_URI}vocab/*` (fase 3). El resto d
 
 ### Navegador SKOS
 
-- **Árbol:** raíces = conceptos con `skos:topConceptOf`/`skos:hasTopConcept` y los que no tienen padre dentro del esquema; hijos = `skos:narrower` más la inversa de `skos:broader`. Ordenado por etiqueta. Un ciclo no se recorre dos veces.
+- **Árbol:** cada nodo lleva `uri`, `slug`, `label`, `top_concept`, `alt_labels` (lista de `{value, lang}`, como en el concepto) y `children`. Raíces = conceptos con `skos:topConceptOf`/`skos:hasTopConcept` y los que no tienen padre dentro del esquema; hijos = `skos:narrower` más la inversa de `skos:broader`. Ordenado por etiqueta. Un ciclo no se recorre dos veces.
 - **Concepto:** `pref_labels`, `alt_labels` y `definitions` como lista de `{value, lang}`; `broader`, `narrower` y `related` (en los dos sentidos) con etiqueta; `exact_match` y `close_match`; usos: series con versiones con `dcat:theme` hacia el concepto y ontologías propias con `dct:subject`.
 
 ### Ingesta de ontologías y esquemas

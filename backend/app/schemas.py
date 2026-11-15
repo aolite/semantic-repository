@@ -287,6 +287,10 @@ class VocabularyCard(BaseModel):
         description="Ontologías propias con métricas calculadas; null en el resto"
     )
     concepts: int | None = Field(description="Número de conceptos (solo esquemas)")
+    domain: DomainRef | None = Field(
+        description="Dominio del esquema de dominio (su dct:subject). null en ontologías "
+        "(propias y externas) y en esquemas corporativos: el RDF no les da dominio"
+    )
     synthetic: bool
 
 
@@ -301,7 +305,7 @@ class VocabularyPage(BaseModel):
     items: list[VocabularyCard]
     total: int = Field(description="Tarjetas que cumplen los filtros")
     counts: VocabularyCounts = Field(
-        description="Recuento por tipo de todo el repositorio, sin aplicar q ni kind"
+        description="Recuento por tipo de todo el repositorio, sin aplicar q, kind ni domain"
     )
 
 
@@ -492,6 +496,7 @@ class ConceptNode(BaseModel):
     slug: str | None
     label: str | None
     top_concept: bool = Field(description="skos:topConceptOf o skos:hasTopConcept")
+    alt_labels: list[LangLiteral] = Field(description="skos:altLabel por idioma")
     children: list[ConceptNode] = Field(description="skos:narrower e inversa de skos:broader")
 
 

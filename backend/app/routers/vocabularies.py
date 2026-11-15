@@ -6,6 +6,7 @@ from fastapi import APIRouter, Query, status
 
 from app import schemas, vocabularies
 from app.deps import DbDep, StoreDep, UrisDep
+from app.uris import DomainSlug
 
 router = APIRouter(prefix="/vocabularies", tags=["vocabularies"])
 
@@ -34,5 +35,12 @@ def list_vocabularies(
         ),
     ] = None,
     kind: Annotated[schemas.VocabularyKind | None, Query(description="Tipo de tarjeta")] = None,
+    domain: Annotated[
+        DomainSlug | None,
+        Query(
+            description="Slug del dominio (it, ot, pqc, ia). Solo quedan las tarjetas con ese "
+            "dominio: los esquemas de dominio cuyo dct:subject es el concepto del dominio"
+        ),
+    ] = None,
 ) -> schemas.VocabularyPage:
-    return vocabularies.list_vocabularies(store, db, uris, q=q, kind=kind)
+    return vocabularies.list_vocabularies(store, db, uris, q=q, kind=kind, domain=domain)

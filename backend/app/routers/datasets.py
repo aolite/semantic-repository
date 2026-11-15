@@ -7,12 +7,13 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response, status
 from fastapi.responses import JSONResponse
+from rdflib import Graph, URIRef
 
-from app import catalog, ingest, schemas
+from app import catalog, downloads, ingest, schemas
 from app.deps import DbDep, SettingsDep, StoreDep, UrisDep, require_role
 from app.models import Role, User
 from app.negotiation import JSONLD, TURTLE, negotiate
-from app.uris import SLUG_PATTERN, VERSION_PATTERN, DomainSlug
+from app.uris import DCAT, SLUG_PATTERN, VERSION_PATTERN, DomainSlug
 
 router = APIRouter(prefix="/datasets", tags=["datasets"])
 
@@ -223,6 +224,7 @@ def get_dataset_rdf(
     uris: UrisDep,
     version: VersionQuery = None,
     rdf_format: Annotated[Literal["turtle", "jsonld"] | None, Query(alias="format")] = None,
+    download: downloads.DownloadQuery = False,
 ) -> Response:
     if rdf_format is not None:
         media: str | None = FORMAT_TO_MEDIA[rdf_format]
@@ -238,4 +240,14 @@ def get_dataset_rdf(
     except catalog.NotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No existe") from exc
     text = catalog.serialize(graph, uris, "json-ld" if media == JSONLD else "turtle")
-    return rdf_response(text, media)
+    number = version or _version_in(graph, uris.series(slug))
+    return downloads.apply(rdf_response(text, media), download, [slug, number], media)
+
+
+def _version_in(graph: Graph, series_uri: str) -> str | None:
+    """``dcat:version`` de la versión que contiene el grafo (la actual si no se pidió)."""
+    for node in graph.subjects(DCAT.inSeries, URIRef(series_uri)):
+        value = graph.value(node, DCAT.version)
+        if value is not None:
+            return str(value)
+    return None

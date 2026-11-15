@@ -132,9 +132,7 @@ def _load_world(graph: Graph, ontology_iri: str) -> tuple[Any, Any]:
 def _named(entities: Iterable[Any], namespace: str) -> set[str]:
     """IRIs de las entidades con nombre que están en ``namespace``."""
     return {
-        str(e.iri)
-        for e in entities
-        if getattr(e, "iri", None) and str(e.iri).startswith(namespace)
+        str(e.iri) for e in entities if getattr(e, "iri", None) and str(e.iri).startswith(namespace)
     }
 
 
@@ -372,7 +370,7 @@ def java_major_version() -> int | None:
         output = subprocess.run(  # noqa: S603 - ejecutable resuelto en el PATH, sin shell
             [executable, "-version"], capture_output=True, text=True, timeout=30, check=False
         )
-    except (OSError, subprocess.TimeoutExpired):
+    except OSError, subprocess.TimeoutExpired:
         return None
     match = _JAVA_VERSION.search(output.stderr + output.stdout)
     if match is None:

@@ -68,6 +68,11 @@ def api(client: TestClient, vocab_store: MemoryStore, vocab_metrics: None) -> Te
 PUBLIC_READS = [
     "/vocabularies",
     "/vocabularies?kind=own&q=itot",
+    "/vocabularies?domain=pqc",
+    "/vocabularies?domain=ot&kind=skos_domain",
+    "/ontologies/itot/rdf?download=1",
+    "/schemes/corp/trl/rdf?download=1",
+    "/datasets/modbus-tcp-testbed/rdf?download=1",
     "/ontologies/itot",
     "/ontologies/itot?version=1.0.0",
     "/ontologies/itot/rdf?format=rdfxml",

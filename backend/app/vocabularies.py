@@ -295,6 +295,7 @@ def list_vocabularies(
     *,
     q: str | None = None,
     kind: str | None = None,
+    domain: str | None = None,
 ) -> schemas.VocabularyPage:
     cards: list[schemas.VocabularyCard] = []
 
@@ -332,6 +333,7 @@ def list_vocabularies(
                 version=str(node).rsplit("/", 1)[-1],
                 metrics=summary,
                 concepts=None,
+                domain=None,
                 synthetic=_synthetic(headers, node, uris),
             )
         )
@@ -355,10 +357,12 @@ def list_vocabularies(
                 version=pick_literal(external.objects(node, OWL.versionInfo)),
                 metrics=None,
                 concepts=None,
+                domain=None,
                 synthetic=_synthetic(external, node, uris),
             )
         )
 
+    scheme_cards: list[tuple[Node, bool]] = []
     # Esquemas SKOS: corporativos (bajo vocab/corp/) y de dominio (con dct:subject hacia
     # un concepto de vocab/dominio).
     schemes = store.construct(render(SCHEMES_QUERY, vocab_ns=literal(uris.vocab_ns)))
@@ -376,6 +380,7 @@ def list_vocabularies(
             for c in schemes.subjects(SKOS.inScheme, node)
             if isinstance(c, URIRef) and (c, RDF.type, SKOS.Concept) in schemes
         }
+        scheme_cards.append((node, corp))
         cards.append(
             schemas.VocabularyCard(
                 kind="skos_corp" if corp else "skos_domain",
@@ -390,9 +395,20 @@ def list_vocabularies(
                 version=_first_literal(schemes, node, OWL.versionInfo, DCAT.version),
                 metrics=None,
                 concepts=len(concepts),
+                domain=None,
                 synthetic=_synthetic(schemes, node, uris),
             )
         )
+
+    # Dominio de los esquemas de dominio: su dct:subject, con la etiqueta del concepto de
+    # vocab/dominio (una sola consulta, plantilla fija). Ontologías y corporativos: null.
+    domain_iris = [
+        d for node, corp in scheme_cards if not corp for d in _domain_subjects(schemes, node, uris)
+    ]
+    labels = vocab_labels(store, uris, domain_iris)
+    for card in cards:
+        if card.kind == "skos_domain":
+            card.domain = _domain_ref(uris, labels, schemes, URIRef(card.uri))
 
     counts = schemas.VocabularyCounts(
         own=sum(c.kind == "own" for c in cards),
@@ -403,7 +419,9 @@ def list_vocabularies(
     items = [
         c
         for c in cards
-        if (kind is None or c.kind == kind) and _matches(q, c.title, c.prefix, c.namespace)
+        if (kind is None or c.kind == kind)
+        and (domain is None or (c.domain is not None and c.domain.slug == domain))
+        and _matches(q, c.title, c.prefix, c.namespace)
     ]
     items.sort(key=lambda c: (KIND_ORDER[c.kind], normalize(c.title or ""), c.uri))
     return schemas.VocabularyPage(items=items, total=len(items), counts=counts)
@@ -863,6 +881,7 @@ def _tree(graph: Graph, scheme: URIRef) -> list[schemas.ConceptNode]:
             slug=_slug_in(scheme, concept),
             label=pick_literal(graph.objects(concept, SKOS.prefLabel)),
             top_concept=_is_top(graph, scheme, concept),
+            alt_labels=_lang_literals(graph.objects(concept, SKOS.altLabel)),
             children=children,
         )
 

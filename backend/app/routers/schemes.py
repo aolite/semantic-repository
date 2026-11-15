@@ -10,8 +10,10 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response, status
 from fastapi.responses import JSONResponse
+from rdflib import URIRef
+from rdflib.namespace import OWL
 
-from app import catalog, ingest, schemas, vocab_ingest, vocabularies
+from app import catalog, downloads, ingest, schemas, vocab_ingest, vocabularies
 from app.deps import DbDep, SettingsDep, StoreDep, UrisDep
 from app.negotiation import JSONLD, TURTLE
 from app.routers.datasets import (
@@ -133,13 +135,16 @@ def _rdf(
     slug: str,
     corp: bool,
     fmt: RdfFormatParam | None,
+    download: bool,
 ) -> Response:
     media = choose_media(request, fmt)
     try:
         graph = vocabularies.scheme_rdf(store, uris, slug, corp)
     except catalog.NotFoundError as exc:
         raise _not_found() from exc
-    return graph_response(graph, uris, media)
+    version = graph.value(URIRef(uris.scheme(slug, corp=corp)), OWL.versionInfo)
+    parts = ["corp" if corp else None, slug, str(version) if version is not None else None]
+    return downloads.apply(graph_response(graph, uris, media), download, parts, media)
 
 
 @router.get(
@@ -159,9 +164,14 @@ def get_corp_scheme(slug: SlugPath, store: StoreDep, uris: UrisDep) -> schemas.S
     responses=RDF_RESPONSES,
 )
 def get_corp_scheme_rdf(
-    request: Request, slug: SlugPath, store: StoreDep, uris: UrisDep, fmt: FormatQuery = None
+    request: Request,
+    slug: SlugPath,
+    store: StoreDep,
+    uris: UrisDep,
+    fmt: FormatQuery = None,
+    download: downloads.DownloadQuery = False,
 ) -> Response:
-    return _rdf(request, store, uris, slug, True, fmt)
+    return _rdf(request, store, uris, slug, True, fmt, download)
 
 
 @router.get(
@@ -193,9 +203,14 @@ def get_scheme(slug: SlugPath, store: StoreDep, uris: UrisDep) -> schemas.Scheme
     responses=RDF_RESPONSES,
 )
 def get_scheme_rdf(
-    request: Request, slug: SlugPath, store: StoreDep, uris: UrisDep, fmt: FormatQuery = None
+    request: Request,
+    slug: SlugPath,
+    store: StoreDep,
+    uris: UrisDep,
+    fmt: FormatQuery = None,
+    download: downloads.DownloadQuery = False,
 ) -> Response:
-    return _rdf(request, store, uris, slug, False, fmt)
+    return _rdf(request, store, uris, slug, False, fmt, download)
 
 
 @router.get(

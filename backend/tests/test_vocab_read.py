@@ -53,6 +53,7 @@ def test_vocabularies_cards_and_counts(api: TestClient) -> None:
         "version": "1.2.0",
         "metrics": {"classes": 13, "properties": 4},
         "concepts": None,
+        "domain": None,
         "synthetic": True,
     }
     pqcm = cards[f"{BASE_URI}onto/pqcm"]
@@ -571,3 +572,88 @@ def test_labels_only_from_the_concepts_own_scheme_graph(
     assert concept["pref_label"] == "Modbus/TCP"
     assert "FALSO" not in json.dumps(api.get("/datasets").json())
     assert "FALSO" not in json.dumps(api.get("/schemes/ot").json())
+
+
+# --- Dominio en las tarjetas, altLabel en el árbol y descarga del RDF -------------------
+
+
+def test_vocabulary_cards_have_domain(api: TestClient) -> None:
+    cards = {c["uri"]: c for c in api.get("/vocabularies").json()["items"]}
+    assert cards[OT]["domain"] == DOMINIO_OT
+    assert cards[f"{BASE_URI}vocab/did"]["domain"]["slug"] == "pqc"
+    assert cards[f"{BASE_URI}vocab/did"]["domain"]["label"] == "PQC e identidad"
+    # Sin dominio en el RDF: ontologías (no se deduce de sus dct:subject) y corporativos.
+    assert cards[ONTO]["domain"] is None
+    assert cards["https://saref.etsi.org/core/"]["domain"] is None
+    assert cards[f"{BASE_URI}vocab/corp/trl"]["domain"] is None
+
+
+@pytest.mark.parametrize(
+    ("domain", "slugs"),
+    [("pqc", {"pqc", "did"}), ("ot", {"ot"}), ("it", {"it"}), ("ia", {"ia"})],
+)
+def test_vocabularies_filter_domain(api: TestClient, domain: str, slugs: set[str]) -> None:
+    body = api.get("/vocabularies", params={"domain": domain}).json()
+    assert {c["slug"] for c in body["items"]} == slugs
+    assert {c["domain"]["slug"] for c in body["items"]} == {domain}
+    assert body["total"] == len(slugs)
+    assert body["counts"] == {"own": 3, "external": 3, "skos_corp": 4, "skos_domain": 5}
+
+
+def test_vocabularies_filter_domain_combined_and_invalid(api: TestClient) -> None:
+    assert api.get("/vocabularies", params={"domain": "ot", "kind": "own"}).json()["items"] == []
+    assert api.get("/vocabularies", params={"domain": "ot", "q": "nada"}).json()["total"] == 0
+    assert api.get("/vocabularies", params={"domain": "otro"}).status_code == 422
+
+
+def test_tree_nodes_have_alt_labels(api: TestClient) -> None:
+    tree = api.get("/schemes/ot").json()["tree"]
+    protocolos = next(n for n in tree if n["slug"] == "protocolos-industriales")
+    modbus = next(n for n in protocolos["children"] if n["slug"] == "modbus-tcp")
+    assert modbus["alt_labels"] == [{"value": "Modbus TCP/IP", "lang": "es"}]
+    assert protocolos["alt_labels"] == []
+
+
+@pytest.mark.parametrize(
+    ("path", "params", "name"),
+    [
+        ("/ontologies/itot/rdf", {"download": "true"}, "itot-1.2.0.ttl"),
+        (
+            "/ontologies/itot/rdf",
+            {"download": "1", "version": "1.1.0", "format": "rdfxml"},
+            "itot-1.1.0.rdf",
+        ),
+        ("/schemes/ot/rdf", {"download": "1"}, "ot-1.0.ttl"),
+        ("/schemes/corp/trl/rdf", {"download": "1", "format": "jsonld"}, "corp-trl-1.0.jsonld"),
+        ("/datasets/modbus-tcp-testbed/rdf", {"download": "1"}, "modbus-tcp-testbed-2.1.0.ttl"),
+        (
+            "/datasets/modbus-tcp-testbed/rdf",
+            {"download": "1", "version": "1.0.0", "format": "jsonld"},
+            "modbus-tcp-testbed-1.0.0.jsonld",
+        ),
+    ],
+)
+def test_rdf_download_sets_attachment(
+    api: TestClient, path: str, params: dict[str, str], name: str
+) -> None:
+    response = api.get(path, params=params)
+    assert response.status_code == 200
+    assert response.headers["content-disposition"] == f'attachment; filename="{name}"'
+
+
+@pytest.mark.parametrize(
+    "path", ["/ontologies/itot/rdf", "/schemes/ot/rdf", "/datasets/modbus-tcp-testbed/rdf"]
+)
+def test_rdf_inline_by_default(api: TestClient, path: str) -> None:
+    for params in ({}, {"download": "false"}):
+        response = api.get(path, params=params)
+        assert response.status_code == 200
+        assert "content-disposition" not in response.headers
+    assert api.get(path, params={"download": "quizas"}).status_code == 422
+
+
+def test_download_filename_drops_unsafe_parts() -> None:
+    from app import downloads
+
+    assert downloads.filename(["itot", '1.0"; x=y'], "text/turtle") == "itot.ttl"
+    assert downloads.filename(["../etc", None], "application/rdf+xml") == "rdf.rdf"
