@@ -105,3 +105,28 @@ jobs:
         env:
           E2E_REQUIRE_DOCKER: "1"
         run: uv run --frozen --project backend pytest tests/e2e -v
+
+  # PROPUESTA pendiente de decisión del responsable (QA-G3-12): pip-audit no cubre los JAR
+  # que trae owlready2 (Jena, OWL API, log4j...). Se puede quitar este job sin más.
+  # Corre en PR y en push a main (como el resto del workflow). No sube resultados a ningún
+  # servicio externo; Trivy solo descarga su base de vulnerabilidades de ghcr.io (GitHub).
+  imagen-backend:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Construir la imagen del backend
+        run: |
+          if [ -f backend/Dockerfile ]; then docker build -t backend-scan:ci backend; else echo "sin Dockerfile: se salta"; fi
+      - name: Analizar la imagen con Trivy (falla con hallazgos críticos)
+        if: hashFiles('backend/Dockerfile') != ''
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: backend-scan:ci
+          version: v0.76.2
+          severity: CRITICAL
+          exit-code: "1"
+          format: table
+          vuln-type: os,library
