@@ -1,8 +1,8 @@
 # /// script
 # requires-python = ">=3.11"
 # dependencies = [
-#     "rdflib>=7.1,<8",
-#     "pyshacl>=0.30,<1",
+#     "rdflib==7.6.0",
+#     "pyshacl==0.40.2",
 # ]
 # ///
 """Valida el RDF de semantic/.

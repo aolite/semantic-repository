@@ -99,15 +99,18 @@ Los slugs `it/cwe`, `it/control-iso-27001`, `ia/evasion` e `ia/caja-blanca` fuer
 | Ontologías externas (todas) | `semantic/ontologias/externas.ttl` | `{BASE_URI}onto/externas` | — |
 | Esquema de dominio | `semantic/vocabularios/{slug}.ttl` | `{BASE_URI}vocab/{slug}` | `vocab/{slug}/v{version}` |
 | Esquema corporativo | `semantic/vocabularios/corp/{slug}.ttl` | `{BASE_URI}vocab/corp/{slug}` | `vocab/corp/{slug}/v{version}` |
-| Esquemas auxiliares (`dominio`, `tipo-dataset`) | `semantic/data/vocab-minimo.ttl` | `{BASE_URI}vocab/`, sin cambios desde la fase 2 **[PROPUESTA]** | — |
+| Esquemas auxiliares (`dominio`, `tipo-dataset`) | `semantic/data/vocab-minimo.ttl` | cada esquema en el grafo de su URI: `{BASE_URI}vocab/dominio` y `{BASE_URI}vocab/tipo-dataset` | — |
 
 Un fichero describe un solo esquema (con todos sus conceptos) o una sola versión de ontología. En la etiqueta Git, `{version}` es el `owl:versionInfo` del fichero (`onto/itot/v1.2.0`, `vocab/ot/v1.0`, `vocab/corp/financiacion/v2026.1`). Cada esquema tiene un fichero, el de su última versión, y las anteriores quedan en el historial de Git. Las ontologías tienen un fichero por versión porque la ficha muestra el historial con `owl:priorVersion`.
+
+**Limpieza tras la fase 2:** en un Fuseki cargado en la fase 2 queda el grafo antiguo `{BASE_URI}vocab/`, que tenía `vocab-minimo.ttl` entero. La lectura ya no lo consulta y se puede borrar.
 
 ### Ontologías propias
 
 - URI `{BASE_URI}onto/{slug}`, `owl:versionIRI {BASE_URI}onto/{slug}/{version}`, `owl:versionInfo "{version}"`, `owl:priorVersion` hacia la versión anterior (la primera no lleva) y, si procede, `owl:backwardCompatibleWith`.
 - VANN: `vann:preferredNamespacePrefix "{slug}"` y `vann:preferredNamespaceUri <{BASE_URI}onto/{slug}#>`. El espacio de nombres es una **IRI**, no un literal: los ficheros usan IRIs relativas a `BASE_URI` y un literal no se resolvería. Que el prefijo sea el slug es **[PROPUESTA]**; así lo hace el prototipo (`itot`, `pqcm`, `didx`).
-- Términos en `{BASE_URI}onto/{slug}#{Nombre}`. Las clases externas que se usan como destino de un alineamiento se declaran `owl:Class` en el propio fichero, para que sea OWL 2 DL sin cargar los imports. **Al contar clases, el backend debe contar solo las del espacio de nombres propio.**
+- Términos en `{BASE_URI}onto/{slug}#{Nombre}`. Solo lo que sale del prototipo (decisión del responsable, 2026-11-15): clases con `rdfs:label` en español (las traducciones en y ca son **[PROPUESTA]**), sin `rdfs:comment`, sin propiedades inventadas y con jerarquía solo cuando un texto del prototipo la respalda, citado en un comentario.
+- Si una versión usa una clase externa como destino de un alineamiento, la declara `owl:Class` en el propio fichero, para que sea OWL 2 DL sin cargar los imports. Hoy ninguna lo hace (los alineamientos con D3FEND son placeholder). **Al contar clases, el backend debe contar solo las del espacio de nombres propio.**
 - `dct:subject` hacia los conceptos SKOS que usa la ontología (el navegador SKOS los muestra en «Recursos que usan este concepto»).
 - Notas de versión en `adms:versionNotes`, como en los datasets.
 - Las propiedades de metadatos (Dublin Core, ADMS, VANN, FOAF) se declaran `owl:AnnotationProperty`, y el publicador es un nodo en blanco solo con `foaf:name`.

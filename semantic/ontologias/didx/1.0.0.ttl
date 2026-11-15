@@ -6,12 +6,13 @@
 # versión). Contenido de demostración: marcado con
 # dct:type <vocab/tipo-dataset/sintetico> (ver semantic/uris.md).
 #
-# Esqueleto MÍNIMO: una clase por cada término que enumera la descripción
-# (DIDs, credenciales verificables, emisores y verificadores), con
-# rdfs:label es/en y rdfs:comment. Las «extensiones para eIDAS 2.0 y la
-# cartera EUDI» no se detallan en el prototipo y no se modelan. Sin
-# propiedades ni jerarquía. Los nombres locales, las etiquetas en inglés y
-# los comentarios son [PROPUESTA] de semantico. Las métricas del prototipo
+# Esqueleto MÍNIMO (decisión del responsable, 2026-11-15): una clase por
+# cada término que enumera la descripción (DIDs, credenciales verificables,
+# emisores y verificadores), con rdfs:label en español. Los nombres locales
+# y las etiquetas en inglés (traducción del nombre) son [PROPUESTA] de
+# semantico. Las «extensiones para eIDAS 2.0 y la cartera EUDI» no se
+# detallan en el prototipo y no se modelan. Sin rdfs:comment (el hueco queda
+# como «# rdfs:comment [DEFINICIÓN]»), sin propiedades y sin jerarquía. Las métricas del prototipo
 # (31 clases · 26 propiedades) son de demostración y no se persiguen.
 #
 # «Extiende W3C VC»: el prototipo no dice cómo (import, subclases…). No se
@@ -72,22 +73,22 @@ vann:preferredNamespaceUri a owl:AnnotationProperty .
 foaf:name a owl:AnnotationProperty .
 
 # --- Clases -----------------------------------------------------------------
-didx:IdentificadorDescentralizado
+didx:DID
     a owl:Class ;
-    rdfs:label "Identificador descentralizado (DID)"@es , "Decentralized identifier (DID)"@en ;
-    rdfs:comment "Identificador descentralizado (DID)."@es .
+    rdfs:label "DID"@es .
+    # rdfs:comment [DEFINICIÓN]
 
 didx:CredencialVerificable
     a owl:Class ;
-    rdfs:label "Credencial verificable"@es , "Verifiable credential"@en ;
-    rdfs:comment "Credencial verificable que un emisor expide y un verificador comprueba."@es .
+    rdfs:label "Credencial verificable"@es , "Verifiable credential"@en .
+    # rdfs:comment [DEFINICIÓN]
 
 didx:Emisor
     a owl:Class ;
-    rdfs:label "Emisor"@es , "Issuer"@en ;
-    rdfs:comment "Emisor de credenciales verificables."@es .
+    rdfs:label "Emisor"@es , "Issuer"@en .
+    # rdfs:comment [DEFINICIÓN]
 
 didx:Verificador
     a owl:Class ;
-    rdfs:label "Verificador"@es , "Verifier"@en ;
-    rdfs:comment "Verificador de credenciales verificables."@es .
+    rdfs:label "Verificador"@es , "Verifier"@en .
+    # rdfs:comment [DEFINICIÓN]

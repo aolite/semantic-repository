@@ -29,7 +29,7 @@ Desde la raíz del repositorio:
 uv run semantic/scripts/validate.py
 ```
 
-El script declara sus dependencias (rdflib y pyshacl) con metadatos PEP 723, así que no hace falta instalar nada aparte de uv. Comprueba la sintaxis de todos los `.ttl`, que las formas sean SHACL válido, que los ejemplos válidos las cumplan y que cada ejemplo inválido falle exactamente en las formas que indican sus líneas `# expect-violation: <NombreLocal>`. Sale con código 1 si algo falla. El CI usa este mismo comando.
+El script declara sus dependencias con metadatos PEP 723, así que no hace falta instalar nada aparte de uv. Las versiones están fijadas (`rdflib==7.6.0` y `pyshacl==0.40.2`) y son las mismas del `uv.lock` del backend, para que el CI, el workflow de publicación y la ingesta validen igual. Si el backend las actualiza, hay que cambiarlas aquí también. Comprueba la sintaxis de todos los `.ttl`, que las formas sean SHACL válido, que los ejemplos válidos las cumplan y que cada ejemplo inválido falle exactamente en las formas que indican sus líneas `# expect-violation: <NombreLocal>`. Sale con código 1 si algo falla. El CI usa este mismo comando.
 
 Para `data/`, valida cada fichero de `data/sintetico/` por separado (tal como lo ingesta el backend) y después todo `data/**/*.ttl` en un grafo. Sobre ese grafo conjunto hace además comprobaciones de coherencia que no son SHACL, porque cruzan datos y vocabulario: cada tema es un concepto de un esquema de `vocabularios/` con dominio (`dct:subject`) y los de una versión son de un solo dominio; las series y versiones de `data/sintetico/` llevan la marca de sintético; `dcat:inSeries`, `dcat:previousVersion`, `dcat:first` y `dcat:last` apuntan a recursos descritos de la misma serie; las URIs de versiones y distribuciones siguen `uris.md`; `dcat:accessURL` es la URI de la propia distribución, y el catálogo lista todas las series. Son reglas de los datos de este repositorio, no del contrato de ingesta: el backend puede recibir versiones cuyos conceptos están en otro grafo.
 
@@ -50,13 +50,13 @@ El catálogo solo publica versiones etiquetadas (`Plan.md`, sección 1). Cada et
 | Esquema de dominio | `vocab/{slug}/v{version}` | `vocab/ot/v1.0` → `vocabularios/ot.ttl` |
 | Esquema corporativo | `vocab/corp/{slug}/v{version}` | `vocab/corp/financiacion/v2026.1` → `vocabularios/corp/financiacion.ttl` |
 
-Al recibir una etiqueta, el pipeline valida con `uv run semantic/scripts/validate.py` y el backend carga el fichero en su grafo con nombre (ver «Ficheros, grafos con nombre y etiquetas Git» en `uris.md`). Las ontologías externas y los esquemas auxiliares de `data/vocab-minimo.ttl` no se etiquetan.
+Al recibir una etiqueta, el workflow de publicación valida con `uv run semantic/scripts/validate.py` y crea una Release (decisión 37). **No carga nada en ningún entorno**: la carga es manual, con `load-semantic` del backend, que pone cada fichero en su grafo con nombre (ver «Ficheros, grafos con nombre y etiquetas Git» en `uris.md`). Las ontologías externas y los esquemas auxiliares de `data/vocab-minimo.ttl` no se etiquetan.
 
 ## Métricas OWL
 
 El RDF **no lleva métricas** (clases, propiedades, axiomas, imports, perfil, consistencia): las calcula el backend en la ingesta (decisión del responsable, 2026-11-15). Las cifras del prototipo son de demostración. Al calcularlas hay que tener en cuenta que:
 
-- Cada versión declara como `owl:Class` las clases externas que usa en un alineamiento (p. ej. `d3f:DefensiveTechnique` en `itot` 1.2.0): hay que contar solo las clases del espacio de nombres propio (`{BASE_URI}onto/{slug}#`).
+- Si una versión declara como `owl:Class` una clase externa que usa en un alineamiento (hoy ninguna), hay que contar solo las clases del espacio de nombres propio (`{BASE_URI}onto/{slug}#`).
 - Los `owl:imports` (SOSA y SAREF en `itot`) apuntan a IRIs externas. Si el cálculo los resuelve, descarga esas ontologías de la red.
 
 En local, sin imports, las cinco versiones cargan con owlready2 y son consistentes con Pellet y con HermiT (comprobación hecha al escribir la fase 3, no forma parte del CI).
