@@ -147,6 +147,21 @@ describe('Vocabularios y ontologías', () => {
     expect(within(card).getByText('[VERSIÓN]')).toBeInTheDocument()
   })
 
+  it.each([
+    ['javascript:', 'javascript:alert(1)'],
+    ['con placeholder', 'https://externa.test/[VERSIÓN]/onto'],
+  ])('no enlaza una ontología externa con IRI %s: muestra el texto', async (_case, uri) => {
+    const external = vocabCardsFixture()[1]
+    mockVocab(() => vocabPageFixture([{ ...external, uri, namespace: null }]))
+    renderApp('/vocabularios')
+    const title = await screen.findByText('Ontología externa de prueba')
+    expect(title.closest('a')).toBeNull()
+    expect(screen.queryByRole('link', { name: /Ontología externa de prueba/ })).not.toBeInTheDocument()
+    const card = title.closest('article')!
+    expect(within(card).queryAllByRole('link')).toHaveLength(0)
+    expect(document.querySelector(`a[href="${uri}"]`)).toBeNull()
+  })
+
   it('muestra «Métricas sin calcular» si una ontología propia no tiene métricas', async () => {
     mockVocab(() => vocabPageFixture([{ ...vocabCardsFixture()[0], metrics: null }]))
     renderApp('/vocabularios')

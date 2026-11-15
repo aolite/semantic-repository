@@ -1,6 +1,6 @@
 import { Link } from 'react-router'
 import type { VocabularyCard } from '../api'
-import { metricsLine, prefixLabel, versionLabel } from '../vocab/labels'
+import { isLinkableIri, metricsLine, prefixLabel, versionLabel } from '../vocab/labels'
 import { vocabularyHref } from '../vocab/routes'
 import { DomainTag, KindTag, StatusTag, SyntheticTag, TypeTag } from './Tags'
 
@@ -24,7 +24,10 @@ export function VocabularyCardView({ item }: { item: VocabularyCard }) {
           <StatusTag status={item.status} pill />
         </span>
       </div>
-      {external ? (
+      {external && !isLinkableIri(href) ? (
+        // Solo se enlazan IRIs http(s) sin placeholders; el resto, como texto.
+        <span className="card__title card__title--plain">{title}</span>
+      ) : external ? (
         <a href={href} className="card__title" rel="noopener noreferrer">
           {title} <span aria-hidden="true">↗</span>{' '}
           <span className="visually-hidden">(IRI oficial, sitio externo)</span>

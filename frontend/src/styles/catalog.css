@@ -167,7 +167,12 @@
   text-decoration: none;
 }
 
-.card__title:hover {
+.card__title--plain:hover {
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.card__title:not(.card__title--plain):hover {
   color: var(--color-brand);
   text-decoration: underline;
 }
