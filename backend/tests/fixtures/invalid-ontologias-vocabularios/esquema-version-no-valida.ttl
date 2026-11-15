@@ -1,0 +1,30 @@
+# Ejemplo INVÁLIDO: owl:versionInfo con prefijo «v» (el prototipo muestra «v1.0», pero el
+# valor es «1.0»).
+#
+# expect-violation: ConceptScheme-version
+#
+# BASE_URI: el fichero no declara @base; las URIs son relativas.
+
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix dct:  <http://purl.org/dc/terms/> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix adms: <http://www.w3.org/ns/adms#> .
+@prefix vann: <http://purl.org/vocab/vann/> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+<vocab/ejemplo>
+    a skos:ConceptScheme ;
+    dct:title "Esquema de ejemplo"@es ;
+    dct:description "Esquema mínimo para un ejemplo inválido."@es ;
+    dct:subject <vocab/dominio/ot> ;
+    owl:versionInfo "v1.0" ;
+    adms:status <http://purl.org/adms/status/Completed> ;
+    vann:preferredNamespacePrefix "ej" ;
+    vann:preferredNamespaceUri <vocab/ejemplo/> ;
+    skos:hasTopConcept <vocab/ejemplo/a> .
+
+<vocab/ejemplo/a>
+    a skos:Concept ;
+    skos:inScheme <vocab/ejemplo> ;
+    skos:topConceptOf <vocab/ejemplo> ;
+    skos:prefLabel "Concepto A"@es .

@@ -1,0 +1,99 @@
+# Ontología propia SINTÉTICA «Ontología de migración criptográfica
+# post-cuántica» (pqcm), versión 0.4.0, en BORRADOR.
+#
+# Fuente: pantalla «Vocabularios y ontologías» del prototipo (título,
+# prefijo, espacio de nombres, descripción, «OWL 2 DL», «En revisión interna»
+# y versión). Contenido de demostración: marcado con
+# dct:type <vocab/tipo-dataset/sintetico> (ver semantic/uris.md).
+#
+# Esqueleto MÍNIMO: una clase por cada término que enumera la descripción
+# (inventario criptográfico o CBOM, algoritmos, dependencias, estados de
+# migración, sistemas y componentes), con rdfs:label es/en y rdfs:comment.
+# Sin propiedades ni jerarquía: el prototipo no las describe. Los nombres
+# locales, las etiquetas en inglés y los comentarios son [PROPUESTA] de
+# semantico. Las métricas del prototipo (22 clases · 18 propiedades) son de
+# demostración y no se persiguen.
+#
+# Versiones: el prototipo solo da la 0.4.0 y no nombra versiones anteriores,
+# así que no lleva owl:priorVersion ni nota de versión.
+#
+# Placeholders que se OMITEN: dct:creator [AUTORES], dct:license
+# [LICENCIA], dct:issued y dct:modified [FECHA] y repositorio
+# [REPOSITORIO GIT]. Sin dct:subject: el prototipo no dice qué conceptos
+# SKOS usa.
+#
+# BASE_URI: el fichero no declara @base; las URIs son relativas.
+# URI de la ontología: {BASE_URI}onto/pqcm.
+# Grafo con nombre: {BASE_URI}onto/pqcm/0.4.0 (su owl:versionIRI).
+# Etiqueta Git: onto/pqcm/v0.4.0.
+
+@prefix pqcm: <onto/pqcm#> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix dct:  <http://purl.org/dc/terms/> .
+@prefix adms: <http://www.w3.org/ns/adms#> .
+@prefix vann: <http://purl.org/vocab/vann/> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+
+# --- Cabecera ---------------------------------------------------------------
+<onto/pqcm>
+    a owl:Ontology ;
+    owl:versionIRI <onto/pqcm/0.4.0> ;
+    owl:versionInfo "0.4.0" ;
+    dct:type <vocab/tipo-dataset/sintetico> ;
+    dct:title "Ontología de migración criptográfica post-cuántica"@es ;
+    dct:description "Inventario criptográfico (CBOM), algoritmos, dependencias y estados de migración de sistemas y componentes."@es ;
+    adms:status <http://purl.org/adms/status/UnderDevelopment> ;
+    vann:preferredNamespacePrefix "pqcm" ;
+    vann:preferredNamespaceUri <onto/pqcm#> ;
+    # dct:creator [AUTORES] ;
+    # dct:license [LICENCIA] ;
+    # dct:issued [FECHA] ;
+    # dct:modified [FECHA] ;
+    # Repositorio: [REPOSITORIO GIT] ;
+    dct:publisher _:unidad-itot .
+
+# El agente «Eurecat · Unidad IT&OT Security» no tiene URI en el prototipo:
+# nodo en blanco (solo con foaf:name, para seguir en OWL 2 DL).
+_:unidad-itot foaf:name "Eurecat · Unidad IT&OT Security" .
+
+# --- Propiedades de anotación (metadatos) -----------------------------------
+dct:title a owl:AnnotationProperty .
+dct:description a owl:AnnotationProperty .
+dct:type a owl:AnnotationProperty .
+dct:publisher a owl:AnnotationProperty .
+adms:status a owl:AnnotationProperty .
+vann:preferredNamespacePrefix a owl:AnnotationProperty .
+vann:preferredNamespaceUri a owl:AnnotationProperty .
+foaf:name a owl:AnnotationProperty .
+
+# --- Clases -----------------------------------------------------------------
+pqcm:InventarioCriptografico
+    a owl:Class ;
+    rdfs:label "Inventario criptográfico (CBOM)"@es , "Cryptographic inventory (CBOM)"@en ;
+    rdfs:comment "Inventario criptográfico (CBOM) de un sistema o componente."@es .
+
+pqcm:Algoritmo
+    a owl:Class ;
+    rdfs:label "Algoritmo criptográfico"@es , "Cryptographic algorithm"@en ;
+    rdfs:comment "Algoritmo criptográfico que figura en un inventario."@es .
+
+pqcm:Dependencia
+    a owl:Class ;
+    rdfs:label "Dependencia"@es , "Dependency"@en ;
+    rdfs:comment "Dependencia criptográfica de un sistema o componente."@es .
+
+pqcm:EstadoMigracion
+    a owl:Class ;
+    rdfs:label "Estado de migración"@es , "Migration status"@en ;
+    rdfs:comment "Estado de la migración criptográfica post-cuántica de un sistema o componente."@es .
+
+pqcm:Sistema
+    a owl:Class ;
+    rdfs:label "Sistema"@es , "System"@en ;
+    rdfs:comment "Sistema cuyo inventario criptográfico y migración se describen."@es .
+
+pqcm:Componente
+    a owl:Class ;
+    rdfs:label "Componente"@es , "Component"@en ;
+    rdfs:comment "Componente cuyo inventario criptográfico y migración se describen."@es .

@@ -68,7 +68,7 @@ async def read_rdf_body(
     return b"".join(chunks), rdf_format
 
 
-def _ingest_error(exc: ingest.IngestError) -> JSONResponse:
+def ingest_error_response(exc: ingest.IngestError) -> JSONResponse:
     body = schemas.IngestErrorResponse(
         detail=exc.detail,
         kind=exc.kind,
@@ -131,7 +131,7 @@ def create_dataset(
         graph = ingest.parse_rdf(data, rdf_format, uris.base)
         prepared = ingest.prepare_series(graph, uris, settings.semantic_dir)
     except ingest.IngestError as exc:
-        return _ingest_error(exc)
+        return ingest_error_response(exc)
     result = ingest.publish_and_audit(store, db, prepared, actor=editor, via="api")
     if not result.created:
         response.status_code = status.HTTP_200_OK

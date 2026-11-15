@@ -8,7 +8,17 @@ from fastapi.responses import JSONResponse
 
 from app import __version__
 from app.config import Settings, get_settings
-from app.routers import auth, datasets, health, linked_data, users
+from app.routers import (
+    auth,
+    datasets,
+    health,
+    linked_data,
+    linked_data_vocab,
+    ontologies,
+    schemes,
+    users,
+    vocabularies,
+)
 from app.triplestore import TriplestoreError
 
 API_TITLE = "Repositorio semántico IT&OT · API"
@@ -16,7 +26,9 @@ API_DESCRIPTION = (
     "API del catálogo DCAT-AP del repositorio semántico IT&OT. "
     "Fase 1: health checks, autenticación JWT y gestión de cuentas. "
     "Fase 2: lectura del catálogo, ingesta validada con SHACL y negociación de contenido "
-    "en las URIs persistentes."
+    "en las URIs persistentes. "
+    "Fase 3: ingesta y lectura de ontologías (con métricas OWL y consistencia) y de esquemas "
+    "SKOS, y negociación en sus URIs persistentes."
 )
 
 
@@ -69,6 +81,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(users.router)
     app.include_router(datasets.router)
     app.include_router(linked_data.router)
+    app.include_router(vocabularies.router)
+    app.include_router(ontologies.router)
+    app.include_router(schemes.router)
+    app.include_router(linked_data_vocab.onto_router)
+    app.include_router(linked_data_vocab.vocab_router)
     return app
 
 

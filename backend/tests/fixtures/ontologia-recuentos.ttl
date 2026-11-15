@@ -1,0 +1,45 @@
+# Fixture de pruebas del backend (no son datos del proyecto). Recuentos conocidos, que
+# comprueba tests/test_owl_metrics.py: 3 clases, 1 propiedad de objeto, 1 de datos,
+# 1 individuo, 8 axiomas lógicos, 1 import y cobertura de documentación 3/5 (60 %).
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix dct:  <http://purl.org/dc/terms/> .
+@prefix adms: <http://www.w3.org/ns/adms#> .
+@prefix vann: <http://purl.org/vocab/vann/> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix itot: <onto/itot#> .
+@prefix sens: <https://example.org/externa/sensores#> .
+@prefix deb:  <https://example.org/externa/debilidades#> .
+
+<onto/itot> a owl:Ontology ;
+    owl:versionIRI <onto/itot/1.2.0> ;
+    owl:versionInfo "1.2.0" ;
+    owl:priorVersion <onto/itot/1.1.0> ;
+    owl:backwardCompatibleWith <onto/itot/1.1.0> ;
+    owl:imports <https://example.org/externa/sensores> ;
+    dct:title "Ontología de prueba"@es ;
+    dct:description "Ontología de prueba del backend"@es ;
+    dct:creator [ foaf:name "Equipo de prueba" ] ;
+    dct:subject <vocab/ot> , <vocab/ot/modbus-tcp> ;
+    vann:preferredNamespacePrefix "itot" ;
+    vann:preferredNamespaceUri <onto/itot#> ;
+    adms:versionNotes "Notas de la 1.2.0"@es .
+
+itot:Activo a owl:Class ; rdfs:comment "Un activo"@es .
+itot:Dispositivo a owl:Class ;
+    rdfs:subClassOf itot:Activo , sens:Plataforma ;
+    rdfs:comment "Un dispositivo"@es .
+itot:Vulnerabilidad a owl:Class ; skos:closeMatch deb:Debilidad .
+
+itot:afecta a owl:ObjectProperty ;
+    rdfs:domain itot:Vulnerabilidad ;
+    rdfs:range itot:Activo ;
+    rdfs:comment "Relación de prueba"@es .
+itot:identificador a owl:DatatypeProperty ;
+    rdfs:domain itot:Activo ;
+    rdfs:range xsd:string .
+
+itot:plc1 a owl:NamedIndividual , itot:Dispositivo ;
+    itot:identificador "PLC-1" .

@@ -1,0 +1,69 @@
+# Esquema SKOS de dominio SINTÉTICO «Algoritmos post-cuánticos y migración» (pqc).
+#
+# Fuente: pantalla «Vocabularios y ontologías» del prototipo (metadatos).
+# Contenido de demostración: marcado con dct:type <vocab/tipo-dataset/sintetico>.
+#
+# Qué sale del prototipo y qué no:
+# - Título, descripción, versión (v1.0), estado (Publicada) y prefijo. El
+#   navegador SKOS del prototipo lo llama «Algoritmos post-cuánticos»; se usa
+#   el título completo de la lista de vocabularios.
+# - Conceptos: solo los tres esquemas que nombra la descripción (ML-KEM,
+#   ML-DSA y SLH-DSA), con el nombre como prefLabel @es. Slugs [PROPUESTA]
+#   de semantico. Sin definición, etiquetas en ca/en ni jerarquía. Los
+#   «niveles de seguridad» y «estados de migración» que cita la descripción
+#   no se enumeran en el prototipo y no se crean.
+# - El prototipo cita FIPS 203 · 204 · 205 como referencia del esquema. No se
+#   asocia cada norma a un concepto ni se añaden mapeos: el prototipo no lo
+#   detalla (pendiente).
+# - Ningún dataset sintético usa este esquema.
+#
+# BASE_URI: el fichero no declara @base; las URIs son relativas.
+# Grafo con nombre: {BASE_URI}vocab/pqc. Etiqueta Git: vocab/pqc/v1.0.
+
+@prefix pqc:  <vocab/pqc/> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix dct:  <http://purl.org/dc/terms/> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix adms: <http://www.w3.org/ns/adms#> .
+@prefix vann: <http://purl.org/vocab/vann/> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+
+<vocab/pqc>
+    a skos:ConceptScheme ;
+    dct:type <vocab/tipo-dataset/sintetico> ;
+    dct:title "Algoritmos post-cuánticos y migración"@es ;
+    skos:prefLabel "Algoritmos post-cuánticos y migración"@es ;
+    dct:description "Esquemas estandarizados por NIST (ML-KEM, ML-DSA, SLH-DSA), niveles de seguridad y estados de migración."@es ;
+    dct:subject <vocab/dominio/pqc> ;
+    owl:versionInfo "1.0" ;
+    adms:status <http://purl.org/adms/status/Completed> ;
+    vann:preferredNamespacePrefix "pqc" ;
+    vann:preferredNamespaceUri <vocab/pqc/> ;
+    dct:publisher _:unidad-itot ;
+    # dct:license [LICENCIA] ;
+    # dct:issued [FECHA] ;
+    # dct:modified [FECHA] ;
+    skos:hasTopConcept pqc:ml-kem , pqc:ml-dsa , pqc:slh-dsa .
+
+_:unidad-itot
+    a foaf:Agent , prov:Agent ;
+    foaf:name "Eurecat · Unidad IT&OT Security" .
+
+pqc:ml-kem
+    a skos:Concept ;
+    skos:inScheme <vocab/pqc> ;
+    skos:topConceptOf <vocab/pqc> ;
+    skos:prefLabel "ML-KEM"@es .
+
+pqc:ml-dsa
+    a skos:Concept ;
+    skos:inScheme <vocab/pqc> ;
+    skos:topConceptOf <vocab/pqc> ;
+    skos:prefLabel "ML-DSA"@es .
+
+pqc:slh-dsa
+    a skos:Concept ;
+    skos:inScheme <vocab/pqc> ;
+    skos:topConceptOf <vocab/pqc> ;
+    skos:prefLabel "SLH-DSA"@es .

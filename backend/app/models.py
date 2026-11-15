@@ -1,4 +1,4 @@
-"""Modelos SQLAlchemy: cuentas de usuario y registro de auditoría.
+"""Modelos SQLAlchemy: cuentas de usuario, registro de auditoría y métricas OWL.
 
 El rol ``lector`` es anónimo y no tiene cuenta: en la base de datos solo se guardan
 cuentas de ``miembro``, ``editor`` y ``admin``.
@@ -9,7 +9,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, Enum, ForeignKey, String, Uuid
+from sqlalchemy import JSON, DateTime, Enum, ForeignKey, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -35,6 +35,8 @@ class AuditAction(enum.StrEnum):
     USER_REACTIVATED = "user_reactivated"
     ROLE_CHANGED = "role_changed"
     DATASET_PUBLISHED = "dataset_published"
+    ONTOLOGY_PUBLISHED = "ontology_published"
+    SCHEME_PUBLISHED = "scheme_published"
 
 
 class User(Base):
@@ -84,3 +86,23 @@ class AuditEvent(Base):
     )
     target_username: Mapped[str | None] = mapped_column(String(64), nullable=True)
     details: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+
+
+class OntologyMetricsRecord(Base):
+    """Métricas OWL y consistencia de una versión de ontología, calculadas en la ingesta.
+
+    Se guardan aquí, y no en el triplestore, porque son datos derivados que calcula el
+    backend (no forman parte del RDF versionado en Git) y no hay un vocabulario decidido
+    para describirlos en RDF. ``content_hash`` es el SHA-256 del grafo canónico de la
+    versión: si el RDF de la versión no cambia, no se recalculan.
+    """
+
+    __tablename__ = "ontology_metrics"
+
+    version_iri: Mapped[str] = mapped_column(String(512), primary_key=True)
+    ontology_iri: Mapped[str] = mapped_column(String(512), index=True)
+    content_hash: Mapped[str] = mapped_column(String(64))
+    metrics: Mapped[dict[str, Any]] = mapped_column(JSON)
+    consistency: Mapped[dict[str, Any]] = mapped_column(JSON)
+    tool: Mapped[str] = mapped_column(Text)
+    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

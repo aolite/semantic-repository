@@ -17,6 +17,18 @@ FROM python:3.15.2-slim AS runtime
 ENV PATH="/opt/venv/bin:$PATH" \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
+# Java para Pellet (consistencia OWL en la ingesta de ontologías, incluido en owlready2).
+# JRE headless de Debian 13 (trixie), versión fijada. Java 25 como mínimo: el Jena que
+# incluye owlready2 0.51 para Pellet está compilado para Java 25 (class file 69). Añade
+# unos 240 MB a la imagen (ver backend/README.md). Si Debian retira esta versión de sus
+# réplicas, el build falla: hay que actualizar el número (apt-cache policy
+# openjdk-25-jre-headless).
+ARG JRE_VERSION=25.0.5+8-1~deb13u1
+RUN mkdir -p /usr/share/man/man1 \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends "openjdk-25-jre-headless=${JRE_VERSION}" \
+    && rm -rf /var/lib/apt/lists/* \
+    && java -version
 RUN groupadd --system --gid 10001 app \
     && useradd --system --uid 10001 --gid app --home-dir /app --no-create-home app \
     && mkdir -p /data/distributions \

@@ -1,0 +1,59 @@
+# Ontologías EXTERNAS, catalogadas solo por referencia.
+#
+# Fuente: pantalla «Vocabularios y ontologías» del prototipo (título,
+# prefijo, espacio de nombres, descripción, organismo y versión) y tabla
+# «Imports y alineamientos» de la «Ficha de ontología». La URI de cada
+# ontología es la oficial de su publicador; aquí no se copia su contenido.
+#
+# Reglas de este fichero (ver semantic/uris.md, «Tipo y estado»):
+# - Cada recurso es un owl:Ontology con IRI fuera de BASE_URI.
+# - NO lleva owl:versionIRI: esa propiedad identifica las ontologías propias
+#   (forma itsh:OwnOntologyShape). La versión que se referencia va en
+#   owl:versionInfo, tal como la muestra el prototipo.
+# - NO lleva adms:status: su estado en la interfaz es siempre «Referenciada».
+# - No lleva la marca de sintético: son ontologías reales. Las descripciones
+#   son las del prototipo.
+#
+# Qué queda fuera:
+# - D3FEND: versión [VERSIÓN] en el prototipo. Se OMITE owl:versionInfo.
+# - MITRE ATT&CK for ICS: aparece en la ficha de itot como destino de
+#   skos:closeMatch (vía STIX 2.1), pero no en la lista de ontologías externas
+#   y no es una ontología OWL. Como sus mapeos son placeholder, no se cataloga.
+# - Las cifras «Usada en 2 datasets», «Usada en 1 ontología propia» y
+#   «Alineamientos: 14 clases» se deducen del resto del grafo; no se escriben.
+#
+# BASE_URI: el fichero no declara @base. Todas las IRIs de ontología son
+# absolutas (oficiales).
+# Grafo con nombre: {BASE_URI}onto/externas.
+
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix dct:  <http://purl.org/dc/terms/> .
+@prefix vann: <http://purl.org/vocab/vann/> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+
+<https://saref.etsi.org/core/>
+    a owl:Ontology ;
+    dct:title "SAREF · Smart Applications REFerence ontology"@es ;
+    dct:description "Ontología de referencia de ETSI para dispositivos y funciones IoT. Importada por la ontología de activos IT/OT."@es ;
+    owl:versionInfo "3.2.1" ;
+    vann:preferredNamespacePrefix "saref" ;
+    vann:preferredNamespaceUri <https://saref.etsi.org/core/> ;
+    dct:publisher [ foaf:name "ETSI" ] .
+
+<http://www.w3.org/ns/sosa/>
+    a owl:Ontology ;
+    dct:title "SOSA / SSN · Sensor, Observation, Sample and Actuator"@es ;
+    dct:description "Recomendación W3C para sensores, observaciones y actuadores. Base para las observaciones de los bancos de pruebas OT."@es ;
+    owl:versionInfo "W3C REC" ;
+    vann:preferredNamespacePrefix "sosa" ;
+    vann:preferredNamespaceUri <http://www.w3.org/ns/sosa/> ;
+    dct:publisher [ foaf:name "W3C" ] .
+
+<http://d3fend.mitre.org/ontologies/d3fend.owl>
+    a owl:Ontology ;
+    dct:title "D3FEND · técnicas defensivas"@es ;
+    dct:description "Ontología de MITRE para contramedidas y su relación con técnicas ofensivas. Destino de los alineamientos de controles."@es ;
+    # owl:versionInfo [VERSIÓN] ;
+    vann:preferredNamespacePrefix "d3f" ;
+    vann:preferredNamespaceUri <http://d3fend.mitre.org/ontologies/d3fend.owl#> ;
+    dct:publisher [ foaf:name "MITRE" ] .

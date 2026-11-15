@@ -1,0 +1,93 @@
+# Ontología propia SINTÉTICA «Ontología de credenciales e identidad
+# descentralizada» (didx), versión 1.0.0, PUBLICADA.
+#
+# Fuente: pantalla «Vocabularios y ontologías» del prototipo (título,
+# prefijo, espacio de nombres, descripción, «OWL 2 DL», «Extiende W3C VC» y
+# versión). Contenido de demostración: marcado con
+# dct:type <vocab/tipo-dataset/sintetico> (ver semantic/uris.md).
+#
+# Esqueleto MÍNIMO: una clase por cada término que enumera la descripción
+# (DIDs, credenciales verificables, emisores y verificadores), con
+# rdfs:label es/en y rdfs:comment. Las «extensiones para eIDAS 2.0 y la
+# cartera EUDI» no se detallan en el prototipo y no se modelan. Sin
+# propiedades ni jerarquía. Los nombres locales, las etiquetas en inglés y
+# los comentarios son [PROPUESTA] de semantico. Las métricas del prototipo
+# (31 clases · 26 propiedades) son de demostración y no se persiguen.
+#
+# «Extiende W3C VC»: el prototipo no dice cómo (import, subclases…). No se
+# declara ningún import ni alineamiento con el vocabulario de credenciales
+# verificables del W3C (pendiente de decisión).
+#
+# Versiones: el prototipo solo da la 1.0.0; no lleva owl:priorVersion ni nota
+# de versión.
+#
+# Placeholders que se OMITEN: dct:creator [AUTORES], dct:license
+# [LICENCIA], dct:issued y dct:modified [FECHA] y repositorio
+# [REPOSITORIO GIT]. Sin dct:subject: el prototipo no dice qué conceptos
+# SKOS usa.
+#
+# BASE_URI: el fichero no declara @base; las URIs son relativas.
+# URI de la ontología: {BASE_URI}onto/didx.
+# Grafo con nombre: {BASE_URI}onto/didx/1.0.0 (su owl:versionIRI).
+# Etiqueta Git: onto/didx/v1.0.0.
+
+@prefix didx: <onto/didx#> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix dct:  <http://purl.org/dc/terms/> .
+@prefix adms: <http://www.w3.org/ns/adms#> .
+@prefix vann: <http://purl.org/vocab/vann/> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+
+# --- Cabecera ---------------------------------------------------------------
+<onto/didx>
+    a owl:Ontology ;
+    owl:versionIRI <onto/didx/1.0.0> ;
+    owl:versionInfo "1.0.0" ;
+    dct:type <vocab/tipo-dataset/sintetico> ;
+    dct:title "Ontología de credenciales e identidad descentralizada"@es ;
+    dct:description "DIDs, credenciales verificables, emisores y verificadores, con extensiones para eIDAS 2.0 y la cartera EUDI."@es ;
+    adms:status <http://purl.org/adms/status/Completed> ;
+    vann:preferredNamespacePrefix "didx" ;
+    vann:preferredNamespaceUri <onto/didx#> ;
+    # dct:creator [AUTORES] ;
+    # dct:license [LICENCIA] ;
+    # dct:issued [FECHA] ;
+    # dct:modified [FECHA] ;
+    # Repositorio: [REPOSITORIO GIT] ;
+    dct:publisher _:unidad-itot .
+
+# El agente «Eurecat · Unidad IT&OT Security» no tiene URI en el prototipo:
+# nodo en blanco (solo con foaf:name, para seguir en OWL 2 DL).
+_:unidad-itot foaf:name "Eurecat · Unidad IT&OT Security" .
+
+# --- Propiedades de anotación (metadatos) -----------------------------------
+dct:title a owl:AnnotationProperty .
+dct:description a owl:AnnotationProperty .
+dct:type a owl:AnnotationProperty .
+dct:publisher a owl:AnnotationProperty .
+adms:status a owl:AnnotationProperty .
+vann:preferredNamespacePrefix a owl:AnnotationProperty .
+vann:preferredNamespaceUri a owl:AnnotationProperty .
+foaf:name a owl:AnnotationProperty .
+
+# --- Clases -----------------------------------------------------------------
+didx:IdentificadorDescentralizado
+    a owl:Class ;
+    rdfs:label "Identificador descentralizado (DID)"@es , "Decentralized identifier (DID)"@en ;
+    rdfs:comment "Identificador descentralizado (DID)."@es .
+
+didx:CredencialVerificable
+    a owl:Class ;
+    rdfs:label "Credencial verificable"@es , "Verifiable credential"@en ;
+    rdfs:comment "Credencial verificable que un emisor expide y un verificador comprueba."@es .
+
+didx:Emisor
+    a owl:Class ;
+    rdfs:label "Emisor"@es , "Issuer"@en ;
+    rdfs:comment "Emisor de credenciales verificables."@es .
+
+didx:Verificador
+    a owl:Class ;
+    rdfs:label "Verificador"@es , "Verifier"@en ;
+    rdfs:comment "Verificador de credenciales verificables."@es .

@@ -57,6 +57,16 @@ def iri(value: str) -> SparqlTerm:
     return SparqlTerm(f"<{value}>")
 
 
+def iri_list(values: list[str]) -> SparqlTerm:
+    """Lista de IRIs para un bloque ``VALUES ?x { $lista }``. Cada una pasa por ``iri()``.
+
+    Una lista vacía es un error (``UNDEF`` dejaría la variable libre y la consulta casaría
+    con todo): quien llama no debe lanzar la consulta."""
+    if not values:
+        raise ValueError("iri_list() necesita al menos una IRI")
+    return SparqlTerm(" ".join(iri(value).text for value in sorted(set(values))))
+
+
 def _escape_char(char: str) -> str:
     if char in _ECHAR:
         return _ECHAR[char]

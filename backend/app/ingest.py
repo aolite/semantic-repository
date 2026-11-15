@@ -46,6 +46,9 @@ VOCAB_FILE = Path("data") / "vocab-minimo.ttl"
 CATALOG_FILE = Path("data") / "catalogo.ttl"
 SYNTHETIC_DIR = Path("data") / "sintetico"
 SHAPES_DIR = Path("shapes")
+VOCABULARIES_DIR = Path("vocabularios")
+ONTOLOGIES_DIR = Path("ontologias")
+EXTERNAL_ONTOLOGIES_FILE = ONTOLOGIES_DIR / "externas.ttl"
 
 # Anidamiento máximo admitido en la ingesta: niveles de JSON en JSON-LD y cadenas de
 # nodos en blanco anidados en cualquier formato. Un dataset DCAT-AP real usa unos pocos
@@ -382,13 +385,18 @@ def _node_text(node: Any) -> str | None:
     return str(node)
 
 
-def validate_shacl(graph: Graph, semantic_dir: Path, base_uri: str) -> None:
+def validate_shacl(
+    graph: Graph, semantic_dir: Path, base_uri: str, *, support: bool = True
+) -> None:
+    """Valida con todas las formas. ``support=False`` no mezcla el vocabulario mínimo
+    (las ontologías y los esquemas se validan solos: pyshacl mezcla el grafo de soporte
+    con el de datos, y un esquema se validaría junto a otra copia de sí mismo)."""
     shapes = _load_shapes(semantic_dir, base_uri)
-    support = _load_support(semantic_dir, base_uri)
+    support_graph = _load_support(semantic_dir, base_uri) if support else None
     conforms, results, text = shacl_validate(
         graph,
         shacl_graph=shapes,
-        ont_graph=support,
+        ont_graph=support_graph,
         inference="none",
         abort_on_first=False,
         allow_warnings=True,

@@ -21,7 +21,7 @@ import pytest
 from app import ingest
 from app.config import Settings
 from app.export_openapi import OPENAPI_PATH
-from tests.conftest import FIXTURE_DATA_DIR, REPO_SEMANTIC_DIR
+from tests.conftest import FIXTURE_DATA_DIR, FIXTURE_SEMANTIC_DIR, REPO_SEMANTIC_DIR
 
 REPO_ROOT = REPO_SEMANTIC_DIR.parent
 COMPOSE_FILE = REPO_ROOT / "docker-compose.yml"
@@ -63,6 +63,27 @@ def test_backend_fixture_data_is_an_exact_copy_of_semantic_data() -> None:
     _match, mismatch, errors = filecmp.cmpfiles(
         source, FIXTURE_DATA_DIR, files(source), shallow=False
     )
+    assert (mismatch, errors) == ([], [])
+
+
+@pytest.mark.parametrize(
+    "relative",
+    ["vocabularios", "ontologias", "shapes/ontologias-vocabularios.ttl"],
+)
+def test_backend_fixture_vocabularies_are_an_exact_copy_of_semantic(relative: str) -> None:
+    """Fase 3: ``backend/tests/fixtures/semantic`` copia vocabularios, ontologías y la forma
+    de ontologías y vocabularios de ``semantic/``."""
+    source = _require(REPO_SEMANTIC_DIR / relative)
+    copy = FIXTURE_SEMANTIC_DIR / relative
+    if source.is_file():
+        assert filecmp.cmp(source, copy, shallow=False)
+        return
+
+    def files(root: Path) -> list[str]:
+        return sorted(str(p.relative_to(root)) for p in root.rglob("*") if p.is_file())
+
+    assert files(copy) == files(source)
+    _match, mismatch, errors = filecmp.cmpfiles(source, copy, files(source), shallow=False)
     assert (mismatch, errors) == ([], [])
 
 

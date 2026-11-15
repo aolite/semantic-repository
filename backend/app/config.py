@@ -56,6 +56,10 @@ class Settings(BaseSettings):
     # Tamaño máximo del RDF que acepta ``POST /datasets``.
     ingest_max_bytes: int = Field(default=10 * 1024 * 1024, gt=0)
 
+    # Razonador de la ingesta de ontologías (Pellet, que se ejecuta en Java).
+    reasoner_timeout_seconds: float = Field(default=120.0, gt=0, le=3600)
+    reasoner_java_memory_mb: int = Field(default=1024, ge=256, le=65536)
+
     # Frontend al que redirigen (303) las URIs persistentes cuando se pide HTML.
     frontend_base_url: str = "http://localhost:5173"
 
