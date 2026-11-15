@@ -1,6 +1,6 @@
 # Infraestructura local
 
-Entorno de desarrollo con Docker Compose (fase 1). Requiere Docker con Compose v2.
+Entorno de desarrollo con Docker Compose (fases 1 y 2). Requiere Docker con Compose v2.
 
 ## Arranque
 
@@ -19,6 +19,14 @@ docker compose exec -it backend python -m app.cli create-admin --username <nombr
 ```
 
 Para scripts, `create-admin` admite `--password-stdin`.
+
+Cargar los datos sintéticos en Fuseki (cuando el backend esté healthy):
+
+```bash
+docker compose exec backend python -m app.cli load-semantic
+```
+
+Carga `semantic/data/vocab-minimo.ttl`, `semantic/data/catalogo.ttl` y `semantic/data/sintetico/*.ttl`, validando antes con las formas de `semantic/shapes/`.
 
 Parar el entorno: `docker compose down`. Para borrar además los datos (PostgreSQL, Fuseki y distribuciones): `docker compose down -v`.
 
@@ -44,6 +52,19 @@ Si cambias `BACKEND_HOST_PORT`, ajusta también `VITE_API_BASE_URL` (por ejemplo
 
 F-UJI (evaluador FAIR) se añadirá en la fase 4.
 
+## Variables del backend añadidas en la fase 2
+
+| Variable | Valor en `.env.example` | Descripción |
+|---|---|---|
+| `FUSEKI_USER` | `admin` | Usuario con el que el backend escribe en Fuseki |
+| `FUSEKI_PASSWORD` | (no se define en `.env`) | Contraseña de escritura en Fuseki. `docker-compose.yml` la toma de `FUSEKI_ADMIN_PASSWORD` para no duplicarla |
+| `SEMANTIC_DIR` | `/semantic` | Carpeta con formas SHACL y datos de ejemplo. Compose monta `./semantic` en `/semantic` en solo lectura y fija este valor |
+| `FRONTEND_BASE_URL` | `http://localhost:5173` | URL pública del frontend; el backend redirige con 303 a la ficha del dataset. Ajústala si cambias `FRONTEND_HOST_PORT` |
+
+`FUSEKI_PASSWORD`, `FUSEKI_USER` y `SEMANTIC_DIR` se declaran en `environment` del servicio `backend`, que tiene prioridad sobre `env_file`. Fuera de Compose (por ejemplo, el backend en local con `uv`), define `FUSEKI_PASSWORD` a mano.
+
+El servicio `frontend` tiene healthcheck (Vite responde en el 5173), así que `docker compose up --wait` espera también al frontend.
+
 ## Volúmenes
 
 - `postgres-data`: base de datos.
@@ -62,3 +83,5 @@ Así solo el backend escribe en el triplestore. La política está en `infra/fus
 ## CI
 
 `.github/workflows/ci.yml` se ejecuta en cada PR y en cada push a `main`. Los jobs `backend`, `frontend` y `semantic` se saltan si la carpeta de su capa aún no existe. El job `compose` valida `docker compose config` con un `.env` copiado de `.env.example`. Las acciones están fijadas por SHA de commit.
+
+El job `e2e` (propuesta pendiente de decisión del responsable) ejecuta `uv run --project backend pytest tests/e2e -v` con `E2E_REQUIRE_DOCKER=1`: levanta el Compose real con puertos y secretos aleatorios (ver `tests/e2e/README.md`). Tiene un límite de 30 minutos porque construye las imágenes del backend y del frontend.
