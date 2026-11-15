@@ -26,7 +26,7 @@ Cargar los datos sintéticos en Fuseki (cuando el backend esté healthy):
 docker compose exec backend python -m app.cli load-semantic
 ```
 
-Carga `semantic/data/vocab-minimo.ttl`, `semantic/data/catalogo.ttl` y `semantic/data/sintetico/*.ttl`, validando antes con las formas de `semantic/shapes/`.
+Carga `semantic/data/vocab-minimo.ttl`, `semantic/data/catalogo.ttl`, `semantic/data/sintetico/*.ttl`, y también `semantic/ontologias/` y `semantic/vocabularios/`, validando antes con las formas de `semantic/shapes/`.
 
 Parar el entorno: `docker compose down`. Para borrar además los datos (PostgreSQL, Fuseki y distribuciones): `docker compose down -v`.
 
@@ -50,6 +50,8 @@ Todos los servicios solo escuchan en localhost. Si un puerto está ocupado en tu
 
 Si cambias `BACKEND_HOST_PORT`, ajusta también `VITE_API_BASE_URL` (por ejemplo `http://localhost:8001`): es la URL que usa el navegador, no la red interna de Compose. Si cambias `FRONTEND_HOST_PORT`, ajusta `CORS_ORIGINS`.
 
+La imagen del backend lleva un JRE (`openjdk-25-jre-headless`) para el razonador Pellet, por lo que pasa de unos 278 MB a 559 MB.
+
 F-UJI (evaluador FAIR) se añadirá en la fase 4.
 
 ## Variables del backend añadidas en la fase 2
@@ -59,6 +61,8 @@ F-UJI (evaluador FAIR) se añadirá en la fase 4.
 | `FUSEKI_USER` | `admin` | Usuario con el que el backend escribe en Fuseki |
 | `FUSEKI_PASSWORD` | (no se define en `.env`) | Contraseña de escritura en Fuseki. `docker-compose.yml` la toma de `FUSEKI_ADMIN_PASSWORD` para no duplicarla |
 | `SEMANTIC_DIR` | `/semantic` | Carpeta con formas SHACL y datos de ejemplo. Compose monta `./semantic` en `/semantic` en solo lectura y fija este valor |
+| `REASONER_TIMEOUT_SECONDS` | `120` (comentada, opcional) | Tiempo máximo del razonador Pellet. Llega al backend por `env_file`; no hace falta tocar el Compose |
+| `REASONER_JAVA_MEMORY_MB` | `1024` (comentada, opcional) | Memoria de la JVM del razonador, en MB |
 | `FRONTEND_BASE_URL` | `http://localhost:5173` | URL pública del frontend; el backend redirige con 303 a la ficha del dataset. Ajústala si cambias `FRONTEND_HOST_PORT` |
 
 `FUSEKI_PASSWORD`, `FUSEKI_USER` y `SEMANTIC_DIR` se declaran en `environment` del servicio `backend`, que tiene prioridad sobre `env_file`. Fuera de Compose (por ejemplo, el backend en local con `uv`), define `FUSEKI_PASSWORD` a mano.
@@ -138,4 +142,4 @@ git switch --detach onto/itot/v1.2.0     # el árbol de esa versión
 docker compose exec backend python -m app.cli load-semantic
 ```
 
-Hoy `load-semantic` solo carga `semantic/data/`. Que además ingiera `semantic/ontologias/` y `semantic/vocabularios/` es un cambio del backend (pendiente de confirmar); este flujo no lo modifica.
+`load-semantic` carga también `semantic/ontologias/` y `semantic/vocabularios/`; este flujo no lo modifica.
