@@ -1,0 +1,69 @@
+# Esquema SKOS de dominio SINTÉTICO «Identidad digital descentralizada» (did).
+#
+# Fuente: pantalla «Vocabularios y ontologías» del prototipo (metadatos).
+# Contenido de demostración: marcado con dct:type <vocab/tipo-dataset/sintetico>.
+#
+# Qué sale del prototipo y qué no:
+# - Título, descripción, versión (v1.0), estado (Publicada) y prefijo. El
+#   navegador SKOS del prototipo lo llama «Identidad descentralizada»; se usa
+#   el título completo de la lista de vocabularios.
+# - Dominio: «PQC e identidad», el mismo que el esquema pqc.
+# - Conceptos: solo los que la descripción nombra uno a uno (DIDs,
+#   credenciales verificables y la cartera EUDI), con prefLabel @es en
+#   singular. Slugs [PROPUESTA] de semantico. Sin definición, etiquetas en
+#   ca/en ni jerarquía. Los «perfiles de eIDAS 2.0» no se enumeran en el
+#   prototipo y no se crean.
+# - Mapeos: el prototipo cita W3C VC y DID como referencia, sin mapeos
+#   concretos. Se OMITEN (pendiente).
+# - Ningún dataset sintético usa este esquema.
+#
+# BASE_URI: el fichero no declara @base; las URIs son relativas.
+# Grafo con nombre: {BASE_URI}vocab/did. Etiqueta Git: vocab/did/v1.0.
+
+@prefix did:  <vocab/did/> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix dct:  <http://purl.org/dc/terms/> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix adms: <http://www.w3.org/ns/adms#> .
+@prefix vann: <http://purl.org/vocab/vann/> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+
+<vocab/did>
+    a skos:ConceptScheme ;
+    dct:type <vocab/tipo-dataset/sintetico> ;
+    dct:title "Identidad digital descentralizada"@es ;
+    skos:prefLabel "Identidad digital descentralizada"@es ;
+    dct:description "DIDs, credenciales verificables, perfiles de eIDAS 2.0 y cartera EUDI."@es ;
+    dct:subject <vocab/dominio/pqc> ;
+    owl:versionInfo "1.0" ;
+    adms:status <http://purl.org/adms/status/Completed> ;
+    vann:preferredNamespacePrefix "did" ;
+    vann:preferredNamespaceUri <vocab/did/> ;
+    dct:publisher _:unidad-itot ;
+    # dct:license [LICENCIA] ;
+    # dct:issued [FECHA] ;
+    # dct:modified [FECHA] ;
+    skos:hasTopConcept did:did , did:credencial-verificable , did:cartera-eudi .
+
+_:unidad-itot
+    a foaf:Agent , prov:Agent ;
+    foaf:name "Eurecat · Unidad IT&OT Security" .
+
+did:did
+    a skos:Concept ;
+    skos:inScheme <vocab/did> ;
+    skos:topConceptOf <vocab/did> ;
+    skos:prefLabel "DID"@es .
+
+did:credencial-verificable
+    a skos:Concept ;
+    skos:inScheme <vocab/did> ;
+    skos:topConceptOf <vocab/did> ;
+    skos:prefLabel "Credencial verificable"@es .
+
+did:cartera-eudi
+    a skos:Concept ;
+    skos:inScheme <vocab/did> ;
+    skos:topConceptOf <vocab/did> ;
+    skos:prefLabel "Cartera EUDI"@es .

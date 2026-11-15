@@ -1,0 +1,46 @@
+# Esquema SKOS corporativo SINTÉTICO «Áreas y unidades de Eurecat» (organizacion).
+#
+# Fuente: pantalla «Vocabularios y ontologías» del prototipo (metadatos).
+# Contenido de demostración: marcado con dct:type <vocab/tipo-dataset/sintetico>.
+#
+# Qué sale del prototipo y qué no:
+# - Título, descripción, versión (v2026.1), estado (Publicada) y prefijo
+#   (ecorg). La URI va bajo BASE_URI, en vocab/corp/organizacion, y no en
+#   /eurecat/ como en el prototipo (decisión del responsable, 2026-11-15).
+# - Sin conceptos: el prototipo no enumera las áreas ni las unidades
+#   («[N] conceptos»).
+# - Fuente de los datos: «[SISTEMA RRHH]» (placeholder). Se OMITE dct:source.
+# - Responsable del esquema: «[RESPONSABLE]» (placeholder). Se OMITE; el
+#   patrón previsto es [PROPUESTA] de semantico (ver semantic/uris.md).
+# - Publicador: el prototipo no lo da para los esquemas corporativos.
+#
+# BASE_URI: el fichero no declara @base; las URIs son relativas.
+# Grafo con nombre: {BASE_URI}vocab/corp/organizacion.
+# Etiqueta Git: vocab/corp/organizacion/v2026.1.
+
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix dct:  <http://purl.org/dc/terms/> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix adms: <http://www.w3.org/ns/adms#> .
+@prefix vann: <http://purl.org/vocab/vann/> .
+
+<vocab/corp/organizacion>
+    a skos:ConceptScheme ;
+    dct:type <vocab/tipo-dataset/sintetico> ;
+    dct:title "Áreas y unidades de Eurecat"@es ;
+    skos:prefLabel "Áreas y unidades de Eurecat"@es ;
+    dct:description "Estructura organizativa: áreas, unidades y líneas de investigación, para atribuir la autoría y el publicador de cada recurso."@es ;
+    owl:versionInfo "2026.1" ;
+    adms:status <http://purl.org/adms/status/Completed> ;
+    vann:preferredNamespacePrefix "ecorg" ;
+    vann:preferredNamespaceUri <vocab/corp/organizacion/> .
+    # dct:source [SISTEMA RRHH] ;
+    # prov:qualifiedAttribution [
+    #     a prov:Attribution ;
+    #     prov:agent [RESPONSABLE] ;
+    #     dcat:hadRole <http://inspire.ec.europa.eu/metadata-codelist/ResponsiblePartyRole/custodian>
+    # ] ;
+    # dct:publisher [PUBLICADOR] ;
+    # dct:license [LICENCIA] ;
+    # dct:issued [FECHA] ;
+    # dct:modified [FECHA] .

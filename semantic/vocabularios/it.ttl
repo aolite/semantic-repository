@@ -1,0 +1,64 @@
+# Esquema SKOS de dominio SINTÉTICO «Amenazas y controles IT» (it).
+#
+# Fuente: pantalla «Vocabularios y ontologías» del prototipo (metadatos).
+# Contenido de demostración: marcado con dct:type <vocab/tipo-dataset/sintetico>.
+#
+# Qué sale del prototipo y qué no:
+# - Título, descripción, versión (v1.1), estado (Publicada) y prefijo.
+# - El prototipo no enumera los conceptos de este esquema («[N] conceptos»).
+#   Solo están los dos que ya usa como tema el dataset sintético
+#   hallazgos-auditorias-intrusion (fase 2). Sus URIs no cambian; sus slugs
+#   y sus etiquetas fueron [PROPUESTA] de semantico en la fase 2. Sin
+#   definición, etiquetas en ca/en ni jerarquía: no hay fuente.
+# - Mapeos: la descripción anuncia skos:closeMatch hacia MITRE ATT&CK, CWE e
+#   ISO/IEC 27001, sin identificadores. Se OMITEN (comentados).
+#
+# BASE_URI: el fichero no declara @base; las URIs son relativas.
+# Grafo con nombre: {BASE_URI}vocab/it. Etiqueta Git: vocab/it/v1.1.
+
+@prefix it:   <vocab/it/> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix dct:  <http://purl.org/dc/terms/> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix adms: <http://www.w3.org/ns/adms#> .
+@prefix vann: <http://purl.org/vocab/vann/> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+
+<vocab/it>
+    a skos:ConceptScheme ;
+    dct:type <vocab/tipo-dataset/sintetico> ;
+    dct:title "Amenazas y controles IT"@es ;
+    skos:prefLabel "Amenazas y controles IT"@es ;
+    dct:description "Taxonomía propia alineada con MITRE ATT&CK, CWE e ISO/IEC 27001 mediante skos:closeMatch."@es ;
+    dct:subject <vocab/dominio/it> ;
+    owl:versionInfo "1.1" ;
+    adms:status <http://purl.org/adms/status/Completed> ;
+    vann:preferredNamespacePrefix "it" ;
+    vann:preferredNamespaceUri <vocab/it/> ;
+    dct:publisher _:unidad-itot ;
+    # dct:license [LICENCIA] ;
+    # dct:issued [FECHA] ;
+    # dct:modified [FECHA] ;
+    skos:hasTopConcept it:cwe , it:control-iso-27001 .
+
+_:unidad-itot
+    a foaf:Agent , prov:Agent ;
+    foaf:name "Eurecat · Unidad IT&OT Security" .
+
+it:cwe
+    a skos:Concept ;
+    skos:inScheme <vocab/it> ;
+    skos:topConceptOf <vocab/it> ;
+    skos:prefLabel "CWE"@es .
+    # skos:closeMatch <[CWE]> .
+
+it:control-iso-27001
+    a skos:Concept ;
+    skos:inScheme <vocab/it> ;
+    skos:topConceptOf <vocab/it> ;
+    skos:prefLabel "Control ISO/IEC 27001"@es .
+    # skos:closeMatch <[control de ISO/IEC 27001]> .
+
+# Mapeos con MITRE ATT&CK: skos:closeMatch <[ID de técnica]> en los conceptos
+# que defina el responsable.

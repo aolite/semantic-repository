@@ -1,0 +1,568 @@
+# Formas SHACL de ontologías (owl:Ontology) y esquemas SKOS
+# (skos:ConceptScheme, skos:Concept). Fase 3, puerta G3.
+#
+# Codifican tres tipos de regla, cada una justificada en su comentario:
+# - Condiciones de integridad de SKOS (S13, S14…), que el estándar define
+#   pero no comprueba nadie si no se escriben aquí.
+# - Lo que necesitan las pantallas «Vocabularios y ontologías», «Ficha de
+#   ontología» y «Navegador SKOS» (título, versión, estado, VANN, árbol).
+# - El patrón de URIs de semantic/uris.md, para que el backend lo compruebe
+#   en la ingesta sin código propio. Las reglas que dependen de la ruta del
+#   fichero (slug del fichero = slug de la URI) están en
+#   semantic/scripts/validate.py, porque SHACL no ve el fichero.
+#
+# Ontología propia frente a externa: las formas «propias» se aplican a todo
+# sujeto de owl:versionIRI (sh:targetSubjectsOf). Las externas
+# (semantic/ontologias/externas.ttl) se catalogan sin owl:versionIRI. Que una
+# ontología bajo BASE_URI tenga siempre owl:versionIRI lo comprueba
+# validate.py (y debe comprobarlo la ingesta), porque SHACL no puede elegir
+# los nodos por el prefijo de su IRI sin conocer BASE_URI.
+#
+# Supuestos de validación (los mismos que el resto de formas):
+# - Sin inferencia RDFS/OWL. Por eso skos:topConceptOf tiene que ir
+#   acompañada de skos:inScheme, y hasTopConcept y topConceptOf, declaradas
+#   en los dos sentidos.
+# - Un esquema y sus conceptos van en el mismo fichero y en el mismo grafo
+#   con nombre: las referencias dentro del esquema (inScheme, broader,
+#   narrower, hasTopConcept) se comprueban con sh:class. Las referencias que
+#   pueden estar en otro grafo (dct:subject, related, mapeos, versión
+#   anterior de una ontología) se comprueban solo como IRI.
+# - Las restricciones SPARQL usan IRIs completas (sin sh:prefixes).
+#
+# Este fichero no declara @base: se lee pasando BASE_URI como IRI base. Las
+# formas quedan en {BASE_URI}shapes#.
+
+@prefix itsh: <shapes#> .
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix dct:  <http://purl.org/dc/terms/> .
+@prefix adms: <http://www.w3.org/ns/adms#> .
+@prefix vann: <http://purl.org/vocab/vann/> .
+@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+
+# ============================================================================
+# owl:Ontology (propia y externa)
+# ============================================================================
+# Toda ontología, propia o externa, aparece como tarjeta en «Vocabularios y
+# ontologías»: necesita una IRI (su identificador; una ontología anónima no
+# se puede catalogar ni importar) y un título.
+itsh:OntologyShape
+    a sh:NodeShape ;
+    rdfs:label "IT&OT · Ontología (propia o externa)"@es ;
+    sh:targetClass owl:Ontology ;
+    sh:nodeKind sh:IRI ;
+    sh:message "Regla IT&OT: una owl:Ontology se identifica con una IRI (la oficial, si es externa)."@es ;
+    sh:property
+        itsh:Ontology-title ,
+        itsh:Ontology-description ,
+        itsh:Ontology-prefix ,
+        itsh:Ontology-namespace .
+
+# Título obligatorio (es el texto de la tarjeta), literal con idioma y como
+# mucho uno por idioma, para que la interfaz no tenga que elegir.
+itsh:Ontology-title
+    a sh:PropertyShape ;
+    sh:path dct:title ;
+    sh:minCount 1 ;
+    sh:datatype rdf:langString ;
+    sh:uniqueLang true ;
+    sh:message "Regla IT&OT: una owl:Ontology necesita al menos un dct:title con etiqueta de idioma, como mucho uno por idioma."@es .
+
+# Descripción opcional en las externas; si está, una por idioma.
+itsh:Ontology-description
+    a sh:PropertyShape ;
+    sh:path dct:description ;
+    sh:datatype rdf:langString ;
+    sh:uniqueLang true ;
+    sh:message "Regla IT&OT: dct:description de una owl:Ontology es un literal con idioma, como mucho uno por idioma."@es .
+
+# VANN: como mucho un prefijo y un espacio de nombres; la tarjeta muestra uno
+# solo. El espacio de nombres es una IRI (no un literal) porque los ficheros
+# usan IRIs relativas a BASE_URI y un literal no se resolvería.
+itsh:Ontology-prefix
+    a sh:PropertyShape ;
+    sh:path vann:preferredNamespacePrefix ;
+    sh:maxCount 1 ;
+    sh:datatype xsd:string ;
+    sh:pattern "^[a-z][a-z0-9]*$" ;
+    sh:message "Regla IT&OT: como mucho un vann:preferredNamespacePrefix, en minúsculas ASCII y dígitos (p. ej. itot)."@es .
+
+itsh:Ontology-namespace
+    a sh:PropertyShape ;
+    sh:path vann:preferredNamespaceUri ;
+    sh:maxCount 1 ;
+    sh:nodeKind sh:IRI ;
+    sh:message "Regla IT&OT: como mucho un vann:preferredNamespaceUri, y es una IRI."@es .
+
+# ============================================================================
+# owl:Ontology propia (sujeto de owl:versionIRI)
+# ============================================================================
+itsh:OwnOntologyShape
+    a sh:NodeShape ;
+    rdfs:label "IT&OT · Ontología propia"@es ;
+    sh:targetSubjectsOf owl:versionIRI ;
+    sh:property
+        itsh:OwnOntology-versionIRI ,
+        itsh:OwnOntology-versionIRI-uri ,
+        itsh:OwnOntology-versionInfo ,
+        itsh:OwnOntology-priorVersion ,
+        itsh:OwnOntology-compatibility ,
+        itsh:OwnOntology-title-es ,
+        itsh:OwnOntology-description ,
+        itsh:OwnOntology-prefix ,
+        itsh:OwnOntology-namespace ,
+        itsh:OwnOntology-namespace-uri ,
+        itsh:OwnOntology-status ,
+        itsh:OwnOntology-subject .
+
+# Exactamente un owl:versionIRI: cada fichero es una versión, se carga en el
+# grafo con nombre de su versionIRI y la ficha muestra esa IRI.
+itsh:OwnOntology-versionIRI
+    a sh:PropertyShape ;
+    sh:path owl:versionIRI ;
+    sh:minCount 1 ;
+    sh:maxCount 1 ;
+    sh:nodeKind sh:IRI ;
+    sh:message "Regla IT&OT: una ontología propia tiene exactamente un owl:versionIRI, que es una IRI."@es .
+
+# Patrón de URIs: owl:versionIRI = {URI de la ontología}/{owl:versionInfo}
+# (semantic/uris.md). Así la versión se resuelve sin tablas aparte.
+itsh:OwnOntology-versionIRI-uri
+    a sh:PropertyShape ;
+    sh:path owl:versionIRI ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Patrón de URIs: owl:versionIRI tiene que ser la URI de la ontología seguida de /{owl:versionInfo}."@es ;
+        sh:select """
+            SELECT $this ?value WHERE {
+                $this <http://www.w3.org/2002/07/owl#versionIRI> ?value .
+                OPTIONAL { $this <http://www.w3.org/2002/07/owl#versionInfo> ?info . }
+                FILTER (!BOUND(?info) || STR(?value) != CONCAT(STR($this), "/", STR(?info)))
+            }
+        """ ;
+    ] .
+
+# owl:versionInfo exactamente una vez, MAYOR.MENOR.PARCHE, igual que
+# dcat:version en los datasets: es el último segmento del versionIRI y la
+# etiqueta Git onto/{slug}/v{version}.
+itsh:OwnOntology-versionInfo
+    a sh:PropertyShape ;
+    sh:path owl:versionInfo ;
+    sh:minCount 1 ;
+    sh:maxCount 1 ;
+    sh:datatype xsd:string ;
+    sh:pattern "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$" ;
+    sh:message "Regla IT&OT: una ontología propia tiene exactamente un owl:versionInfo con formato MAYOR.MENOR.PARCHE (p. ej. 1.2.0)."@es .
+
+# Como mucho un owl:priorVersion, IRI: el historial de versiones de la ficha
+# es lineal. No se exige que esté descrita: la versión anterior está en otro
+# grafo con nombre.
+itsh:OwnOntology-priorVersion
+    a sh:PropertyShape ;
+    sh:path owl:priorVersion ;
+    sh:maxCount 1 ;
+    sh:nodeKind sh:IRI ;
+    sh:message "Regla IT&OT: una ontología propia tiene como mucho un owl:priorVersion, identificado por IRI."@es .
+
+# Compatibilidad (la ficha muestra owl:backwardCompatibleWith): IRIs de
+# versiones.
+itsh:OwnOntology-compatibility
+    a sh:PropertyShape ;
+    sh:path [ sh:alternativePath ( owl:backwardCompatibleWith owl:incompatibleWith ) ] ;
+    sh:nodeKind sh:IRI ;
+    sh:message "Regla IT&OT: owl:backwardCompatibleWith y owl:incompatibleWith apuntan a la IRI de una versión."@es .
+
+# Título en español obligatorio: es la lengua de la interfaz.
+itsh:OwnOntology-title-es
+    a sh:PropertyShape ;
+    sh:path dct:title ;
+    sh:qualifiedValueShape [ sh:languageIn ( "es" ) ] ;
+    sh:qualifiedMinCount 1 ;
+    sh:message "Regla IT&OT: una ontología propia necesita un dct:title en español."@es .
+
+# Descripción obligatoria en las propias: la ficha la muestra y es un
+# criterio FAIR (F2, metadatos ricos).
+itsh:OwnOntology-description
+    a sh:PropertyShape ;
+    sh:path dct:description ;
+    sh:minCount 1 ;
+    sh:message "Regla IT&OT: una ontología propia necesita al menos una dct:description."@es .
+
+# VANN obligatorio en las propias (Plan.md, 3.3): la ficha muestra prefijo
+# y espacio de nombres.
+itsh:OwnOntology-prefix
+    a sh:PropertyShape ;
+    sh:path vann:preferredNamespacePrefix ;
+    sh:minCount 1 ;
+    sh:message "Regla IT&OT: una ontología propia necesita vann:preferredNamespacePrefix."@es .
+
+itsh:OwnOntology-namespace
+    a sh:PropertyShape ;
+    sh:path vann:preferredNamespaceUri ;
+    sh:minCount 1 ;
+    sh:message "Regla IT&OT: una ontología propia necesita vann:preferredNamespaceUri."@es .
+
+# Patrón de URIs: el espacio de nombres de los términos es {URI de la
+# ontología}# (semantic/uris.md; el prototipo usa https://[DOMINIO]/itot/onto/itot#).
+itsh:OwnOntology-namespace-uri
+    a sh:PropertyShape ;
+    sh:path vann:preferredNamespaceUri ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Patrón de URIs: vann:preferredNamespaceUri de una ontología propia es su URI seguida de #."@es ;
+        sh:select """
+            SELECT $this ?value WHERE {
+                $this <http://purl.org/vocab/vann/preferredNamespaceUri> ?value .
+                FILTER (STR(?value) != CONCAT(STR($this), "#"))
+            }
+        """ ;
+    ] .
+
+# Estado: exactamente un adms:status del vocabulario de estados de ADMS,
+# limitado a los dos que muestra el prototipo para recursos propios:
+# Completed = «Publicada», UnderDevelopment = «Borrador». «Referenciada» no
+# es un valor: es el estado de toda ontología externa [PROPUESTA].
+itsh:OwnOntology-status
+    a sh:PropertyShape ;
+    sh:path adms:status ;
+    sh:minCount 1 ;
+    sh:maxCount 1 ;
+    sh:in ( <http://purl.org/adms/status/Completed> <http://purl.org/adms/status/UnderDevelopment> ) ;
+    sh:message "Regla IT&OT: una ontología propia tiene exactamente un adms:status: Completed (Publicada) o UnderDevelopment (Borrador)."@es .
+
+# dct:subject: conceptos SKOS que usa la ontología («Recursos que usan este
+# concepto» del navegador SKOS). IRI; los conceptos están en otro grafo.
+itsh:OwnOntology-subject
+    a sh:PropertyShape ;
+    sh:path dct:subject ;
+    sh:nodeKind sh:IRI ;
+    sh:message "Regla IT&OT: dct:subject de una ontología es la IRI de un concepto SKOS."@es .
+
+# ============================================================================
+# skos:ConceptScheme
+# ============================================================================
+itsh:ConceptSchemeShape
+    a sh:NodeShape ;
+    rdfs:label "IT&OT · Esquema SKOS"@es ;
+    sh:targetClass skos:ConceptScheme ;
+    sh:nodeKind sh:IRI ;
+    sh:message "Regla IT&OT: un skos:ConceptScheme se identifica con una IRI ({BASE_URI}vocab/…)."@es ;
+    sh:property
+        itsh:ConceptScheme-title ,
+        itsh:ConceptScheme-title-es ,
+        itsh:ConceptScheme-prefLabel ,
+        itsh:ConceptScheme-description ,
+        itsh:ConceptScheme-version ,
+        itsh:ConceptScheme-status ,
+        itsh:ConceptScheme-prefix ,
+        itsh:ConceptScheme-namespace ,
+        itsh:ConceptScheme-namespace-uri ,
+        itsh:ConceptScheme-subject ,
+        itsh:ConceptScheme-hasTopConcept ,
+        itsh:ConceptScheme-hasTopConcept-inverse .
+
+# Título obligatorio, uno por idioma (texto de la tarjeta y del árbol).
+itsh:ConceptScheme-title
+    a sh:PropertyShape ;
+    sh:path dct:title ;
+    sh:minCount 1 ;
+    sh:datatype rdf:langString ;
+    sh:uniqueLang true ;
+    sh:message "Regla IT&OT: un esquema necesita al menos un dct:title con etiqueta de idioma, como mucho uno por idioma."@es .
+
+itsh:ConceptScheme-title-es
+    a sh:PropertyShape ;
+    sh:path dct:title ;
+    sh:qualifiedValueShape [ sh:languageIn ( "es" ) ] ;
+    sh:qualifiedMinCount 1 ;
+    sh:message "Regla IT&OT: un esquema necesita un dct:title en español."@es .
+
+# SKOS S14 (como mucho un prefLabel por idioma) también vale para el esquema.
+# Se mantiene skos:prefLabel junto a dct:title porque las herramientas SKOS
+# y el backend de la fase 2 lo leen.
+itsh:ConceptScheme-prefLabel
+    a sh:PropertyShape ;
+    sh:path skos:prefLabel ;
+    sh:datatype rdf:langString ;
+    sh:uniqueLang true ;
+    sh:message "SKOS S14: como mucho un skos:prefLabel por idioma, con etiqueta de idioma."@es .
+
+itsh:ConceptScheme-description
+    a sh:PropertyShape ;
+    sh:path dct:description ;
+    sh:minCount 1 ;
+    sh:datatype rdf:langString ;
+    sh:uniqueLang true ;
+    sh:message "Regla IT&OT: un esquema necesita al menos una dct:description con etiqueta de idioma, como mucho una por idioma."@es .
+
+# Versión: exactamente un owl:versionInfo. Admite dos o tres números
+# (1.0, 2026.1, 1.2.0) porque el prototipo da a los esquemas versiones como
+# «v1.0» o «v2026.1», que no son semver [PROPUESTA]. Es la etiqueta Git
+# vocab/{slug}/v{version}.
+itsh:ConceptScheme-version
+    a sh:PropertyShape ;
+    sh:path owl:versionInfo ;
+    sh:minCount 1 ;
+    sh:maxCount 1 ;
+    sh:datatype xsd:string ;
+    sh:pattern "^(0|[1-9][0-9]*)(\\.(0|[1-9][0-9]*)){1,2}$" ;
+    sh:message "Regla IT&OT: un esquema tiene exactamente un owl:versionInfo con dos o tres números (p. ej. 1.0 o 2026.1)."@es .
+
+# Estado, con los mismos valores que las ontologías propias.
+itsh:ConceptScheme-status
+    a sh:PropertyShape ;
+    sh:path adms:status ;
+    sh:minCount 1 ;
+    sh:maxCount 1 ;
+    sh:in ( <http://purl.org/adms/status/Completed> <http://purl.org/adms/status/UnderDevelopment> ) ;
+    sh:message "Regla IT&OT: un esquema tiene exactamente un adms:status: Completed (Publicada) o UnderDevelopment (Borrador)."@es .
+
+# VANN: la tarjeta muestra prefijo y espacio de nombres (ot: …/vocab/ot/).
+itsh:ConceptScheme-prefix
+    a sh:PropertyShape ;
+    sh:path vann:preferredNamespacePrefix ;
+    sh:minCount 1 ;
+    sh:maxCount 1 ;
+    sh:datatype xsd:string ;
+    sh:pattern "^[a-z][a-z0-9]*$" ;
+    sh:message "Regla IT&OT: un esquema tiene exactamente un vann:preferredNamespacePrefix, en minúsculas ASCII y dígitos."@es .
+
+itsh:ConceptScheme-namespace
+    a sh:PropertyShape ;
+    sh:path vann:preferredNamespaceUri ;
+    sh:minCount 1 ;
+    sh:maxCount 1 ;
+    sh:nodeKind sh:IRI ;
+    sh:message "Regla IT&OT: un esquema tiene exactamente un vann:preferredNamespaceUri, que es una IRI."@es .
+
+# Patrón de URIs: los conceptos cuelgan de {URI del esquema}/.
+itsh:ConceptScheme-namespace-uri
+    a sh:PropertyShape ;
+    sh:path vann:preferredNamespaceUri ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Patrón de URIs: vann:preferredNamespaceUri de un esquema es su URI seguida de /."@es ;
+        sh:select """
+            SELECT $this ?value WHERE {
+                $this <http://purl.org/vocab/vann/preferredNamespaceUri> ?value .
+                FILTER (STR(?value) != CONCAT(STR($this), "/"))
+            }
+        """ ;
+    ] .
+
+# Dominio: como mucho un dct:subject, IRI de un concepto de
+# {BASE_URI}vocab/dominio (en otro grafo). Un esquema de dominio pertenece a
+# un solo dominio del filtro del catálogo; los corporativos no llevan.
+itsh:ConceptScheme-subject
+    a sh:PropertyShape ;
+    sh:path dct:subject ;
+    sh:maxCount 1 ;
+    sh:nodeKind sh:IRI ;
+    sh:message "Regla IT&OT: un esquema tiene como mucho un dct:subject (su dominio), identificado por IRI."@es .
+
+# Conceptos de nivel superior: conceptos descritos en el mismo grafo. Son
+# las raíces del árbol del navegador SKOS.
+itsh:ConceptScheme-hasTopConcept
+    a sh:PropertyShape ;
+    sh:path skos:hasTopConcept ;
+    sh:nodeKind sh:IRI ;
+    sh:class skos:Concept ;
+    sh:message "Regla IT&OT: skos:hasTopConcept apunta a un skos:Concept descrito en el mismo grafo."@es .
+
+# Sin inferencia, hasTopConcept y topConceptOf (inversas en SKOS) se
+# declaran en los dos sentidos, para que el árbol salga igual se consulte
+# desde el esquema o desde el concepto.
+itsh:ConceptScheme-hasTopConcept-inverse
+    a sh:PropertyShape ;
+    sh:path skos:hasTopConcept ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Regla IT&OT: skos:hasTopConcept y skos:topConceptOf se declaran en los dos sentidos."@es ;
+        sh:select """
+            SELECT $this ?value WHERE {
+                {
+                    $this <http://www.w3.org/2004/02/skos/core#hasTopConcept> ?value .
+                    FILTER NOT EXISTS { ?value <http://www.w3.org/2004/02/skos/core#topConceptOf> $this }
+                } UNION {
+                    ?value <http://www.w3.org/2004/02/skos/core#topConceptOf> $this .
+                    FILTER NOT EXISTS { $this <http://www.w3.org/2004/02/skos/core#hasTopConcept> ?value }
+                }
+            }
+        """ ;
+    ] .
+
+# ============================================================================
+# skos:Concept
+# ============================================================================
+itsh:ConceptShape
+    a sh:NodeShape ;
+    rdfs:label "IT&OT · Concepto SKOS"@es ;
+    sh:targetClass skos:Concept ;
+    sh:nodeKind sh:IRI ;
+    sh:message "Regla IT&OT: un skos:Concept se identifica con una IRI ({BASE_URI}vocab/{esquema}/{slug})."@es ;
+    sh:property
+        itsh:Concept-prefLabel ,
+        itsh:Concept-prefLabel-es ,
+        itsh:Concept-altLabel ,
+        itsh:Concept-definition ,
+        itsh:Concept-inScheme ,
+        itsh:Concept-inScheme-uri ,
+        itsh:Concept-topConceptOf ,
+        itsh:Concept-raiz ,
+        itsh:Concept-broader ,
+        itsh:Concept-broader-mismo-esquema ,
+        itsh:Concept-related ,
+        itsh:Concept-mapping .
+
+# SKOS S14: como mucho un prefLabel por idioma. S13: prefLabel y altLabel
+# son disjuntas. Literales con idioma: el navegador muestra «prefLabel @es»,
+# «@en»…
+itsh:Concept-prefLabel
+    a sh:PropertyShape ;
+    sh:path skos:prefLabel ;
+    sh:minCount 1 ;
+    sh:datatype rdf:langString ;
+    sh:uniqueLang true ;
+    sh:disjoint skos:altLabel ;
+    sh:message "SKOS S13/S14: al menos un skos:prefLabel con idioma, como mucho uno por idioma y distinto de todo skos:altLabel."@es .
+
+# prefLabel en español obligatorio: es la lengua de la interfaz y de los
+# datos del prototipo. En y ca son recomendables pero no siempre hay fuente.
+itsh:Concept-prefLabel-es
+    a sh:PropertyShape ;
+    sh:path skos:prefLabel ;
+    sh:qualifiedValueShape [ sh:languageIn ( "es" ) ] ;
+    sh:qualifiedMinCount 1 ;
+    sh:message "Regla IT&OT: un concepto necesita un skos:prefLabel en español."@es .
+
+itsh:Concept-altLabel
+    a sh:PropertyShape ;
+    sh:path skos:altLabel ;
+    sh:datatype rdf:langString ;
+    sh:message "Regla IT&OT: skos:altLabel es un literal con etiqueta de idioma."@es .
+
+# Una definición por idioma: el navegador muestra una sola.
+itsh:Concept-definition
+    a sh:PropertyShape ;
+    sh:path skos:definition ;
+    sh:datatype rdf:langString ;
+    sh:uniqueLang true ;
+    sh:message "Regla IT&OT: como mucho una skos:definition por idioma, con etiqueta de idioma."@es .
+
+# Exactamente un skos:inScheme, hacia un esquema descrito en el mismo grafo:
+# la URI del concepto cuelga de la de su esquema y cada esquema se carga en
+# su propio grafo con nombre.
+itsh:Concept-inScheme
+    a sh:PropertyShape ;
+    sh:path skos:inScheme ;
+    sh:minCount 1 ;
+    sh:maxCount 1 ;
+    sh:nodeKind sh:IRI ;
+    sh:class skos:ConceptScheme ;
+    sh:message "Regla IT&OT: un concepto pertenece exactamente a un skos:ConceptScheme descrito en el mismo grafo (skos:inScheme)."@es .
+
+# Patrón de URIs: {URI del esquema}/{slug}, con el slug de semantic/uris.md.
+itsh:Concept-inScheme-uri
+    a sh:PropertyShape ;
+    sh:path skos:inScheme ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Patrón de URIs: la URI de un concepto es la de su esquema seguida de /{slug}."@es ;
+        sh:select """
+            SELECT $this ?value WHERE {
+                $this <http://www.w3.org/2004/02/skos/core#inScheme> ?value .
+                FILTER (!STRSTARTS(STR($this), CONCAT(STR(?value), "/"))
+                        || !REGEX(STRAFTER(STR($this), CONCAT(STR(?value), "/")), "^[a-z0-9]+(-[a-z0-9]+)*$"))
+            }
+        """ ;
+    ] .
+
+# skos:topConceptOf es subpropiedad de skos:inScheme; sin inferencia, el
+# esquema del que es raíz tiene que ser también su skos:inScheme.
+itsh:Concept-topConceptOf
+    a sh:PropertyShape ;
+    sh:path skos:topConceptOf ;
+    sh:nodeKind sh:IRI ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "SKOS: skos:topConceptOf implica skos:inScheme; sin inferencia hay que declarar los dos con el mismo esquema."@es ;
+        sh:select """
+            SELECT $this ?value WHERE {
+                $this <http://www.w3.org/2004/02/skos/core#topConceptOf> ?value .
+                FILTER NOT EXISTS { $this <http://www.w3.org/2004/02/skos/core#inScheme> ?value }
+            }
+        """ ;
+    ] .
+
+# Árbol del navegador SKOS: todo concepto es raíz (skos:topConceptOf) o
+# cuelga de otro (skos:broader), pero no las dos cosas. Sin esta regla, un
+# concepto sin broader ni topConceptOf no aparecería en el árbol.
+itsh:Concept-raiz
+    a sh:PropertyShape ;
+    sh:path skos:topConceptOf ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Regla IT&OT: un concepto es de nivel superior (skos:topConceptOf) o tiene skos:broader, pero no ambas cosas."@es ;
+        sh:select """
+            SELECT $this WHERE {
+                {
+                    FILTER NOT EXISTS { $this <http://www.w3.org/2004/02/skos/core#topConceptOf> ?t }
+                    FILTER NOT EXISTS { $this <http://www.w3.org/2004/02/skos/core#broader> ?b }
+                } UNION {
+                    $this <http://www.w3.org/2004/02/skos/core#topConceptOf> ?t .
+                    $this <http://www.w3.org/2004/02/skos/core#broader> ?b .
+                }
+            }
+        """ ;
+    ] .
+
+# skos:broader y skos:narrower: conceptos descritos en el mismo grafo
+# (jerarquía interna del esquema).
+itsh:Concept-broader
+    a sh:PropertyShape ;
+    sh:path [ sh:alternativePath ( skos:broader skos:narrower ) ] ;
+    sh:nodeKind sh:IRI ;
+    sh:class skos:Concept ;
+    sh:message "Regla IT&OT: skos:broader y skos:narrower apuntan a un skos:Concept descrito en el mismo grafo."@es .
+
+# La jerarquía no cruza esquemas: broader y narrower unen conceptos del
+# mismo esquema. Entre esquemas se usan los mapeos (skos:broadMatch…), como
+# recomienda SKOS (sección 10).
+itsh:Concept-broader-mismo-esquema
+    a sh:PropertyShape ;
+    sh:path [ sh:alternativePath ( skos:broader skos:narrower ) ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Regla IT&OT: skos:broader y skos:narrower unen conceptos del mismo esquema; entre esquemas se usan los mapeos."@es ;
+        sh:select """
+            SELECT $this ?value WHERE {
+                { $this <http://www.w3.org/2004/02/skos/core#broader> ?value }
+                UNION
+                { $this <http://www.w3.org/2004/02/skos/core#narrower> ?value }
+                FILTER NOT EXISTS {
+                    $this <http://www.w3.org/2004/02/skos/core#inScheme> ?s .
+                    ?value <http://www.w3.org/2004/02/skos/core#inScheme> ?s .
+                }
+            }
+        """ ;
+    ] .
+
+# skos:related: IRI y, por SKOS S27, disjunta de la jerarquía (se comprueba
+# la relación directa: un concepto no es related y broader del mismo). Puede
+# apuntar a otro esquema.
+itsh:Concept-related
+    a sh:PropertyShape ;
+    sh:path skos:related ;
+    sh:nodeKind sh:IRI ;
+    sh:disjoint skos:broader ;
+    sh:message "SKOS S27: skos:related es una IRI y no coincide con skos:broader."@es .
+
+# Mapeos externos (Plan.md, 3.3: ATT&CK, CWE, Wikidata, NACE…): IRIs.
+itsh:Concept-mapping
+    a sh:PropertyShape ;
+    sh:path [ sh:alternativePath ( skos:exactMatch skos:closeMatch skos:broadMatch skos:narrowMatch skos:relatedMatch ) ] ;
+    sh:nodeKind sh:IRI ;
+    sh:message "Regla IT&OT: los mapeos SKOS (exactMatch, closeMatch…) apuntan a una IRI."@es .

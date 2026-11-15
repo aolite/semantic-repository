@@ -1,0 +1,181 @@
+# Ontología propia SINTÉTICA «Ontología de activos y amenazas IT/OT» (itot),
+# versión 1.1.0 (sustituida).
+#
+# Fuente: pantallas «Vocabularios y ontologías» y «Ficha de ontología» del
+# prototipo. Contenido de demostración: marcado con
+# dct:type <vocab/tipo-dataset/sintetico> (ver semantic/uris.md).
+#
+# Ontología MÍNIMA (decisión del responsable, 2026-11-15): solo lo que sale
+# del prototipo.
+# - Clases: las que nombra el prototipo y existen en esta versión, con
+#   rdfs:label en español. Los nombres locales y las etiquetas en inglés y catalán
+#   son [PROPUESTA] de semantico (traducción del nombre). RTU e IED solo
+#   llevan la sigla que da el prototipo.
+# - Jerarquía: solo la que respalda un texto del prototipo, citado en un
+#   comentario junto a cada rdfs:subClassOf.
+# - Sin rdfs:comment (el prototipo no da definiciones; el hueco queda como
+#   «# rdfs:comment [DEFINICIÓN]») y sin propiedades de objeto (el prototipo
+#   no las nombra).
+#
+# Las cifras de métricas del prototipo (48 clases, 612 axiomas…) son de
+# demostración y no se persiguen: las métricas reales las calcula el backend
+# a partir de este fichero.
+#
+# Qué añade cada versión (notas de versión del prototipo):
+# - 1.0.0: activos, amenazas y controles.
+# - 1.1.0: zonas y conductos IEC 62443; etiquetas en catalán.
+# - 1.2.0: clases de activos OT RTU e IED; alineamiento con D3FEND.
+#
+# Imports y alineamientos (prototipo):
+# - owl:imports SOSA/SSN y SAREF, con su URI oficial. El prototipo no dice en
+#   qué versión se añadieron; ninguna nota de versión lo menciona, así que se
+#   declaran desde la 1.0.0.
+# - D3FEND (rdfs:subClassOf, desde la 1.2.0): el prototipo no nombra las
+#   clases alineadas. Placeholder comentado en itot:Control.
+# - MITRE ATT&CK for ICS (skos:closeMatch, vía STIX 2.1): sin identificadores
+#   en el prototipo. Placeholder comentado en itot:Amenaza.
+#
+# Placeholders del prototipo que se OMITEN: dct:creator [AUTORES],
+# dct:license [LICENCIA], dct:issued y dct:modified [FECHA], repositorio
+# [REPOSITORIO GIT] y la fecha de cada versión [FECHA].
+#
+# OWL 2 DL: las propiedades de metadatos (Dublin Core, ADMS, VANN, FOAF) se
+# declaran como owl:AnnotationProperty, para que el fichero sea OWL 2 DL sin
+# cargar los imports.
+#
+# BASE_URI: el fichero no declara @base; las URIs son relativas.
+# URI de la ontología: {BASE_URI}onto/itot.
+# Grafo con nombre: {BASE_URI}onto/itot/1.1.0 (su owl:versionIRI).
+# Etiqueta Git: onto/itot/v1.1.0.
+
+@prefix itot: <onto/itot#> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix dct:  <http://purl.org/dc/terms/> .
+@prefix adms: <http://www.w3.org/ns/adms#> .
+@prefix vann: <http://purl.org/vocab/vann/> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+
+# --- Cabecera ---------------------------------------------------------------
+<onto/itot>
+    a owl:Ontology ;
+    owl:versionIRI <onto/itot/1.1.0> ;
+    owl:versionInfo "1.1.0" ;
+    owl:priorVersion <onto/itot/1.0.0> ;
+    owl:imports <http://www.w3.org/ns/sosa/> , <https://saref.etsi.org/core/> ;
+    dct:type <vocab/tipo-dataset/sintetico> ;
+    dct:title "Ontología de activos y amenazas IT/OT"@es ;
+    dct:description "Modelo conceptual de los activos de entornos industriales y corporativos (controladores, redes, sistemas de supervisión, servicios IT), su organización en zonas y conductos según IEC 62443, y las amenazas y controles que les afectan. Sirve de esquema común para los datasets de detección y los inventarios de activos de los proyectos de la unidad."@es ;
+    adms:versionNotes "Zonas y conductos IEC 62443; etiquetas en catalán."@es ;
+    adms:status <http://purl.org/adms/status/Completed> ;
+    vann:preferredNamespacePrefix "itot" ;
+    vann:preferredNamespaceUri <onto/itot#> ;
+    # dct:creator [AUTORES] ;
+    # dct:license [LICENCIA] ;
+    # dct:issued [FECHA] ;
+    # dct:modified [FECHA] ;
+    # Repositorio: [REPOSITORIO GIT] ;
+    # dct:subject: el prototipo solo muestra los conceptos SKOS que usa la
+    # versión actual (1.2.0); para esta versión no los da.
+    # dct:subject <vocab/ot/[CONCEPTO]> ;
+    dct:publisher _:unidad-itot .
+
+# El agente «Eurecat · Unidad IT&OT Security» no tiene URI en el prototipo:
+# nodo en blanco (solo con foaf:name, para seguir en OWL 2 DL).
+_:unidad-itot foaf:name "Eurecat · Unidad IT&OT Security" .
+
+# --- Propiedades de anotación (metadatos) -----------------------------------
+dct:title a owl:AnnotationProperty .
+dct:description a owl:AnnotationProperty .
+dct:type a owl:AnnotationProperty .
+dct:publisher a owl:AnnotationProperty .
+adms:status a owl:AnnotationProperty .
+adms:versionNotes a owl:AnnotationProperty .
+vann:preferredNamespacePrefix a owl:AnnotationProperty .
+vann:preferredNamespaceUri a owl:AnnotationProperty .
+foaf:name a owl:AnnotationProperty .
+
+# --- Activos ----------------------------------------------------------------
+
+itot:Activo
+    a owl:Class ;
+    rdfs:label "Activo"@es , "Asset"@en , "Actiu"@ca .
+    # rdfs:comment [DEFINICIÓN]
+
+# Fuente: «Modelo de activos industriales y corporativos» (lista de
+# vocabularios del prototipo).
+itot:ActivoIndustrial
+    a owl:Class ;
+    rdfs:subClassOf itot:Activo ;
+    rdfs:label "Activo industrial"@es , "Industrial asset"@en , "Actiu industrial"@ca .
+    # rdfs:comment [DEFINICIÓN]
+
+# Fuente: «Modelo de activos industriales y corporativos» (lista de
+# vocabularios del prototipo).
+itot:ActivoCorporativo
+    a owl:Class ;
+    rdfs:subClassOf itot:Activo ;
+    rdfs:label "Activo corporativo"@es , "Corporate asset"@en , "Actiu corporatiu"@ca .
+    # rdfs:comment [DEFINICIÓN]
+
+# Fuente de la jerarquía: «Modelo conceptual de los activos de entornos
+# industriales y corporativos (controladores, redes, sistemas de supervisión,
+# servicios IT)» (descripción de la ficha de ontología).
+itot:Controlador
+    a owl:Class ;
+    rdfs:subClassOf itot:Activo ;
+    rdfs:label "Controlador"@es , "Controller"@en , "Controlador"@ca .
+    # rdfs:comment [DEFINICIÓN]
+
+# Fuente de la jerarquía: «Modelo conceptual de los activos de entornos
+# industriales y corporativos (controladores, redes, sistemas de supervisión,
+# servicios IT)» (descripción de la ficha de ontología).
+itot:SistemaSupervision
+    a owl:Class ;
+    rdfs:subClassOf itot:Activo ;
+    rdfs:label "Sistema de supervisión"@es , "Supervisory system"@en , "Sistema de supervisió"@ca .
+    # rdfs:comment [DEFINICIÓN]
+
+# Fuente de la jerarquía: «Modelo conceptual de los activos de entornos
+# industriales y corporativos (controladores, redes, sistemas de supervisión,
+# servicios IT)» (descripción de la ficha de ontología).
+itot:Red
+    a owl:Class ;
+    rdfs:subClassOf itot:Activo ;
+    rdfs:label "Red"@es , "Network"@en , "Xarxa"@ca .
+    # rdfs:comment [DEFINICIÓN]
+
+# Fuente de la jerarquía: «Modelo conceptual de los activos de entornos
+# industriales y corporativos (controladores, redes, sistemas de supervisión,
+# servicios IT)» (descripción de la ficha de ontología).
+itot:ServicioIT
+    a owl:Class ;
+    rdfs:subClassOf itot:Activo ;
+    rdfs:label "Servicio IT"@es , "IT service"@en , "Servei IT"@ca .
+    # rdfs:comment [DEFINICIÓN]
+
+# --- Zonas y conductos IEC 62443 (desde la 1.1.0) ---------------------------
+
+itot:Zona
+    a owl:Class ;
+    rdfs:label "Zona"@es , "Zone"@en , "Zona"@ca .
+    # rdfs:comment [DEFINICIÓN]
+
+itot:Conducto
+    a owl:Class ;
+    rdfs:label "Conducto"@es , "Conduit"@en , "Conducte"@ca .
+    # rdfs:comment [DEFINICIÓN]
+
+# --- Amenazas y controles ---------------------------------------------------
+
+# Alineamiento con MITRE ATT&CK for ICS (prototipo): skos:closeMatch hacia
+# técnicas ofensivas, vía STIX 2.1. Identificadores: [ID de técnica].
+itot:Amenaza
+    a owl:Class ;
+    rdfs:label "Amenaza"@es , "Threat"@en , "Amenaça"@ca .
+    # rdfs:comment [DEFINICIÓN]
+
+itot:Control
+    a owl:Class ;
+    rdfs:label "Control"@es , "Security control"@en , "Control"@ca .
+    # rdfs:comment [DEFINICIÓN]

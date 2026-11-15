@@ -1,0 +1,95 @@
+# Esquema SKOS corporativo SINTÉTICO «Programas de financiación» (financiacion).
+#
+# Fuente: pantalla «Vocabularios y ontologías» del prototipo (metadatos).
+# Contenido de demostración: marcado con dct:type <vocab/tipo-dataset/sintetico>.
+#
+# Qué sale del prototipo y qué no:
+# - Título, descripción, versión (v2026.1), estado (Publicada) y prefijo
+#   (ecfund). La URI va bajo BASE_URI, en vocab/corp/financiacion, y no en
+#   /eurecat/ como en el prototipo (decisión del responsable, 2026-11-15).
+# - Conceptos: los siete programas que nombra la descripción, con el nombre
+#   tal cual como prefLabel @es. Slugs [PROPUESTA] de semantico. Sin
+#   definición ni etiquetas en ca/en. Los «clústeres y líneas» de cada
+#   programa no se enumeran en el prototipo y no se crean.
+# - Mapeos: el prototipo anuncia skos:closeMatch hacia CORDIS, sin
+#   identificadores. Se OMITEN (comentados).
+# - Responsable del esquema: «[RESPONSABLE]» (placeholder). Se OMITE; el
+#   patrón previsto es [PROPUESTA] de semantico (ver semantic/uris.md).
+# - Publicador: el prototipo no lo da para los esquemas corporativos.
+#
+# BASE_URI: el fichero no declara @base; las URIs son relativas.
+# Grafo con nombre: {BASE_URI}vocab/corp/financiacion.
+# Etiqueta Git: vocab/corp/financiacion/v2026.1.
+
+@prefix ecfund: <vocab/corp/financiacion/> .
+@prefix skos:   <http://www.w3.org/2004/02/skos/core#> .
+@prefix dct:    <http://purl.org/dc/terms/> .
+@prefix owl:    <http://www.w3.org/2002/07/owl#> .
+@prefix adms:   <http://www.w3.org/ns/adms#> .
+@prefix vann:   <http://purl.org/vocab/vann/> .
+
+<vocab/corp/financiacion>
+    a skos:ConceptScheme ;
+    dct:type <vocab/tipo-dataset/sintetico> ;
+    dct:title "Programas de financiación"@es ;
+    skos:prefLabel "Programas de financiación"@es ;
+    dct:description "Horizon Europe, EDF, DEP, LIFE, CDTI MISIONES, Cervera e INNTERCONECTA, con sus clústeres y líneas."@es ;
+    owl:versionInfo "2026.1" ;
+    adms:status <http://purl.org/adms/status/Completed> ;
+    vann:preferredNamespacePrefix "ecfund" ;
+    vann:preferredNamespaceUri <vocab/corp/financiacion/> ;
+    # prov:qualifiedAttribution [
+    #     a prov:Attribution ;
+    #     prov:agent [RESPONSABLE] ;
+    #     dcat:hadRole <http://inspire.ec.europa.eu/metadata-codelist/ResponsiblePartyRole/custodian>
+    # ] ;
+    # dct:publisher [PUBLICADOR] ;
+    # dct:license [LICENCIA] ;
+    # dct:issued [FECHA] ;
+    # dct:modified [FECHA] ;
+    skos:hasTopConcept
+        ecfund:horizon-europe , ecfund:edf , ecfund:dep , ecfund:life ,
+        ecfund:cdti-misiones , ecfund:cervera , ecfund:innterconecta .
+
+# Mapeo de cada programa (prototipo): skos:closeMatch <[CORDIS]>.
+ecfund:horizon-europe
+    a skos:Concept ;
+    skos:inScheme <vocab/corp/financiacion> ;
+    skos:topConceptOf <vocab/corp/financiacion> ;
+    skos:prefLabel "Horizon Europe"@es .
+
+ecfund:edf
+    a skos:Concept ;
+    skos:inScheme <vocab/corp/financiacion> ;
+    skos:topConceptOf <vocab/corp/financiacion> ;
+    skos:prefLabel "EDF"@es .
+
+ecfund:dep
+    a skos:Concept ;
+    skos:inScheme <vocab/corp/financiacion> ;
+    skos:topConceptOf <vocab/corp/financiacion> ;
+    skos:prefLabel "DEP"@es .
+
+ecfund:life
+    a skos:Concept ;
+    skos:inScheme <vocab/corp/financiacion> ;
+    skos:topConceptOf <vocab/corp/financiacion> ;
+    skos:prefLabel "LIFE"@es .
+
+ecfund:cdti-misiones
+    a skos:Concept ;
+    skos:inScheme <vocab/corp/financiacion> ;
+    skos:topConceptOf <vocab/corp/financiacion> ;
+    skos:prefLabel "CDTI MISIONES"@es .
+
+ecfund:cervera
+    a skos:Concept ;
+    skos:inScheme <vocab/corp/financiacion> ;
+    skos:topConceptOf <vocab/corp/financiacion> ;
+    skos:prefLabel "Cervera"@es .
+
+ecfund:innterconecta
+    a skos:Concept ;
+    skos:inScheme <vocab/corp/financiacion> ;
+    skos:topConceptOf <vocab/corp/financiacion> ;
+    skos:prefLabel "INNTERCONECTA"@es .

@@ -1,0 +1,60 @@
+# Esquema SKOS de dominio SINTÉTICO «Ataques y defensas en IA» (ia).
+#
+# Fuente: pantalla «Vocabularios y ontologías» del prototipo (metadatos).
+# Contenido de demostración: marcado con dct:type <vocab/tipo-dataset/sintetico>.
+#
+# Qué sale del prototipo y qué no:
+# - Título, descripción, versión (v1.0), estado (Publicada) y prefijo.
+# - El prototipo no enumera los conceptos («[N] conceptos»). Solo están los
+#   dos que ya usa como tema el dataset sintético ejemplos-adversarios-vision
+#   (fase 2). Sus URIs no cambian; sus slugs y etiquetas fueron [PROPUESTA]
+#   de semantico en la fase 2. Sin definición, etiquetas en ca/en ni
+#   jerarquía: no hay fuente.
+# - Mapeos: la descripción anuncia alineamiento con MITRE ATLAS y OWASP Top
+#   10 for LLM Applications, sin identificadores. Se OMITEN (comentados).
+#
+# BASE_URI: el fichero no declara @base; las URIs son relativas.
+# Grafo con nombre: {BASE_URI}vocab/ia. Etiqueta Git: vocab/ia/v1.0.
+
+@prefix ia:   <vocab/ia/> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix dct:  <http://purl.org/dc/terms/> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix adms: <http://www.w3.org/ns/adms#> .
+@prefix vann: <http://purl.org/vocab/vann/> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+
+<vocab/ia>
+    a skos:ConceptScheme ;
+    dct:type <vocab/tipo-dataset/sintetico> ;
+    dct:title "Ataques y defensas en IA"@es ;
+    skos:prefLabel "Ataques y defensas en IA"@es ;
+    dct:description "Tácticas y técnicas alineadas con MITRE ATLAS y OWASP Top 10 for LLM Applications."@es ;
+    dct:subject <vocab/dominio/ia> ;
+    owl:versionInfo "1.0" ;
+    adms:status <http://purl.org/adms/status/Completed> ;
+    vann:preferredNamespacePrefix "ia" ;
+    vann:preferredNamespaceUri <vocab/ia/> ;
+    dct:publisher _:unidad-itot ;
+    # dct:license [LICENCIA] ;
+    # dct:issued [FECHA] ;
+    # dct:modified [FECHA] ;
+    skos:hasTopConcept ia:evasion , ia:caja-blanca .
+
+_:unidad-itot
+    a foaf:Agent , prov:Agent ;
+    foaf:name "Eurecat · Unidad IT&OT Security" .
+
+ia:evasion
+    a skos:Concept ;
+    skos:inScheme <vocab/ia> ;
+    skos:topConceptOf <vocab/ia> ;
+    skos:prefLabel "Evasión"@es .
+    # skos:closeMatch <[ID de técnica de MITRE ATLAS]> .
+
+ia:caja-blanca
+    a skos:Concept ;
+    skos:inScheme <vocab/ia> ;
+    skos:topConceptOf <vocab/ia> ;
+    skos:prefLabel "Caja blanca"@es .

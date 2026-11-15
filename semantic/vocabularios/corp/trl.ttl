@@ -1,0 +1,107 @@
+# Esquema SKOS corporativo SINTÉTICO «Niveles de madurez tecnológica (TRL)» (trl).
+#
+# Fuente: pantalla «Vocabularios y ontologías» del prototipo (metadatos).
+# Contenido de demostración: marcado con dct:type <vocab/tipo-dataset/sintetico>.
+#
+# Qué sale del prototipo y qué no:
+# - Título, descripción, versión (v1.0), estado (Publicada) y prefijo
+#   (ectrl). La URI va bajo BASE_URI, en vocab/corp/trl, y no en /eurecat/
+#   como en el prototipo (decisión del responsable, 2026-11-15).
+# - Conceptos: la escala TRL 1 a TRL 9 («9 conceptos»), solo con la etiqueta
+#   «TRL n» @es. Sin definición: el prototipo remite a la definición de la
+#   Comisión Europea pero no la reproduce. Slugs trl-1 … trl-9 [PROPUESTA]
+#   de semantico.
+# - Mapeos: el prototipo anuncia skos:exactMatch hacia «EU TRL», sin
+#   identificadores. Se OMITEN.
+# - Responsable del esquema: «[RESPONSABLE]» (placeholder). Se OMITE; el
+#   patrón previsto es [PROPUESTA] de semantico (ver semantic/uris.md).
+# - Publicador: el prototipo no lo da para los esquemas corporativos.
+#
+# BASE_URI: el fichero no declara @base; las URIs son relativas.
+# Grafo con nombre: {BASE_URI}vocab/corp/trl. Etiqueta Git: vocab/corp/trl/v1.0.
+
+@prefix ectrl: <vocab/corp/trl/> .
+@prefix skos:  <http://www.w3.org/2004/02/skos/core#> .
+@prefix dct:   <http://purl.org/dc/terms/> .
+@prefix owl:   <http://www.w3.org/2002/07/owl#> .
+@prefix adms:  <http://www.w3.org/ns/adms#> .
+@prefix vann:  <http://purl.org/vocab/vann/> .
+
+<vocab/corp/trl>
+    a skos:ConceptScheme ;
+    dct:type <vocab/tipo-dataset/sintetico> ;
+    dct:title "Niveles de madurez tecnológica (TRL)"@es ;
+    skos:prefLabel "Niveles de madurez tecnológica (TRL)"@es ;
+    dct:description "Escala TRL 1 a 9 según la definición de la Comisión Europea, para etiquetar resultados y datasets."@es ;
+    owl:versionInfo "1.0" ;
+    adms:status <http://purl.org/adms/status/Completed> ;
+    vann:preferredNamespacePrefix "ectrl" ;
+    vann:preferredNamespaceUri <vocab/corp/trl/> ;
+    # prov:qualifiedAttribution [
+    #     a prov:Attribution ;
+    #     prov:agent [RESPONSABLE] ;
+    #     dcat:hadRole <http://inspire.ec.europa.eu/metadata-codelist/ResponsiblePartyRole/custodian>
+    # ] ;
+    # dct:publisher [PUBLICADOR] ;
+    # dct:license [LICENCIA] ;
+    # dct:issued [FECHA] ;
+    # dct:modified [FECHA] ;
+    skos:hasTopConcept
+        ectrl:trl-1 , ectrl:trl-2 , ectrl:trl-3 , ectrl:trl-4 , ectrl:trl-5 ,
+        ectrl:trl-6 , ectrl:trl-7 , ectrl:trl-8 , ectrl:trl-9 .
+
+# Mapeo de cada nivel (prototipo): skos:exactMatch <[EU TRL]>.
+
+ectrl:trl-1
+    a skos:Concept ;
+    skos:inScheme <vocab/corp/trl> ;
+    skos:topConceptOf <vocab/corp/trl> ;
+    skos:prefLabel "TRL 1"@es .
+
+ectrl:trl-2
+    a skos:Concept ;
+    skos:inScheme <vocab/corp/trl> ;
+    skos:topConceptOf <vocab/corp/trl> ;
+    skos:prefLabel "TRL 2"@es .
+
+ectrl:trl-3
+    a skos:Concept ;
+    skos:inScheme <vocab/corp/trl> ;
+    skos:topConceptOf <vocab/corp/trl> ;
+    skos:prefLabel "TRL 3"@es .
+
+ectrl:trl-4
+    a skos:Concept ;
+    skos:inScheme <vocab/corp/trl> ;
+    skos:topConceptOf <vocab/corp/trl> ;
+    skos:prefLabel "TRL 4"@es .
+
+ectrl:trl-5
+    a skos:Concept ;
+    skos:inScheme <vocab/corp/trl> ;
+    skos:topConceptOf <vocab/corp/trl> ;
+    skos:prefLabel "TRL 5"@es .
+
+ectrl:trl-6
+    a skos:Concept ;
+    skos:inScheme <vocab/corp/trl> ;
+    skos:topConceptOf <vocab/corp/trl> ;
+    skos:prefLabel "TRL 6"@es .
+
+ectrl:trl-7
+    a skos:Concept ;
+    skos:inScheme <vocab/corp/trl> ;
+    skos:topConceptOf <vocab/corp/trl> ;
+    skos:prefLabel "TRL 7"@es .
+
+ectrl:trl-8
+    a skos:Concept ;
+    skos:inScheme <vocab/corp/trl> ;
+    skos:topConceptOf <vocab/corp/trl> ;
+    skos:prefLabel "TRL 8"@es .
+
+ectrl:trl-9
+    a skos:Concept ;
+    skos:inScheme <vocab/corp/trl> ;
+    skos:topConceptOf <vocab/corp/trl> ;
+    skos:prefLabel "TRL 9"@es .

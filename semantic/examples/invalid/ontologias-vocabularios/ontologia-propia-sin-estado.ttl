@@ -1,0 +1,22 @@
+# Ejemplo INVÁLIDO: Una ontología propia sin adms:status.
+#
+# expect-violation: OwnOntology-status
+#
+# BASE_URI: el fichero no declara @base; las URIs son relativas.
+
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix dct:  <http://purl.org/dc/terms/> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix adms: <http://www.w3.org/ns/adms#> .
+@prefix vann: <http://purl.org/vocab/vann/> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+<onto/ejemplo>
+    a owl:Ontology ;
+    owl:versionIRI <onto/ejemplo/1.0.0> ;
+    owl:versionInfo "1.0.0" ;
+    dct:title "Ontología de ejemplo"@es ;
+    dct:description "Ontología mínima para un ejemplo inválido."@es ;
+    vann:preferredNamespacePrefix "ejemplo" ;
+    vann:preferredNamespaceUri <onto/ejemplo#> ;
+    dct:type <vocab/tipo-dataset/sintetico> .

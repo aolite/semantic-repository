@@ -1,0 +1,16 @@
+# Ejemplo INVÁLIDO: Una ontología externa sin dct:title.
+#
+# expect-violation: Ontology-title
+#
+# BASE_URI: el fichero no declara @base; las URIs son relativas.
+
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix dct:  <http://purl.org/dc/terms/> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix adms: <http://www.w3.org/ns/adms#> .
+@prefix vann: <http://purl.org/vocab/vann/> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+<http://example.org/ontologia-externa>
+    a owl:Ontology ;
+    dct:description "Ontología externa sin título."@es .
