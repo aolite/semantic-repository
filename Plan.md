@@ -282,14 +282,14 @@ Hay que resolverlas antes de la fase o el paso indicado.
 | 7 | ROBOT u owlready2 para las métricas OWL | `backend`, `semantico` | Fase 3 |
 | 8 | ~~Modelo de Claude para cada subagente~~. Decidido: ver la tabla de la sección 3 | Coste y calidad | Cerrada |
 | 9 | ~~Convención de ramas, commits y registro de decisiones~~. Decidido: `<agente>/<descripción-corta>`, Conventional Commits y ADR en `docs/adr/` | Todos | Cerrada |
-| 10 | Primer dataset real para G2 y valores reales de licencia, contacto y proyectos | `semantico`, `backend` | Fase 2 |
+| 10 | ~~Primer dataset para G2~~. Decidido (2026-11-14): G2 se demuestra con datasets **sintéticos**, los tres del catálogo del prototipo (Modbus/TCP, hallazgos de auditorías y ejemplos adversarios en visión), marcados como sintéticos. Los datasets reales y los valores de licencia, contacto y proyecto llegan en el piloto | `semantico`, `backend` | Cerrada (datos reales en la fase 5) |
 | 11 | Responsable nombrado por cada esquema corporativo (mitigación de gobernanza) | `semantico` | Fase 3 |
 | 12 | Proveedor cloud. Cloudflare es una opción: las distribuciones ya irán a R2; falta evaluar qué otros componentes pueden alojarse ahí (p. ej. el frontend estático) y cuáles necesitan otro sitio (FastAPI, Fuseki, F-UJI, PostgreSQL) | `infra` | Fase 5 |
 | 13 | Papel de ChatGPT Pro y Gemini: el plan de implementación los cita como asistentes, pero este sistema multi-agente se limita a Claude Code | Proceso | Cuando el responsable lo decida |
 | 14 | ~~Alcance y herramientas de las pruebas de seguridad~~. Decidido: JWT, autorización por rol, acceso a distribuciones restringidas, inyección en SPARQL y análisis de dependencias, con pip-audit, npm audit y pruebas pytest propias | `qa` | Cerrada |
 | 15 | Razonador para la consistencia OWL: el diseño y el plan de implementación citan HermiT; una versión anterior de este plan decía Pellet | `backend`, `semantico` | Fase 3 |
-| 16 | ¿El admin hereda los permisos de editor? Hoy no hay jerarquía de roles: cada ruta enumera los roles que admite | `backend` | Fase 2 |
-| 17 | `dcat:accessURL` de las distribuciones: el prototipo no la da y hoy es la URI de la propia distribución | `semantico`, `backend` | Fase 2 |
+| 16 | ~~¿El admin hereda los permisos de editor?~~ Decidido (2026-11-14): sí | `backend` | Cerrada |
+| 17 | ~~`dcat:accessURL` de las distribuciones~~. Decidido (2026-11-14): la URI de la propia distribución | `semantico`, `backend` | Cerrada |
 | 18 | Seguridad del login: límite de intentos, si la auditoría guarda el `username` de los fallos y revocación de tokens tras una baja | `backend` | Antes del piloto |
 | 19 | Política de cuentas: contraseña mínima de 12 caracteres sin caracteres de control, sin email ni nombre completo, bajas solo lógicas y sin bloqueo propio del admin (implementado así; falta confirmarlo) | `backend` | Antes del piloto |
 | 20 | URIs pendientes en el modelo: agente publicador, nodos PROV sin URI y espacio de nombres de las formas SHACL (`{BASE_URI}shapes#` [PROPUESTA]) | `semantico` | Fase 2 |
@@ -297,4 +297,5 @@ Hay que resolverlas antes de la fase o el paso indicado.
 | 22 | Revisar las obligatoriedades de las formas SHACL contra el texto oficial de DCAT-AP 3, y si se añaden sus cardinalidades máximas | `semantico` | Fase 2 |
 | 23 | Fuente IBM Plex Mono servida desde el propio frontend (`@fontsource`) en lugar de Google Fonts, por la residencia en la UE; y los elementos de interfaz que no salen del prototipo (iconos de navegación, colores de error, bloque de sesión) | `frontend` | Fase 2 |
 | 24 | `/docs` y `/redoc` públicos en el despliegue (cargan recursos de un CDN externo) | `backend`, `infra` | Fase 5 |
-| 25 | Healthcheck del frontend en el Compose y ejecución de la e2e en CI | `infra` | Fase 2 |
+| 25 | Ejecución de la e2e en CI (propuesta en un commit separado de la PR de infra de la fase 2). El healthcheck del frontend ya está hecho en esa misma PR | `infra` | Al revisar la PR de infra de la fase 2 |
+| 26 | ~~Alcance de la ficha de dataset en G2~~. Decidido (2026-11-14): versionado y distribuciones con los datos que haya en el RDF; la sección FAIR muestra «Disponible en la fase 4» sin puntuaciones inventadas | `frontend` | Cerrada |
