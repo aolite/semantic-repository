@@ -1,0 +1,11 @@
+# Excepciones de Trivy para el job imagen-backend de .github/workflows/ci.yml.
+# Revisión: ver infra/README.md (sección "Excepción de Trivy").
+vulnerabilities:
+  - id: CVE-2026-114820
+    # Crítica, en openjdk-25-jre-headless (distrust de CA intermedias de eMudhra).
+    # Sin corrección en Debian 13. La JRE solo existe para que owlready2 ejecute Pellet,
+    # que corre sin red (backend/tests/test_security_g3.py lo comprueba), así que el
+    # impacto es prácticamente nulo.
+    statement: "JRE solo para Pellet, sin red, sin corrección en Debian 13"
+    # Propuesta del orquestador: tres meses. Pasada esta fecha Trivy vuelve a fallar.
+    expired_at: 2027-02-15

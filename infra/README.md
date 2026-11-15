@@ -95,6 +95,16 @@ Así solo el backend escribe en el triplestore. La política está en `infra/fus
 
 El job `e2e` (propuesta pendiente de decisión del responsable) ejecuta `uv run --project backend pytest tests/e2e -v` con `E2E_REQUIRE_DOCKER=1`: levanta el Compose real con puertos y secretos aleatorios (ver `tests/e2e/README.md`). Tiene un límite de 30 minutos porque construye las imágenes del backend y del frontend.
 
+### Excepción de Trivy
+
+El job `imagen-backend` analiza la imagen del backend con Trivy (v0.76.2) y falla con cualquier hallazgo crítico. Ignora una sola vulnerabilidad, declarada en `.trivyignore.yaml` y pasada con `trivyignores`: **CVE-2026-114820** (crítica, en `openjdk-25-jre-headless`, distrust de CA intermedias de eMudhra). No tiene corrección en Debian 13. La JRE solo existe para que owlready2 ejecute Pellet, que corre sin red (lo comprueban las pruebas de `backend/tests/test_security_g3.py`), así que el impacto es prácticamente nulo. Decisión del responsable: mantener Pellet y añadir la excepción.
+
+La excepción caduca el **2027-02-15** (`expired_at`, propuesta de tres meses). Pasada esa fecha Trivy deja de ignorarla y el job vuelve a fallar. Al revisarla:
+
+1. Comprueba si Debian ya corrige la CVE (reconstruye la imagen y ejecuta el job sin la excepción). Si está corregida, borra la entrada.
+2. Si sigue sin corrección y la JRE sigue sin red, decide con el responsable ampliar `expired_at` o cambiar de solución.
+3. Cualquier otra CVE crítica sigue haciendo fallar el job: no se añade al fichero sin decisión del responsable.
+
 ## Publicar una versión de ontología o vocabulario (fase 3)
 
 «Publicar» significa crear una **Release de GitHub**. Se hace empujando una etiqueta de Git sobre un commit que ya esté en `main`; la etiqueta la crea y empuja quien tiene permiso para ello, tras fusionar la PR con el RDF.
