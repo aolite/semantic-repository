@@ -1,32 +1,36 @@
-import { useCallback, useState } from 'react'
-import { Link } from 'react-router'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Link, useSearchParams } from 'react-router'
 import {
   listDatasets,
   listVocabularies,
   type DatasetCard,
   type DatasetPage,
-  type DomainSlug,
   type VocabularyCard,
   type VocabularyPage,
 } from '../api'
 import { accessLabel, DOMAINS, DOMAIN_SLUGS, formatsLine, resourceCount, themeLabel } from '../catalog/labels'
+import {
+  catalogSearch,
+  readCatalogParams,
+  writeCatalogParams,
+  type CatalogUrlState,
+  type DomainFilter,
+  type TypeFilter,
+} from '../catalog/urlState'
 import { DomainTag, SyntheticTag, TypeTag } from '../components/Tags'
 import { VocabularyCardView } from '../components/VocabularyCardView'
+import { fairWidth } from '../dataset/fair'
 import { useApiLoad } from '../hooks/useApiLoad'
-import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import '../styles/catalog.css'
 
 /** Espera tras la última pulsación antes de lanzar `q`. */
 export const SEARCH_DEBOUNCE_MS = 300
 
 /**
- * Tamaño de página pedido a la API (máximo del contrato). La interfaz de
- * paginación queda pendiente: en G2 hay pocos datasets.
+ * Datasets por página (`page_size`). El prototipo no fija un número: es una
+ * decisión del frontend. Los vocabularios no se paginan en la API.
  */
-const PAGE_SIZE = 100
-
-type DomainFilter = 'all' | DomainSlug
-type TypeFilter = 'all' | 'dataset' | 'vocab'
+export const PAGE_SIZE = 20
 
 const DOMAIN_CHIPS: { id: DomainFilter; label: string }[] = [
   { id: 'all', label: 'Todos los dominios' },
@@ -46,40 +50,70 @@ interface CatalogResult {
 
 type CatalogItem = { type: 'dataset'; item: DatasetCard } | { type: 'vocab'; item: VocabularyCard }
 
+/** Número de páginas de datasets según la respuesta (al menos 1). */
+function pageCount(page: DatasetPage | null | undefined): number {
+  if (!page || page.page_size <= 0) return 1
+  return Math.max(1, Math.ceil(page.total / page.page_size))
+}
+
 export function CatalogPage() {
-  const [query, setQuery] = useState('')
-  const [domain, setDomain] = useState<DomainFilter>('all')
-  const [type, setType] = useState<TypeFilter>('all')
-  const q = useDebouncedValue(query.trim(), SEARCH_DEBOUNCE_MS)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const { q, domain, type, page } = readCatalogParams(searchParams)
+
+  // El campo de búsqueda se edita en local y llega a la URL con debounce
+  // (sustituyendo la entrada del historial, para no crear una por búsqueda).
+  const [input, setInput] = useState(q)
+  const [syncedQ, setSyncedQ] = useState(q)
+  if (q !== syncedQ) {
+    // La URL ha cambiado desde fuera (atrás, adelante, un enlace): el campo la sigue.
+    setSyncedQ(q)
+    if (q !== input.trim()) setInput(q)
+  }
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  useEffect(() => () => clearTimeout(timer.current), [])
+
+  function handleSearch(value: string) {
+    setInput(value)
+    clearTimeout(timer.current)
+    timer.current = setTimeout(() => {
+      setSearchParams((prev) => writeCatalogParams(prev, { q: value }), { replace: true })
+    }, SEARCH_DEBOUNCE_MS)
+  }
+
+  // Los filtros sí crean una entrada del historial, para volver con «atrás».
+  function update(changes: Partial<CatalogUrlState>) {
+    setSearchParams((prev) => writeCatalogParams(prev, changes))
+  }
 
   const fetchesDatasets = type !== 'vocab'
   const fetchesVocabularies = type !== 'dataset'
 
   const loader = useCallback(
     async (signal: AbortSignal): Promise<CatalogResult> => {
+      const domainParam = domain === 'all' ? undefined : domain
       const [datasets, vocabularies] = await Promise.all([
-        fetchesDatasets
-          ? listDatasets({ q, domain: domain === 'all' ? undefined : domain, pageSize: PAGE_SIZE }, signal)
-          : null,
-        fetchesVocabularies
-          ? listVocabularies({ q, domain: domain === 'all' ? undefined : domain }, signal)
-          : null,
+        fetchesDatasets ? listDatasets({ q, domain: domainParam, page, pageSize: PAGE_SIZE }, signal) : null,
+        fetchesVocabularies ? listVocabularies({ q, domain: domainParam }, signal) : null,
       ])
       return { datasets, vocabularies }
     },
-    [fetchesDatasets, fetchesVocabularies, q, domain],
+    [fetchesDatasets, fetchesVocabularies, q, domain, page],
   )
   const { state, retry } = useApiLoad(fetchesDatasets || fetchesVocabularies ? loader : null)
 
   const loading = state.status === 'loading'
   const failed = state.status === 'error' || state.status === 'not-found'
   const data = state.status === 'ok' ? state.data : null
-  // «Todo» muestra primero los datasets y después los vocabularios y ontologías.
+  const totalPages = fetchesDatasets ? pageCount(data?.datasets) : 1
+  // «Todo» muestra primero los datasets y después los vocabularios y
+  // ontologías, que no se paginan: van tras la última página de datasets.
+  const showVocabularies = !fetchesDatasets || page >= totalPages
   const items: CatalogItem[] = [
     ...(data?.datasets?.items ?? []).map((item) => ({ type: 'dataset' as const, item })),
-    ...(data?.vocabularies?.items ?? []).map((item) => ({ type: 'vocab' as const, item })),
+    ...(showVocabularies ? (data?.vocabularies?.items ?? []) : []).map((item) => ({ type: 'vocab' as const, item })),
   ]
   const total = (data?.datasets?.total ?? 0) + (data?.vocabularies?.total ?? 0)
+  const showPager = !loading && !failed && fetchesDatasets && (totalPages > 1 || page > 1)
 
   return (
     <div className="catalog">
@@ -106,8 +140,8 @@ export function CatalogPage() {
             type="search"
             placeholder="Título, concepto o URI"
             maxLength={200}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            value={input}
+            onChange={(e) => handleSearch(e.target.value)}
           />
         </div>
         <div className="catalog__filter-row">
@@ -118,7 +152,7 @@ export function CatalogPage() {
                 type="button"
                 className="chip"
                 aria-pressed={chip.id === domain}
-                onClick={() => setDomain(chip.id)}
+                onClick={() => update({ domain: chip.id })}
               >
                 {chip.label}
               </button>
@@ -131,7 +165,7 @@ export function CatalogPage() {
                 type="button"
                 className="segmented__button"
                 aria-pressed={chip.id === type}
-                onClick={() => setType(chip.id)}
+                onClick={() => update({ type: chip.id })}
               >
                 {chip.label}
               </button>
@@ -181,13 +215,41 @@ export function CatalogPage() {
       {!loading && !failed && items.length === 0 && (
         <p className="state state--empty">Ningún recurso coincide con los filtros.</p>
       )}
+
+      {showPager && <Pager params={searchParams} page={page} totalPages={totalPages} />}
     </div>
+  )
+}
+
+/**
+ * Paginación de los datasets (no está en el prototipo). Son enlaces con la
+ * página en la URL, así que se pueden abrir en otra pestaña o compartir.
+ */
+function Pager({ params, page, totalPages }: { params: URLSearchParams; page: number; totalPages: number }) {
+  const previous = Math.min(page - 1, totalPages)
+  return (
+    <nav aria-label="Paginación" className="pager">
+      {page > 1 && (
+        <Link to={{ search: catalogSearch(params, { page: previous }) }} className="button button--secondary" rel="prev">
+          Anterior
+        </Link>
+      )}
+      <span className="pager__status">
+        Página {page} de {totalPages}
+      </span>
+      {page < totalPages && (
+        <Link to={{ search: catalogSearch(params, { page: page + 1 }) }} className="button button--secondary" rel="next">
+          Siguiente
+        </Link>
+      )}
+    </nav>
   )
 }
 
 function DatasetCardView({ item }: { item: DatasetCard }) {
   const access = accessLabel(item.access_rights)
   const formats = formatsLine(item.formats, item.current_version)
+  const hasFair = item.fair_total !== null && item.fair_total !== undefined
   return (
     <article className="card">
       <div className="card__tags">
@@ -209,9 +271,17 @@ function DatasetCardView({ item }: { item: DatasetCard }) {
           ))}
         </ul>
       )}
-      {formats && (
+      {(formats || hasFair) && (
         <div className="card__footer">
-          <span className="mono card__formats">{formats}</span>
+          {formats && <span className="mono card__formats">{formats}</span>}
+          {hasFair && (
+            <span className="card__fair">
+              <span className="card__fair-label">FAIR {item.fair_total}</span>
+              <span className="card__fair-bar" aria-hidden="true">
+                <span className="card__fair-fill" style={{ width: fairWidth(item.fair_total) }} />
+              </span>
+            </span>
+          )}
         </div>
       )}
     </article>
