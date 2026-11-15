@@ -44,6 +44,9 @@ Se leen del entorno o de un fichero `backend/.env` (que no se versiona). Los val
 | `FUSEKI_TIMEOUT_SECONDS` | no | `10` | Timeout de lectura de cada petición a Fuseki (la conexión tiene 3 s) |
 | `SEMANTIC_DIR` | no | `../semantic` relativo a `backend/` | Carpeta `semantic/` (formas SHACL y datos). En el contenedor, `/semantic` (montada por infra, solo lectura). Una ruta relativa se resuelve contra `backend/` |
 | `INGEST_MAX_BYTES` | no | `10485760` (10 MiB) | Tamaño máximo del RDF de `POST /datasets`, `POST /ontologies` y `POST /schemes` (413 si se supera) |
+| `INGEST_MAX_TRIPLES` | no | `100000` | Tripletas máximas por ingesta (API y `load-semantic`). Se comprueba mientras se analiza: al superarlo, 422 `limit` |
+| `SHACL_TIMEOUT_SECONDS` | no | `60` | Tiempo máximo de la validación SHACL de una ingesta (hasta 3600). Al superarlo se mata el proceso de validación y la ingesta responde 422 `limit` |
+| `SHACL_MEMORY_MB` | no | `2048` | Memoria máxima (`RLIMIT_AS`) del proceso de validación SHACL (de 256 a 65536; solo en Linux). Al superarla, 422 `limit` |
 | `REASONER_TIMEOUT_SECONDS` | no | `120` | Tiempo máximo de Pellet por versión de ontología (hasta 3600). Si se supera, se mata el proceso Java y la consistencia queda `null` con el motivo |
 | `REASONER_JAVA_MEMORY_MB` | no | `1024` | Memoria máxima de la JVM de Pellet (`-Xmx`, de 256 a 65536) |
 | `FRONTEND_BASE_URL` | no | `http://localhost:5173` | Frontend al que redirigen (303) las URIs persistentes cuando se pide HTML (fichas de dataset, ontología y vocabulario) |
@@ -102,10 +105,10 @@ El contrato completo está en [`openapi.json`](openapi.json). Los campos siguen 
    - **Anidamiento máximo: 64 niveles**, tanto de JSON en JSON-LD como de cadenas de nodos en blanco anidados (`[ p [ p … ] ]`) en cualquier formato; las listas RDF (`rdf:rest`) no cuentan. Un DCAT-AP real usa unos pocos niveles, y el límite queda lejos de la recursión de Python (1000) que usan analizadores y serializadores. Si se supera, 422 `syntax` (también si el analizador agota la recursión).
    - **IRIs válidas:** toda IRI del grafo (sujeto, predicado, objeto o tipo de dato de un literal) es absoluta y no contiene los caracteres que excluye la producción `IRIREF` de Turtle/N-Triples/SPARQL (espacio, controles, `<>"{}|^`` ` ``\`). Si no, 422 `uri` con la IRI en el `issue`, antes de SHACL y de escribir nada.
 2. **Estructura y URIs** (`semantic/uris.md`): exactamente una `dcat:DatasetSeries` con URI `{BASE_URI}dataset/{slug}`; cada `dcat:Dataset` es `{serie}/{version}`, con `dcat:inSeries` hacia la serie y `dcat:version` igual al último segmento; cada distribución cuelga de su versión. Todo sujeto con IRI cuelga de `BASE_URI` y, en concreto, de la serie o de `{BASE_URI}actividad/`: una ingesta no puede reescribir otra serie, el vocabulario ni el catálogo.
-3. **SHACL** con pyshacl: todas las formas de `SEMANTIC_DIR/shapes/*.ttl` y, como grafo de soporte, `SEMANTIC_DIR/data/vocab-minimo.ttl`. Sin inferencia y sin la ontología DCAT.
+3. **SHACL** con pyshacl, en un proceso aparte con tiempo y memoria limitados (ver «Límites de la ingesta»): todas las formas de `SEMANTIC_DIR/shapes/*.ttl` y, como grafo de soporte, `SEMANTIC_DIR/data/vocab-minimo.ttl`. Sin inferencia y sin la ontología DCAT.
 4. **Guardado** en el grafo con nombre `{BASE_URI}dataset/{slug}`.
 
-Si falla un paso, la respuesta es 422 con `kind` (`syntax`, `structure`, `uri` o `shacl`), `detail`, `issues` (nodo, propiedad, valor, severidad, forma y mensaje) y, para SHACL, `report` con el informe de pyshacl en texto. No se escribe nada.
+Si falla un paso, la respuesta es 422 con `kind` (`syntax`, `structure`, `uri`, `shacl` o `limit`), `detail`, `issues` (nodo, propiedad, valor, severidad, forma y mensaje) y, para SHACL, `report` con el informe de pyshacl en texto. No se escribe nada.
 
 **Estrategia de sustitución:** cada ingesta sustituye **por completo** el grafo con nombre de la serie (`PUT` del Graph Store Protocol, atómico en Fuseki). Por eso se envía siempre la serie entera con todas sus versiones: una versión que no venga en el RDF desaparece. Si el contenido es isomorfo al guardado, no se reescribe (`changed=false`). Las credenciales de escritura se exigen siempre, también cuando no hay cambios.
 
@@ -177,7 +180,7 @@ Lo mismo vale para `{BASE_URI}onto/*` y `{BASE_URI}vocab/*` (fase 3). El resto d
 
 **Descarga del RDF:** `GET /datasets/{slug}/rdf`, `GET /ontologies/{slug}/rdf` y `GET /schemes/…/rdf` aceptan `?download=true` (o `1`). Con él, la respuesta lleva `Content-Disposition: attachment; filename="…"`, con un nombre hecho solo de slugs y versiones validados: `{slug}-{versión}.ttl` para datasets y ontologías (la versión pedida o la actual), `{slug}-{versión}` o `corp-{slug}-{versión}` (`owl:versionInfo`) para esquemas, con extensión `.ttl`, `.jsonld` o `.rdf` según el formato. Sin el parámetro (o con `false`) el RDF se sirve en línea, como hasta ahora.
 
-**Rutas de los esquemas:** igual que sus URIs. Los de dominio en `/schemes/{slug}` (`{BASE_URI}vocab/{slug}`) y los corporativos en `/schemes/corp/{slug}` (`{BASE_URI}vocab/corp/{slug}`). `corp` es un slug reservado (no puede haber un esquema de dominio con ese nombre) y `externas` lo es en las ontologías. Todas las URIs persistentes ofrecen Turtle (por defecto), JSON-LD, RDF/XML y HTML (303); un recurso inexistente da 404 en cualquier formato.
+**Rutas de los esquemas:** igual que sus URIs. Los de dominio en `/schemes/{slug}` (`{BASE_URI}vocab/{slug}`) y los corporativos en `/schemes/corp/{slug}` (`{BASE_URI}vocab/corp/{slug}`). `corp` es un slug reservado (no puede haber un esquema de dominio con ese nombre) y `externas` lo es en las ontologías. Todas las URIs persistentes ofrecen Turtle (por defecto), JSON-LD, RDF/XML y HTML (303); un recurso inexistente da 404 en cualquier formato. RDF/XML no puede representar predicados cuyo nombre local no es un nombre XML (p. ej. `<http://x.example/p/1>` o `<urn:x:1>`): si el recurso tiene alguno, RDF/XML responde **406** con un mensaje que remite a Turtle o JSON-LD, en lugar de 500 (QA-G3-05). La ingesta los admite porque Turtle y JSON-LD sí los representan.
 
 ### Tipos y estados (contrato con `semantico`)
 
@@ -186,7 +189,8 @@ Lo mismo vale para `{BASE_URI}onto/*` y `{BASE_URI}vocab/*` (fase 3). El resto d
 | `own` | `owl:Ontology` con `owl:versionIRI`, en el grafo de su versión |
 | `external` | `owl:Ontology` del grafo `{BASE_URI}onto/externas` (sin `versionIRI`) |
 | `skos_corp` | `skos:ConceptScheme` bajo `{BASE_URI}vocab/corp/` |
-| `skos_domain` | `skos:ConceptScheme` bajo `{BASE_URI}vocab/` con `dct:subject` hacia un concepto de `{BASE_URI}vocab/dominio`. Los esquemas sin dominio fuera de `corp/` (los auxiliares `dominio` y `tipo-dataset`) no tienen tarjeta, aunque se pueden leer en `/schemes/{slug}` |
+| `skos_domain` | `skos:ConceptScheme` bajo `{BASE_URI}vocab/` con `dct:subject` hacia un concepto de `{BASE_URI}vocab/dominio` |
+| `auxiliary` | Solo en `GET /schemes/{slug}` (`SchemeDetail.kind`): los esquemas sin dominio fuera de `corp/`, es decir, `vocab/dominio` y `vocab/tipo-dataset`. No tienen tarjeta en `/vocabularies` |
 
 - **Estado:** `adms:status` `…/UnderDevelopment` es `draft`; `…/Completed` (o cualquier otro valor, o ninguno) es `published`; las externas son siempre `referenced`.
 - **Sintético:** `synthetic=true` si el recurso lleva `dct:type <{BASE_URI}vocab/tipo-dataset/sintetico>` (en ontologías, en la cabecera de la versión).
@@ -207,16 +211,34 @@ Lo mismo vale para `{BASE_URI}onto/*` y `{BASE_URI}vocab/*` (fase 3). El resto d
 
 ### Navegador SKOS
 
-- **Árbol:** cada nodo lleva `uri`, `slug`, `label`, `top_concept`, `alt_labels` (lista de `{value, lang}`, como en el concepto) y `children`. Raíces = conceptos con `skos:topConceptOf`/`skos:hasTopConcept` y los que no tienen padre dentro del esquema; hijos = `skos:narrower` más la inversa de `skos:broader`. Ordenado por etiqueta. Un ciclo no se recorre dos veces.
+- **Árbol:** se construye sin recursión y se sirve hasta 64 niveles (lo que admite la ingesta); cada nodo lleva `uri`, `slug`, `label`, `top_concept`, `alt_labels` (lista de `{value, lang}`, como en el concepto) y `children`. Raíces = conceptos con `skos:topConceptOf`/`skos:hasTopConcept` y los que no tienen padre dentro del esquema; hijos = `skos:narrower` más la inversa de `skos:broader`. Ordenado por etiqueta. Un ciclo no se recorre dos veces.
 - **Concepto:** `pref_labels`, `alt_labels` y `definitions` como lista de `{value, lang}`; `broader`, `narrower` y `related` (en los dos sentidos) con etiqueta; `exact_match` y `close_match`; usos: series con versiones con `dcat:theme` hacia el concepto y ontologías propias con `dct:subject`.
+
+### Límites de la ingesta
+
+Valen para `POST /datasets`, `POST /ontologies`, `POST /schemes` y `load-semantic`. Superar cualquiera da 422 con `kind=limit` y no se escribe nada.
+
+| Límite | Valor | Cuándo se comprueba |
+|---|---|---|
+| Tamaño del cuerpo | `INGEST_MAX_BYTES` (10 MiB; 413) | Al leer el cuerpo, antes de analizarlo |
+| Anidamiento | 64 niveles (JSON y nodos en blanco) | Antes y después de analizar |
+| Longitud de una IRI | 4096 caracteres | **Durante el análisis**, en cada tripleta |
+| Tripletas | `INGEST_MAX_TRIPLES` (100 000) | Durante el análisis |
+| Tamaño expandido (suma de la longitud de los términos de todas las tripletas) | 32 × tamaño del cuerpo + 1 MiB, y como mucho 32 Mi caracteres | Durante el análisis. Corta la «bomba de prefijos» (QA-G3-03): ~100 KB con un prefijo de 100 KB repetido ya no ocupan ~60 MB; el análisis se aborta en la primera IRI desmesurada. Un Turtle normal expande unas 2 veces |
+| Profundidad de la jerarquía de un esquema | 64 niveles de `skos:broader`/`skos:narrower` | En la ingesta del esquema (QA-G3-04) |
+| Validación SHACL | `SHACL_TIMEOUT_SECONDS` (60 s) y `SHACL_MEMORY_MB` (2048) | En un proceso hijo que se mata al agotar el tiempo: no quedan hilos ni procesos colgados (QA-G3-10) |
+| Pellet | `REASONER_TIMEOUT_SECONDS` (120 s) y `REASONER_JAVA_MEMORY_MB` | Al agotarse, la ontología se publica con `consistent: null` |
+
+Los límites se comprueban en el store en memoria del analizador (también JSON-LD, que escribe en el store sin pasar por `Graph.add`). La validación SHACL usa procesos de un *forkserver* de `multiprocessing` que ya tiene rdflib y pyshacl importados, así que crear uno cuesta milisegundos; el grafo y el informe viajan en N-Triples.
 
 ### Ingesta de ontologías y esquemas
 
 Misma estrategia que `POST /datasets` (autenticación antes de leer el cuerpo, sin contextos JSON-LD remotos, IRIs válidas, anidamiento máximo de 64 niveles, nada se escribe si algo falla, y se sustituye el grafo completo salvo que sea isomorfo):
 
 - **Ontología:** exactamente una `owl:Ontology` con URI `{BASE_URI}onto/{slug}` y **exactamente un `owl:versionIRI`** `{BASE_URI}onto/{slug}/{MAYOR.MENOR.PARCHE}` (la ingesta lo exige a toda ontología bajo `BASE_URI`: SHACL no puede, porque no conoce `BASE_URI`). `owl:versionInfo`, si está, es igual a la versión; `owl:priorVersion`, `owl:backwardCompatibleWith` y `owl:incompatibleWith` apuntan a versiones anteriores de la misma ontología. Bajo `BASE_URI` solo se pueden describir la ontología, su `versionIRI` y sus términos (`{ontología}#Término`); se admiten sujetos externos (las declaraciones de términos importados), que solo viven en el grafo de la versión. Se guarda en el grafo de su `versionIRI`.
-- **Esquema:** exactamente un `skos:ConceptScheme` con URI `{BASE_URI}vocab/{slug}` o `{BASE_URI}vocab/corp/{slug}`; todo sujeto con IRI es el esquema o un concepto `{esquema}/{slug}`. Se guarda en el grafo de su URI.
+- **Esquema:** exactamente un `skos:ConceptScheme` con URI `{BASE_URI}vocab/{slug}` o `{BASE_URI}vocab/corp/{slug}`; todo sujeto con IRI es el esquema o un concepto `{esquema}/{slug}`; la jerarquía tiene como mucho 64 niveles. Se guarda en el grafo de su URI. Los esquemas auxiliares `vocab/dominio` y `vocab/tipo-dataset` están reservados (QA-G3-06): la API los rechaza con 422 y solo los carga `load-semantic` desde `data/vocab-minimo.ttl`.
 - **SHACL:** todas las formas de `SEMANTIC_DIR/shapes` (entre ellas `ontologias-vocabularios.ttl` de `semantico`), sin mezclar el grafo de soporte: una versión o un esquema se validan solos.
+- **Métricas antes de escribir:** en la API y en `load-semantic` las métricas y la consistencia se calculan antes de tocar Fuseki. Si owlready2 no puede leer la ontología (p. ej. un literal que no cumple su tipo, `"abc"^^xsd:integer`), la respuesta es 422 `syntax` con los literales culpables y no se escribe nada; en `load-semantic`, no se carga ningún fichero (QA-G3-01).
 - **Auditoría:** `ontology_published` (`ontology`, `slug`, `version`, `version_iri`, `graph`, `triples`, `created`, `changed`, `metrics_recomputed`, `consistent`, `via`) y `scheme_published` (`scheme`, `slug`, `corp`, `graph`, `concepts`, `triples`, `created`, `changed`, `via`).
 - **Versiones publicadas:** hoy una versión ya publicada se puede volver a ingestar y se sustituye (como las series). Si las versiones publicadas deben ser inmutables está pendiente de decidir.
 
@@ -232,13 +254,13 @@ Decisión del responsable (2026-11-15): owlready2 para las métricas y Pellet (i
 | `profile` | Aproximado por constructores: `OWL 2 Full` si una IRI es a la vez propiedad de objeto y de datos (o clase y tipo de datos); si no, `OWL 2 DL`. `compatible` lista EL, QL y RL salvo que aparezca un constructor que el perfil no admite (y, para RL, algunas posiciones en `rdfs:subClassOf` y cardinalidades máximas mayores que 1). No es un validador completo: puede declarar compatible un perfil que no lo es |
 | `documentation` | Clases y propiedades (de objeto y de datos) propias con al menos un `rdfs:comment`, en número y porcentaje |
 | `dl_expressivity` | No se calcula: siempre `null` |
-| `consistency` | Pellet (`reasoner: "Pellet"`): `consistent` y número de clases insatisfacibles (equivalentes a `owl:Nothing`) con sus IRIs. Si Java falta o es anterior a la 25, si Pellet falla o si supera `REASONER_TIMEOUT_SECONDS`, `consistent` es `null` y `detail` dice por qué. Una ontología inconsistente se acepta y se publica con `consistent: false` |
+| `consistency` | Pellet (`reasoner: "Pellet"`): `consistent` y número de clases insatisfacibles (equivalentes a `owl:Nothing`) con sus IRIs. Si Java falta o es anterior a la 25, si Pellet falla (por cualquier excepción) o si supera `REASONER_TIMEOUT_SECONDS`, `consistent` es `null` y `detail` da un motivo genérico; la traza de Java solo va al log del servidor (QA-G3-02). Una ontología inconsistente se acepta y se publica con `consistent: false` |
 
 **Sin descargas remotas.** Los `owl:imports` (SOSA, SAREF…) **no se descargan nunca**: antes de pasar el grafo a owlready2 se quitan los triples `owl:imports`, y Pellet se lanza con `--ignore-imports`. Limitación: el razonamiento se hace **sin las ontologías importadas**, así que una inconsistencia que dependa de axiomas de SOSA o SAREF no se detecta y los términos externos se tratan como clases sin axiomas (`includes_imports: false` en la respuesta). Las pruebas cortan la red de Python y comprueban que el fichero que recibe Pellet no lleva `owl:imports`.
 
 **Dónde se guardan:** en PostgreSQL, tabla `ontology_metrics` (migración `0002`), una fila por `versionIRI` con las métricas, la consistencia, la herramienta, la fecha y el SHA-256 del grafo canónico de la versión. Motivos: son datos derivados que calcula el backend, no parte del RDF versionado en Git, y así el grafo de la versión guarda exactamente el fichero publicado (la comparación isomorfa y el RDF que se sirve no cambian); no hay un vocabulario RDF decidido para describir métricas ni un patrón de URI para un grafo de metadatos por versión, y crearlos sería un cambio de contrato con `semantico`; y el hash permite no recalcular si el contenido no cambia. Contrapartida: las métricas no se pueden consultar por SPARQL y las lecturas de ontologías necesitan la base de datos.
 
-Las ingestas se serializan al usar owlready2 (tiene estado global). Pellet tarda alrededor de un segundo por versión en las ontologías de demostración.
+Cada ejecución de Pellet usa un directorio temporal propio que se borra siempre, también si Pellet falla o se agota el tiempo (owlready2 solo borra su fichero temporal cuando todo va bien; QA-G3-07). Las ingestas se serializan al usar owlready2 (tiene estado global). Pellet tarda alrededor de un segundo por versión en las ontologías de demostración.
 
 ## Roles y autorización
 

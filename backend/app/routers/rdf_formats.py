@@ -39,4 +39,13 @@ def choose_media(request: Request, rdf_format: RdfFormatParam | None) -> str:
 
 
 def graph_response(graph: Graph, uris: Uris, media: str) -> Response:
-    return rdf_response(vocabularies.serialize(graph, uris, MEDIA_TO_SERIALIZER[media]), media)
+    """406 (no 500) si el RDF guardado no se puede escribir en RDF/XML (QA-G3-05)."""
+    try:
+        text = vocabularies.serialize(graph, uris, MEDIA_TO_SERIALIZER[media])
+    except vocabularies.NotSerializableError:
+        raise HTTPException(
+            status_code=status.HTTP_406_NOT_ACCEPTABLE,
+            detail="Este recurso tiene predicados que RDF/XML no puede representar; pídelo "
+            "en text/turtle o application/ld+json",
+        ) from None
+    return rdf_response(text, media)

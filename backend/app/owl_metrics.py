@@ -39,14 +39,19 @@ Qué cuenta cada métrica:
   con al menos un ``rdfs:comment``.
 """
 
+import functools
 import io
+import logging
 import re
 import shutil
 import subprocess
-from collections.abc import Iterable
+import tempfile
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from functools import lru_cache
 from threading import Lock
+from types import SimpleNamespace
 from typing import Any
 
 from rdflib import BNode, Graph, Literal, URIRef
@@ -54,6 +59,8 @@ from rdflib.collection import Collection
 from rdflib.namespace import OWL, RDF, RDFS, XSD
 
 REASONER_NAME = "Pellet"
+
+logger = logging.getLogger(__name__)
 
 # owlready2 mantiene estado global (mundo por defecto, espacios de nombres activos): se
 # serializa el uso para no mezclar dos ingestas simultáneas.
@@ -118,14 +125,45 @@ def declared_imports(graph: Graph) -> list[str]:
     return sorted({str(o) for o in graph.objects(None, OWL.imports) if isinstance(o, URIRef)})
 
 
+class OntologyLoadError(ValueError):
+    """owlready2 no puede leer la ontología (QA-G3-01). ``values`` son los literales
+    culpables, si se conocen."""
+
+    def __init__(self, message: str, values: list[str] | None = None) -> None:
+        super().__init__(message)
+        self.message = message
+        self.values = values or []
+
+
+def ill_typed_literals(graph: Graph) -> list[str]:
+    """Literales cuyo valor no cumple su tipo de datos XSD (p. ej. ``"abc"^^xsd:integer``)."""
+    found = {
+        o.n3() for _s, _p, o in graph if isinstance(o, Literal) and getattr(o, "ill_typed", False)
+    }
+    return sorted(found)[:20]
+
+
 def _load_world(graph: Graph, ontology_iri: str) -> tuple[Any, Any]:
     """Mundo de owlready2 en memoria con el grafo (sin imports). Lo llama quien tiene
-    ``_LOCK``."""
+    ``_LOCK``. Cualquier fallo de owlready2 al leerlo es ``OntologyLoadError``."""
     import owlready2
 
-    world = owlready2.World()
-    data = without_imports(graph).serialize(format="nt", encoding="utf-8")
-    onto = world.get_ontology(ontology_iri).load(fileobj=io.BytesIO(data), format="ntriples")
+    bad = ill_typed_literals(graph)
+    if bad:
+        raise OntologyLoadError(
+            "Hay literales que no cumplen su tipo de datos: no se pueden analizar como OWL",
+            bad,
+        )
+    try:
+        world = owlready2.World()
+        data = without_imports(graph).serialize(format="nt", encoding="utf-8")
+        onto = world.get_ontology(ontology_iri).load(fileobj=io.BytesIO(data), format="ntriples")
+    except Exception as exc:  # noqa: BLE001 - owlready2 lanza tipos variados
+        logger.warning("owlready2 no ha podido leer %s: %r", ontology_iri, exc)
+        raise OntologyLoadError(
+            "La ontología no se puede analizar como OWL (revisa los literales tipados y las "
+            "construcciones OWL)"
+        ) from None
     return world, onto
 
 
@@ -329,11 +367,17 @@ def compute_metrics(graph: Graph, ontology_iri: str) -> OntologyMetrics:
     own = f"{ontology_iri}#"
     with _LOCK:
         _world, onto = _load_world(graph, ontology_iri)
-        classes = _named(onto.classes(), own)
-        object_props = _named(onto.object_properties(), own)
-        data_props = _named(onto.data_properties(), own)
-        annotation_props = _named(onto.annotation_properties(), own)
-        individuals = _named(onto.individuals(), own)
+        try:
+            classes = _named(onto.classes(), own)
+            object_props = _named(onto.object_properties(), own)
+            data_props = _named(onto.data_properties(), own)
+            annotation_props = _named(onto.annotation_properties(), own)
+            individuals = _named(onto.individuals(), own)
+        except Exception as exc:  # noqa: BLE001 - owlready2 lanza tipos variados
+            logger.warning("owlready2 falló al recorrer %s: %r", ontology_iri, exc)
+            raise OntologyLoadError(
+                "La ontología no se puede analizar como OWL (revisa las construcciones OWL)"
+            ) from None
     profile, compatible = _profile(plain)
     return OntologyMetrics(
         classes=len(classes),
@@ -385,16 +429,48 @@ def java_available() -> bool:
     return major is not None and major >= MIN_JAVA_MAJOR
 
 
+REASONER_FAILED = (
+    "Pellet no ha podido razonar sobre esta ontología (detalle en el log del servidor)"
+)
+
+
+@contextmanager
+def _pellet_environment(timeout_seconds: float, java_memory_mb: int) -> Iterator[None]:
+    """Memoria y límite de tiempo de Pellet, y un directorio temporal propio por ejecución
+    (QA-G3-07): owlready2 escribe ahí la copia en N-Triples que pasa a Pellet y solo la borra
+    si el razonamiento termina bien; el directorio se borra siempre. Lo llama quien tiene
+    ``_LOCK``."""
+    from owlready2 import reasoning
+
+    run_dir = tempfile.mkdtemp(prefix="itot-pellet-")
+    previous = (reasoning.JAVA_MEMORY, dict(reasoning._subprocess_kargs), reasoning.tempfile)
+    reasoning.JAVA_MEMORY = java_memory_mb
+    # owlready2 pasa estos argumentos a subprocess.run: así Pellet tiene un límite de
+    # tiempo y el proceso Java se mata si lo supera.
+    reasoning._subprocess_kargs["timeout"] = timeout_seconds
+    reasoning.tempfile = SimpleNamespace(
+        NamedTemporaryFile=functools.partial(tempfile.NamedTemporaryFile, dir=run_dir)
+    )
+    try:
+        yield
+    finally:
+        reasoning.JAVA_MEMORY = previous[0]
+        reasoning._subprocess_kargs.clear()
+        reasoning._subprocess_kargs.update(previous[1])
+        reasoning.tempfile = previous[2]
+        shutil.rmtree(run_dir, ignore_errors=True)
+
+
 def check_consistency(
     graph: Graph, ontology_iri: str, *, timeout_seconds: float, java_memory_mb: int
 ) -> Consistency:
     """Pellet (incluido en owlready2) sobre la ontología sin sus imports.
 
-    No lanza excepciones por fallos del razonador: si Java no está, Pellet falla o se
-    agota el tiempo, devuelve ``consistent=None`` con el motivo en ``detail``.
+    No lanza excepciones: si Java no está, la ontología no se puede leer, Pellet falla o se
+    agota el tiempo, devuelve ``consistent=None`` con un motivo genérico en ``detail``. El
+    error de Java (traza, rutas) solo va al log del servidor (QA-G3-02).
     """
     import owlready2
-    from owlready2 import reasoning
 
     if not java_available():
         major = java_major_version()
@@ -404,29 +480,24 @@ def check_consistency(
             "no se ha ejecutado"
         )
     with _LOCK:
-        world, _onto = _load_world(graph, ontology_iri)
-        previous_memory = reasoning.JAVA_MEMORY
-        previous_kargs = dict(reasoning._subprocess_kargs)
-        reasoning.JAVA_MEMORY = java_memory_mb
-        # owlready2 pasa estos argumentos a subprocess.run: así Pellet tiene un límite de
-        # tiempo y el proceso Java se mata si lo supera.
-        reasoning._subprocess_kargs["timeout"] = timeout_seconds
         try:
-            owlready2.sync_reasoner_pellet(world, infer_property_values=False, debug=0)
+            world, _onto = _load_world(graph, ontology_iri)
+        except OntologyLoadError:
+            return Consistency(detail=REASONER_FAILED)
+        try:
+            with _pellet_environment(timeout_seconds, java_memory_mb):
+                owlready2.sync_reasoner_pellet(world, infer_property_values=False, debug=0)
+            unsatisfiable = sorted(
+                str(c.iri) for c in world.inconsistent_classes() if c is not owlready2.Nothing
+            )
         except owlready2.OwlReadyInconsistentOntologyError:
             return Consistency(consistent=False, detail="La ontología es inconsistente")
         except subprocess.TimeoutExpired:
+            logger.warning("Pellet superó %s s con %s", timeout_seconds, ontology_iri)
             return Consistency(detail=f"Pellet superó el tiempo máximo ({timeout_seconds:g} s)")
-        except (owlready2.OwlReadyJavaError, OSError) as exc:
-            first_line = (str(exc).strip().splitlines() or [""])[-1][:300]
-            return Consistency(detail=f"Pellet falló: {first_line}")
-        finally:
-            reasoning.JAVA_MEMORY = previous_memory
-            reasoning._subprocess_kargs.clear()
-            reasoning._subprocess_kargs.update(previous_kargs)
-        unsatisfiable = sorted(
-            str(c.iri) for c in world.inconsistent_classes() if c is not owlready2.Nothing
-        )
+        except Exception:
+            logger.exception("Pellet falló con %s", ontology_iri)
+            return Consistency(detail=REASONER_FAILED)
     return Consistency(
         consistent=True,
         unsatisfiable_classes=len(unsatisfiable),

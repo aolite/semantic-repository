@@ -6,12 +6,13 @@
 # y versión). Contenido de demostración: marcado con
 # dct:type <vocab/tipo-dataset/sintetico> (ver semantic/uris.md).
 #
-# Esqueleto MÍNIMO: una clase por cada término que enumera la descripción
-# (inventario criptográfico o CBOM, algoritmos, dependencias, estados de
-# migración, sistemas y componentes), con rdfs:label es/en y rdfs:comment.
-# Sin propiedades ni jerarquía: el prototipo no las describe. Los nombres
-# locales, las etiquetas en inglés y los comentarios son [PROPUESTA] de
-# semantico. Las métricas del prototipo (22 clases · 18 propiedades) son de
+# Esqueleto MÍNIMO (decisión del responsable, 2026-11-15): una clase por
+# cada término que enumera la descripción (inventario criptográfico o CBOM,
+# algoritmos, dependencias, estados de migración, sistemas y componentes),
+# con rdfs:label en español. Los nombres locales y las etiquetas en inglés
+# (traducción del nombre) son [PROPUESTA] de semantico. Sin rdfs:comment (el
+# hueco queda como «# rdfs:comment [DEFINICIÓN]»), sin propiedades y sin
+# jerarquía: el prototipo no los da. Las métricas del prototipo (22 clases · 18 propiedades) son de
 # demostración y no se persiguen.
 #
 # Versiones: el prototipo solo da la 0.4.0 y no nombra versiones anteriores,
@@ -70,30 +71,30 @@ foaf:name a owl:AnnotationProperty .
 # --- Clases -----------------------------------------------------------------
 pqcm:InventarioCriptografico
     a owl:Class ;
-    rdfs:label "Inventario criptográfico (CBOM)"@es , "Cryptographic inventory (CBOM)"@en ;
-    rdfs:comment "Inventario criptográfico (CBOM) de un sistema o componente."@es .
+    rdfs:label "Inventario criptográfico (CBOM)"@es , "Cryptographic inventory (CBOM)"@en .
+    # rdfs:comment [DEFINICIÓN]
 
 pqcm:Algoritmo
     a owl:Class ;
-    rdfs:label "Algoritmo criptográfico"@es , "Cryptographic algorithm"@en ;
-    rdfs:comment "Algoritmo criptográfico que figura en un inventario."@es .
+    rdfs:label "Algoritmo"@es , "Algorithm"@en .
+    # rdfs:comment [DEFINICIÓN]
 
 pqcm:Dependencia
     a owl:Class ;
-    rdfs:label "Dependencia"@es , "Dependency"@en ;
-    rdfs:comment "Dependencia criptográfica de un sistema o componente."@es .
+    rdfs:label "Dependencia"@es , "Dependency"@en .
+    # rdfs:comment [DEFINICIÓN]
 
 pqcm:EstadoMigracion
     a owl:Class ;
-    rdfs:label "Estado de migración"@es , "Migration status"@en ;
-    rdfs:comment "Estado de la migración criptográfica post-cuántica de un sistema o componente."@es .
+    rdfs:label "Estado de migración"@es , "Migration status"@en .
+    # rdfs:comment [DEFINICIÓN]
 
 pqcm:Sistema
     a owl:Class ;
-    rdfs:label "Sistema"@es , "System"@en ;
-    rdfs:comment "Sistema cuyo inventario criptográfico y migración se describen."@es .
+    rdfs:label "Sistema"@es , "System"@en .
+    # rdfs:comment [DEFINICIÓN]
 
 pqcm:Componente
     a owl:Class ;
-    rdfs:label "Componente"@es , "Component"@en ;
-    rdfs:comment "Componente cuyo inventario criptográfico y migración se describen."@es .
+    rdfs:label "Componente"@es , "Component"@en .
+    # rdfs:comment [DEFINICIÓN]

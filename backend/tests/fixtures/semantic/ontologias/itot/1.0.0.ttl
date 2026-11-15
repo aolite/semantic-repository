@@ -5,12 +5,17 @@
 # prototipo. Contenido de demostración: marcado con
 # dct:type <vocab/tipo-dataset/sintetico> (ver semantic/uris.md).
 #
-# Ontología MÍNIMA: solo las clases que nombra el prototipo y que existen en
-# esta versión (activos industriales y corporativos, controladores, redes,
-# sistemas de supervisión, servicios IT, amenazas y controles) y las
-# relaciones que enuncia su descripción («amenazas y controles que les
-# afectan»). Los nombres locales, las etiquetas en inglés, los rdfs:comment
-# y las dos propiedades de objeto son [PROPUESTA] de semantico.
+# Ontología MÍNIMA (decisión del responsable, 2026-11-15): solo lo que sale
+# del prototipo.
+# - Clases: las que nombra el prototipo y existen en esta versión, con
+#   rdfs:label en español. Los nombres locales y las etiquetas en inglés
+#   son [PROPUESTA] de semantico (traducción del nombre). RTU e IED solo
+#   llevan la sigla que da el prototipo.
+# - Jerarquía: solo la que respalda un texto del prototipo, citado en un
+#   comentario junto a cada rdfs:subClassOf.
+# - Sin rdfs:comment (el prototipo no da definiciones; el hueco queda como
+#   «# rdfs:comment [DEFINICIÓN]») y sin propiedades de objeto (el prototipo
+#   no las nombra).
 #
 # Las cifras de métricas del prototipo (48 clases, 612 axiomas…) son de
 # demostración y no se persiguen: las métricas reales las calcula el backend
@@ -25,9 +30,10 @@
 # - owl:imports SOSA/SSN y SAREF, con su URI oficial. El prototipo no dice en
 #   qué versión se añadieron; ninguna nota de versión lo menciona, así que se
 #   declaran desde la 1.0.0.
-# - D3FEND: el alineamiento llega en la 1.2.0.
+# - D3FEND (rdfs:subClassOf, desde la 1.2.0): el prototipo no nombra las
+#   clases alineadas. Placeholder comentado en itot:Control.
 # - MITRE ATT&CK for ICS (skos:closeMatch, vía STIX 2.1): sin identificadores
-#   en el prototipo. Se OMITEN (comentados en itot:Amenaza).
+#   en el prototipo. Placeholder comentado en itot:Amenaza.
 #
 # Placeholders del prototipo que se OMITEN: dct:creator [AUTORES],
 # dct:license [LICENCIA], dct:issued y dct:modified [FECHA], repositorio
@@ -43,9 +49,7 @@
 # Etiqueta Git: onto/itot/v1.0.0.
 
 @prefix itot: <onto/itot#> .
-@prefix ot:   <vocab/ot/> .
 @prefix owl:  <http://www.w3.org/2002/07/owl#> .
-@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix dct:  <http://purl.org/dc/terms/> .
 @prefix adms: <http://www.w3.org/ns/adms#> .
@@ -83,7 +87,6 @@ _:unidad-itot foaf:name "Eurecat · Unidad IT&OT Security" .
 dct:title a owl:AnnotationProperty .
 dct:description a owl:AnnotationProperty .
 dct:type a owl:AnnotationProperty .
-dct:subject a owl:AnnotationProperty .
 dct:publisher a owl:AnnotationProperty .
 adms:status a owl:AnnotationProperty .
 adms:versionNotes a owl:AnnotationProperty .
@@ -92,70 +95,74 @@ vann:preferredNamespaceUri a owl:AnnotationProperty .
 foaf:name a owl:AnnotationProperty .
 
 # --- Activos ----------------------------------------------------------------
+
 itot:Activo
     a owl:Class ;
-    rdfs:label "Activo"@es , "Asset"@en ;
-    rdfs:comment "Activo de un entorno industrial o corporativo."@es .
+    rdfs:label "Activo"@es , "Asset"@en .
+    # rdfs:comment [DEFINICIÓN]
 
+# Fuente: «Modelo de activos industriales y corporativos» (lista de
+# vocabularios del prototipo).
 itot:ActivoIndustrial
     a owl:Class ;
     rdfs:subClassOf itot:Activo ;
-    rdfs:label "Activo industrial"@es , "Industrial asset"@en ;
-    rdfs:comment "Activo de un entorno industrial (OT)."@es .
+    rdfs:label "Activo industrial"@es , "Industrial asset"@en .
+    # rdfs:comment [DEFINICIÓN]
 
+# Fuente: «Modelo de activos industriales y corporativos» (lista de
+# vocabularios del prototipo).
 itot:ActivoCorporativo
     a owl:Class ;
     rdfs:subClassOf itot:Activo ;
-    rdfs:label "Activo corporativo"@es , "Corporate asset"@en ;
-    rdfs:comment "Activo de un entorno corporativo (IT)."@es .
+    rdfs:label "Activo corporativo"@es , "Corporate asset"@en .
+    # rdfs:comment [DEFINICIÓN]
 
+# Fuente de la jerarquía: «Modelo conceptual de los activos de entornos
+# industriales y corporativos (controladores, redes, sistemas de supervisión,
+# servicios IT)» (descripción de la ficha de ontología).
 itot:Controlador
     a owl:Class ;
-    rdfs:subClassOf itot:ActivoIndustrial ;
-    rdfs:label "Controlador"@es , "Controller"@en ;
-    rdfs:comment "Activo industrial que lee los sensores y gobierna los actuadores del proceso."@es .
+    rdfs:subClassOf itot:Activo ;
+    rdfs:label "Controlador"@es , "Controller"@en .
+    # rdfs:comment [DEFINICIÓN]
 
+# Fuente de la jerarquía: «Modelo conceptual de los activos de entornos
+# industriales y corporativos (controladores, redes, sistemas de supervisión,
+# servicios IT)» (descripción de la ficha de ontología).
 itot:SistemaSupervision
     a owl:Class ;
-    rdfs:subClassOf itot:ActivoIndustrial ;
-    rdfs:label "Sistema de supervisión"@es , "Supervisory system"@en ;
-    rdfs:comment "Sistema de supervisión y control (SCADA, HMI) de un área de proceso."@es .
+    rdfs:subClassOf itot:Activo ;
+    rdfs:label "Sistema de supervisión"@es , "Supervisory system"@en .
+    # rdfs:comment [DEFINICIÓN]
 
+# Fuente de la jerarquía: «Modelo conceptual de los activos de entornos
+# industriales y corporativos (controladores, redes, sistemas de supervisión,
+# servicios IT)» (descripción de la ficha de ontología).
 itot:Red
     a owl:Class ;
     rdfs:subClassOf itot:Activo ;
-    rdfs:label "Red"@es , "Network"@en ;
-    rdfs:comment "Red de comunicaciones de un entorno industrial o corporativo."@es .
+    rdfs:label "Red"@es , "Network"@en .
+    # rdfs:comment [DEFINICIÓN]
 
+# Fuente de la jerarquía: «Modelo conceptual de los activos de entornos
+# industriales y corporativos (controladores, redes, sistemas de supervisión,
+# servicios IT)» (descripción de la ficha de ontología).
 itot:ServicioIT
     a owl:Class ;
-    rdfs:subClassOf itot:ActivoCorporativo ;
-    rdfs:label "Servicio IT"@es , "IT service"@en ;
-    rdfs:comment "Servicio de un entorno corporativo."@es .
+    rdfs:subClassOf itot:Activo ;
+    rdfs:label "Servicio IT"@es , "IT service"@en .
+    # rdfs:comment [DEFINICIÓN]
 
 # --- Amenazas y controles ---------------------------------------------------
+
+# Alineamiento con MITRE ATT&CK for ICS (prototipo): skos:closeMatch hacia
+# técnicas ofensivas, vía STIX 2.1. Identificadores: [ID de técnica].
 itot:Amenaza
     a owl:Class ;
-    rdfs:label "Amenaza"@es , "Threat"@en ;
-    rdfs:comment "Amenaza que afecta a los activos."@es .
-    # Alineamiento con MITRE ATT&CK for ICS (prototipo): skos:closeMatch
-    # hacia técnicas ofensivas, vía STIX 2.1. Identificadores: [ID de técnica].
+    rdfs:label "Amenaza"@es , "Threat"@en .
+    # rdfs:comment [DEFINICIÓN]
 
 itot:Control
     a owl:Class ;
-    rdfs:label "Control"@es , "Security control"@en ;
-    rdfs:comment "Control de seguridad que se aplica a los activos frente a las amenazas."@es .
-
-itot:afectaA
-    a owl:ObjectProperty ;
-    rdfs:domain itot:Amenaza ;
-    rdfs:range itot:Activo ;
-    rdfs:label "afecta a"@es , "affects"@en ;
-    rdfs:comment "Relaciona una amenaza con un activo al que afecta."@es .
-
-itot:seAplicaA
-    a owl:ObjectProperty ;
-    rdfs:domain itot:Control ;
-    rdfs:range itot:Activo ;
-    rdfs:label "se aplica a"@es , "applies to"@en ;
-    rdfs:comment "Relaciona un control con un activo al que se aplica."@es .
+    rdfs:label "Control"@es , "Security control"@en .
+    # rdfs:comment [DEFINICIÓN]

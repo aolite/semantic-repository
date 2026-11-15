@@ -97,7 +97,7 @@ def load_schemes(store: MemoryStore, semantic_dir: Path, uris: Uris) -> None:
     paths += sorted((semantic_dir / "vocabularios" / "corp").glob("*.ttl"))
     for path in paths:
         graph = ingest.parse_file(path, uris.base)
-        prepared = vocab_ingest.check_scheme_structure(graph, uris)
+        prepared = vocab_ingest.check_scheme_structure(graph, uris, allow_auxiliary=True)
         ingest.store_graph(store, prepared.uri, graph)
 
 

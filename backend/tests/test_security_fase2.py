@@ -118,8 +118,21 @@ def no_network(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> list[str]
 
         return _raise
 
-    monkeypatch.setattr(socket.socket, "connect", _blocked("connect"))
-    monkeypatch.setattr(socket.socket, "connect_ex", _blocked("connect_ex"))
+    def _network_only(name: str) -> Callable[..., object]:
+        # Los sockets Unix locales no son red: los usa el proceso de validación SHACL
+        # (forkserver de multiprocessing, QA-G3-10). Se bloquea cualquier otra familia.
+        original = getattr(socket.socket, name)
+        blocked = _blocked(name)
+
+        def _connect(self: socket.socket, *args: object, **kwargs: object) -> object:
+            if self.family == getattr(socket, "AF_UNIX", None):
+                return original(self, *args, **kwargs)
+            return blocked(self, *args, **kwargs)
+
+        return _connect
+
+    monkeypatch.setattr(socket.socket, "connect", _network_only("connect"))
+    monkeypatch.setattr(socket.socket, "connect_ex", _network_only("connect_ex"))
     monkeypatch.setattr(socket, "create_connection", _blocked("create_connection"))
     monkeypatch.setattr(socket, "getaddrinfo", _blocked("getaddrinfo"))
     monkeypatch.setattr(urllib.request, "urlopen", _blocked("urlopen"))

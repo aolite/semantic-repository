@@ -43,7 +43,7 @@ from app.config import Settings
 from app.ingest import IngestError, Issue
 from app.models import AuditAction, OntologyMetricsRecord, User
 from app.triplestore import TripleStore
-from app.uris import SKOS, Uris, is_slug, version_key
+from app.uris import AUXILIARY_SCHEME_SLUGS, SKOS, Uris, is_slug, version_key
 
 # --- Ontologías -----------------------------------------------------------------------
 
@@ -195,28 +195,58 @@ def compute_ontology_metrics(
     return metrics.to_dict(), consistency.to_dict()
 
 
+@dataclass
+class OntologyAnalysis:
+    """Métricas y consistencia de una versión, calculadas antes de escribir nada."""
+
+    digest: str
+    metrics: dict[str, Any]
+    consistency: dict[str, Any]
+    recomputed: bool
+
+
+def analyze_ontology(
+    prepared: PreparedOntology, settings: Settings, session: Session
+) -> OntologyAnalysis:
+    """Calcula (o reutiliza, si el contenido no cambió) métricas y consistencia.
+
+    Se llama **antes de escribir** en la API y en ``load-semantic``. Si owlready2 no puede
+    leer la ontología, lanza ``IngestError`` (422) y no se escribe nada (QA-G3-01).
+    """
+    digest = content_hash(prepared.graph)
+    record = session.get(OntologyMetricsRecord, prepared.version_iri)
+    if record is not None and record.content_hash == digest:
+        return OntologyAnalysis(digest, record.metrics, record.consistency, recomputed=False)
+    try:
+        metrics, consistency = compute_ontology_metrics(prepared, settings)
+    except owl_metrics.OntologyLoadError as exc:
+        issues = [Issue("Literal que no cumple su tipo de datos", value=v) for v in exc.values]
+        raise IngestError("syntax", exc.message, issues) from None
+    return OntologyAnalysis(digest, metrics, consistency, recomputed=True)
+
+
 def publish_ontology_and_audit(
     store: TripleStore,
     session: Session,
     prepared: PreparedOntology,
     settings: Settings,
     *,
+    analysis: OntologyAnalysis | None = None,
     actor: User | None = None,
     actor_username: str | None = None,
     via: str = "api",
 ) -> OntologyPublishResult:
-    """Calcula métricas (si el contenido cambió), escribe la versión y audita.
+    """Escribe la versión y guarda métricas y auditoría.
 
-    Orden: métricas -> triplestore -> PostgreSQL (métricas y auditoría en la misma
-    transacción). Si Fuseki falla, no queda ni el registro de métricas ni la auditoría.
+    Orden: métricas (``analyze_ontology``, antes de llamar aquí) -> triplestore ->
+    PostgreSQL (métricas y auditoría en la misma transacción). Si Fuseki falla, no queda ni
+    el registro de métricas ni la auditoría.
     """
-    digest = content_hash(prepared.graph)
+    if analysis is None:
+        analysis = analyze_ontology(prepared, settings, session)
+    digest, recompute = analysis.digest, analysis.recomputed
+    metrics, consistency = analysis.metrics, analysis.consistency
     record = session.get(OntologyMetricsRecord, prepared.version_iri)
-    recompute = record is None or record.content_hash != digest
-    if record is None or record.content_hash != digest:
-        metrics, consistency = compute_ontology_metrics(prepared, settings)
-    else:
-        metrics, consistency = record.metrics, record.consistency
 
     created, changed = ingest.store_graph(store, prepared.version_iri, prepared.graph)
 
@@ -289,7 +319,51 @@ class SchemePublishResult:
     changed: bool
 
 
-def check_scheme_structure(graph: Graph, uris: Uris) -> PreparedScheme:
+# Profundidad máxima de la jerarquía de un esquema (QA-G3-04): niveles de skos:broader
+# (o de skos:narrower) desde una raíz. 64, como el anidamiento máximo de la ingesta; los
+# esquemas reales tienen pocos niveles y el árbol de la API se sirve con esa profundidad.
+MAX_CONCEPT_DEPTH = 64
+
+
+def concept_depth(graph: Graph, scheme: URIRef) -> int:
+    """Mayor número de niveles por debajo de una raíz, sin recursión. Los ciclos no
+    alargan la cadena (cada concepto se visita una vez por recorrido)."""
+    prefix = f"{scheme}/"
+    concepts = {c for c in graph.subjects(RDF.type, SKOS.Concept) if str(c).startswith(prefix)}
+    parents: dict = {c: set() for c in concepts}
+    for child, parent in graph.subject_objects(SKOS.broader):
+        if child in concepts and parent in concepts and child != parent:
+            parents[child].add(parent)
+    for parent, child in graph.subject_objects(SKOS.narrower):
+        if child in concepts and parent in concepts and child != parent:
+            parents[child].add(parent)
+    depth: dict = {}
+    for start in concepts:
+        if start in depth:
+            continue
+        stack = [(start, iter(parents[start]))]
+        on_path = {start}
+        while stack:
+            node, pending = stack[-1]
+            nxt = next(pending, None)
+            if nxt is None:
+                stack.pop()
+                on_path.discard(node)
+                above = [depth.get(p, 0) + 1 for p in parents[node] if p not in on_path]
+                depth[node] = max(above, default=0)
+                continue
+            if nxt in on_path or nxt in depth:
+                continue
+            on_path.add(nxt)
+            stack.append((nxt, iter(parents[nxt])))
+    return max(depth.values(), default=0)
+
+
+def check_scheme_structure(
+    graph: Graph, uris: Uris, *, allow_auxiliary: bool = False
+) -> PreparedScheme:
+    """``allow_auxiliary``: admite ``vocab/dominio`` y ``vocab/tipo-dataset``, que solo
+    carga ``load-semantic`` desde ``data/vocab-minimo.ttl`` (QA-G3-06)."""
     schemes = sorted(set(graph.subjects(RDF.type, SKOS.ConceptScheme)), key=str)
     if len(schemes) != 1:
         raise IngestError(
@@ -309,6 +383,13 @@ def check_scheme_structure(graph: Graph, uris: Uris) -> PreparedScheme:
             [Issue("URI de esquema fuera del patrón", focus_node=uri)],
         )
     slug, corp = parts
+    if not corp and slug in AUXILIARY_SCHEME_SLUGS and not allow_auxiliary:
+        raise IngestError(
+            "uri",
+            f"'{slug}' es un esquema auxiliar reservado: solo se carga con load-semantic "
+            "desde data/vocab-minimo.ttl",
+            [Issue("Slug de esquema reservado", focus_node=uri)],
+        )
     prefix = f"{uri}/"
     issues: list[Issue] = []
     for subject in sorted({s for s in graph.subjects() if isinstance(s, URIRef)}, key=str):
@@ -324,6 +405,12 @@ def check_scheme_structure(graph: Graph, uris: Uris) -> PreparedScheme:
         )
     if issues:
         raise IngestError("uri", "Hay recursos con URIs fuera del patrón", issues)
+    depth = concept_depth(graph, node)
+    if depth > MAX_CONCEPT_DEPTH:
+        raise IngestError(
+            "limit",
+            f"La jerarquía de conceptos tiene {depth} niveles; el máximo es {MAX_CONCEPT_DEPTH}",
+        )
     concepts = sum(1 for c in set(graph.subjects(RDF.type, SKOS.Concept)) if isinstance(c, URIRef))
     return PreparedScheme(slug=slug, corp=corp, uri=uri, graph=graph, concepts=concepts)
 
@@ -354,7 +441,7 @@ def split_schemes(graph: Graph, uris: Uris) -> list[PreparedScheme]:
                 used.add(triple)
                 if isinstance(triple[2], BNode):
                     pending.append(triple[2])
-        result.append(check_scheme_structure(part, uris))
+        result.append(check_scheme_structure(part, uris, allow_auxiliary=True))
     leftover = [t for t in graph if t not in used]
     if leftover:
         raise IngestError(

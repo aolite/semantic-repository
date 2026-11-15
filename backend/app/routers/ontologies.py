@@ -85,12 +85,16 @@ def create_ontology(
 ) -> schemas.OntologyIngestResult | JSONResponse:
     data, rdf_format = body
     try:
-        graph = ingest.parse_rdf(data, rdf_format, uris.base)
+        graph = ingest.parse_rdf(
+            data, rdf_format, uris.base, max_triples=settings.ingest_max_triples
+        )
         prepared = vocab_ingest.prepare_ontology(graph, uris, settings)
+        # Métricas y consistencia antes de escribir: si owlready2 no puede leerla, 422.
+        analysis = vocab_ingest.analyze_ontology(prepared, settings, db)
     except ingest.IngestError as exc:
         return ingest_error_response(exc)
     result = vocab_ingest.publish_ontology_and_audit(
-        store, db, prepared, settings, actor=editor, via="api"
+        store, db, prepared, settings, analysis=analysis, actor=editor, via="api"
     )
     if not result.created:
         response.status_code = status.HTTP_200_OK

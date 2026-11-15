@@ -25,14 +25,15 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
 
-from pyshacl import validate as shacl_validate
 from rdflib import BNode, Graph, Namespace, URIRef
 from rdflib import Literal as RdfLiteral
 from rdflib.compare import isomorphic
 from rdflib.namespace import RDF
+from rdflib.plugins.stores.memory import Memory
 from sqlalchemy.orm import Session
 
-from app import audit
+from app import audit, shacl_worker
+from app.config import ConfigurationError, get_settings
 from app.models import AuditAction, User
 from app.triplestore import TripleStore
 from app.uris import DCAT, Uris, is_slug
@@ -40,7 +41,7 @@ from app.uris import DCAT, Uris, is_slug
 SH = Namespace("http://www.w3.org/ns/shacl#")
 
 RdfFormat = Literal["turtle", "json-ld"]
-IngestErrorKind = Literal["syntax", "structure", "uri", "shacl"]
+IngestErrorKind = Literal["syntax", "structure", "uri", "shacl", "limit"]
 
 VOCAB_FILE = Path("data") / "vocab-minimo.ttl"
 CATALOG_FILE = Path("data") / "catalogo.ttl"
@@ -55,6 +56,21 @@ EXTERNAL_ONTOLOGIES_FILE = ONTOLOGIES_DIR / "externas.ttl"
 # niveles (versión -> distribución -> procedencia); 64 deja mucho margen y queda lejos del
 # límite de recursión de Python (1000) que usan los analizadores y serializadores.
 MAX_NESTING_DEPTH = 64
+
+# Límites del análisis (QA-G3-03, bomba de expansión por prefijos): se comprueban **mientras
+# se analiza**, en cada tripleta que el analizador añade al grafo, y se aborta en cuanto se
+# superan.
+# - IRIs de como mucho 4096 caracteres (ninguna IRI real se acerca; un prefijo de 100 KB
+#   repetido sí).
+# - Como mucho ``INGEST_MAX_TRIPLES`` tripletas (100 000 por defecto).
+# - Tamaño expandido (suma de la longitud de los términos de todas las tripletas) de como
+#   mucho 32 veces el tamaño del cuerpo más 1 MiB, y nunca más de 32 Mi caracteres. Un
+#   Turtle normal con prefijos expande entre 2 y 10 veces.
+MAX_IRI_LENGTH = 4096
+DEFAULT_MAX_TRIPLES = 100_000
+EXPANSION_FACTOR = 32
+EXPANSION_FLOOR = 1024 * 1024
+MAX_EXPANDED_CHARS = 32 * 1024 * 1024
 
 
 @dataclass
@@ -149,7 +165,85 @@ def _too_deep() -> IngestError:
     )
 
 
-def parse_rdf(data: bytes, rdf_format: RdfFormat, base_uri: str) -> Graph:
+class _LimitExceededError(Exception):
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.message = message
+
+
+class _LimitedStore(Memory):
+    """Store en memoria que cuenta lo que añade el analizador y aborta al superar los
+    límites. Va en el store, y no en ``Graph.add``, porque algunos analizadores (JSON-LD)
+    escriben en el store a través de otro objeto ``Graph``."""
+
+    def __init__(self, max_triples: int, max_chars: int) -> None:
+        super().__init__()
+        self._max_triples = max_triples
+        self._max_chars = max_chars
+        self._count = 0
+        self._chars = 0
+        self.limits_active = True
+
+    def add(self, triple: Any, context: Any, quoted: bool = False) -> None:
+        if self.limits_active:
+            self._check(triple)
+        super().add(triple, context, quoted)
+
+    def _check(self, triple: Any) -> None:
+        self._count += 1
+        if self._count > self._max_triples:
+            raise _LimitExceededError(
+                f"El RDF supera el máximo de {self._max_triples} tripletas por ingesta"
+            )
+        for term in triple:
+            if isinstance(term, URIRef):
+                size = len(term)
+                if size > MAX_IRI_LENGTH:
+                    raise _LimitExceededError(
+                        f"Hay una IRI de {size} caracteres; el máximo es {MAX_IRI_LENGTH}"
+                    )
+            elif isinstance(term, RdfLiteral):
+                size = len(term) + (len(term.datatype) if term.datatype else 0)
+            else:
+                size = len(str(term))
+            self._chars += size
+        if self._chars > self._max_chars:
+            raise _LimitExceededError(
+                "El RDF expandido es demasiado grande para el tamaño del documento "
+                f"(más de {self._max_chars} caracteres): revisa los prefijos"
+            )
+
+
+def _limit_error(exc: BaseException) -> _LimitExceededError | None:
+    """El límite superado, aunque el analizador lo haya envuelto en otra excepción."""
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        if isinstance(current, _LimitExceededError):
+            return current
+        seen.add(id(current))
+        current = current.__cause__ or current.__context__
+    return None
+
+
+def _new_limited_graph(size: int, max_triples: int) -> Graph:
+    max_chars = min(MAX_EXPANDED_CHARS, EXPANSION_FACTOR * size + EXPANSION_FLOOR)
+    return Graph(store=_LimitedStore(max_triples, max_chars))
+
+
+def _stop_limits(graph: Graph) -> None:
+    store = graph.store
+    if isinstance(store, _LimitedStore):
+        store.limits_active = False
+
+
+def parse_rdf(
+    data: bytes,
+    rdf_format: RdfFormat,
+    base_uri: str,
+    *,
+    max_triples: int = DEFAULT_MAX_TRIPLES,
+) -> Graph:
     try:
         text = data.decode("utf-8")
     except UnicodeDecodeError as exc:
@@ -171,13 +265,17 @@ def parse_rdf(data: bytes, rdf_format: RdfFormat, base_uri: str) -> Graph:
                 "JSON-LD con contextos remotos (@context con URL o @import): no se admiten; "
                 "incluye el contexto en el propio documento",
             )
-    graph = Graph()
+    graph = _new_limited_graph(len(data), max_triples)
     try:
         graph.parse(data=text, format=rdf_format, publicID=base_uri)
     except RecursionError as exc:
         raise _too_deep() from exc
     except Exception as exc:
+        limit = _limit_error(exc)
+        if limit is not None:
+            raise IngestError("limit", limit.message) from None
         raise IngestError("syntax", f"RDF no válido ({rdf_format}): {_short(exc)}") from exc
+    _stop_limits(graph)
     if len(graph) == 0:
         raise IngestError("syntax", "El RDF está vacío")
     check_terms(graph)
@@ -370,9 +468,30 @@ def _load_support(semantic_dir: Path, base_uri: str) -> Graph | None:
     return graph
 
 
+@lru_cache(maxsize=4)
+def _shapes_nt(semantic_dir: Path, base_uri: str) -> bytes:
+    return _load_shapes(semantic_dir, base_uri).serialize(format="nt", encoding="utf-8")
+
+
+@lru_cache(maxsize=4)
+def _support_nt(semantic_dir: Path, base_uri: str) -> bytes | None:
+    support = _load_support(semantic_dir, base_uri)
+    return support.serialize(format="nt", encoding="utf-8") if support is not None else None
+
+
+def _shacl_limits() -> tuple[float, int]:
+    try:
+        settings = get_settings()
+    except ConfigurationError:  # pragma: no cover - sin configuración (scripts sueltos)
+        return 60.0, 2048
+    return settings.shacl_timeout_seconds, settings.shacl_memory_mb
+
+
 def clear_caches() -> None:
     _load_shapes.cache_clear()
     _load_support.cache_clear()
+    _shapes_nt.cache_clear()
+    _support_nt.cache_clear()
 
 
 def _node_text(node: Any) -> str | None:
@@ -391,20 +510,35 @@ def validate_shacl(
     """Valida con todas las formas. ``support=False`` no mezcla el vocabulario mínimo
     (las ontologías y los esquemas se validan solos: pyshacl mezcla el grafo de soporte
     con el de datos, y un esquema se validaría junto a otra copia de sí mismo)."""
-    shapes = _load_shapes(semantic_dir, base_uri)
-    support_graph = _load_support(semantic_dir, base_uri) if support else None
-    conforms, results, text = shacl_validate(
-        graph,
-        shacl_graph=shapes,
-        ont_graph=support_graph,
-        inference="none",
-        abort_on_first=False,
-        allow_warnings=True,
-        meta_shacl=False,
-        advanced=False,
-    )
-    if conforms:
+    shapes_nt = _shapes_nt(semantic_dir, base_uri)
+    support_nt = _support_nt(semantic_dir, base_uri) if support else None
+    timeout, memory = _shacl_limits()
+    try:
+        outcome = shacl_worker.validate(
+            graph.serialize(format="nt", encoding="utf-8"),
+            shapes_nt,
+            support_nt,
+            timeout_seconds=timeout,
+            memory_mb=memory,
+        )
+    except shacl_worker.ShaclLimitError as exc:
+        if exc.reason == "timeout":
+            detail = (
+                f"La validación SHACL superó el tiempo máximo ({timeout:g} s, "
+                "SHACL_TIMEOUT_SECONDS): divide el RDF o reduce su tamaño"
+            )
+        else:
+            detail = (
+                f"La validación SHACL superó la memoria máxima ({memory} MB, SHACL_MEMORY_MB): "
+                "divide el RDF o reduce su tamaño"
+            )
+        raise IngestError("limit", detail) from None
+    except shacl_worker.ShaclWorkerError:
+        raise IngestError("shacl", "No se ha podido completar la validación SHACL") from None
+    if outcome.conforms:
         return
+    results = Graph().parse(data=outcome.results_nt, format="nt")
+    text = outcome.report
     issues: list[Issue] = []
     for result in results.subjects(RDF.type, SH.ValidationResult):
         messages = [str(m) for m in results.objects(result, SH.resultMessage)]
@@ -473,12 +607,17 @@ def publish(store: TripleStore, prepared: PreparedSeries) -> PublishResult:
     )
 
 
-def parse_file(path: Path, base_uri: str) -> Graph:
-    graph = Graph()
+def parse_file(path: Path, base_uri: str, *, max_triples: int = DEFAULT_MAX_TRIPLES) -> Graph:
+    """Fichero Turtle de ``SEMANTIC_DIR``, con los mismos límites que la API."""
+    graph = _new_limited_graph(path.stat().st_size, max_triples)
     try:
         graph.parse(path, format="turtle", publicID=base_uri)
     except Exception as exc:
+        limit = _limit_error(exc)
+        if limit is not None:
+            raise IngestError("limit", f"{path.name}: {limit.message}") from None
         raise IngestError("syntax", f"{path.name}: Turtle no válido: {_short(exc)}") from exc
+    _stop_limits(graph)
     check_terms(graph)
     return graph
 

@@ -129,7 +129,9 @@ def create_dataset(
 ) -> schemas.IngestResult | JSONResponse:
     data, rdf_format = body
     try:
-        graph = ingest.parse_rdf(data, rdf_format, uris.base)
+        graph = ingest.parse_rdf(
+            data, rdf_format, uris.base, max_triples=settings.ingest_max_triples
+        )
         prepared = ingest.prepare_series(graph, uris, settings.semantic_dir)
     except ingest.IngestError as exc:
         return ingest_error_response(exc)

@@ -31,7 +31,7 @@ def api(client: TestClient, vocab_store: MemoryStore, vocab_metrics: None) -> Te
 # --- GET /vocabularies ----------------------------------------------------------------
 
 
-def test_vocabularies_cards_and_counts(api: TestClient) -> None:
+def test_vocabularies_cards_and_counts(api: TestClient, itot_metrics: tuple[dict, dict]) -> None:
     response = api.get("/vocabularies")
     assert response.status_code == 200
     body = response.json()
@@ -51,7 +51,10 @@ def test_vocabularies_cards_and_counts(api: TestClient) -> None:
         "description": cards[ONTO]["description"],
         "status": "published",
         "version": "1.2.0",
-        "metrics": {"classes": 13, "properties": 4},
+        "metrics": {
+            "classes": itot_metrics[0]["classes"],
+            "properties": itot_metrics[0]["object_properties"] + itot_metrics[0]["data_properties"],
+        },
         "concepts": None,
         "domain": None,
         "synthetic": True,
@@ -137,23 +140,28 @@ def test_ontology_detail(api: TestClient, itot_metrics: tuple[dict, dict]) -> No
     assert body["status"] == "published"
     assert body["synthetic"] is True
     assert body["title"] == "Ontología de activos y amenazas IT/OT"
+    # Las cifras salen del cálculo sobre el fichero (no se fijan aquí: semantico puede
+    # cambiar el contenido de la ontología de demostración).
+    computed = itot_metrics[0]
     assert body["metrics"] == {
-        "classes": 13,
-        "object_properties": 4,
-        "data_properties": 0,
-        "annotation_properties": 0,
-        "individuals": 0,
-        "logical_axioms": 17,
-        "imports": 2,
-        "dl_expressivity": None,
-    }
-    assert body["profile"]["name"] == "OWL 2 DL"
+        key: computed[key]
+        for key in (
+            "classes",
+            "object_properties",
+            "data_properties",
+            "annotation_properties",
+            "individuals",
+            "logical_axioms",
+            "imports",
+        )
+    } | {"dl_expressivity": None}
+    assert body["profile"]["name"] == computed["profile"]
     assert body["profile"]["approximate"] is True
     expected = itot_metrics[1]
     assert body["consistency"]["reasoner"] == "Pellet"
     assert body["consistency"]["consistent"] == expected["consistent"]
     assert body["consistency"]["includes_imports"] is False
-    assert body["documentation"]["percent"] == 100.0
+    assert body["documentation"]["percent"] == computed["documentation"]["percent"]
     assert body["metrics_tool"] == "owlready2 (pruebas)"
     assert body["metrics_computed_at"]
 
@@ -189,15 +197,6 @@ def test_ontology_detail(api: TestClient, itot_metrics: tuple[dict, dict]) -> No
         "version": "3.2.1",
         "known": True,
     }
-    [alignment] = body["alignments"]  # d3f:DefensiveTechnique a owl:Class no es alineamiento
-    assert alignment["target_ontology"] == D3F
-    assert alignment["prefix"] == "d3f"
-    assert alignment["relation"] == "http://www.w3.org/2000/01/rdf-schema#subClassOf"
-    assert alignment["version"] is None
-    assert alignment["scope"] is None
-    assert alignment["mappings"] == [
-        {"source": f"{ONTO}#Control", "target": f"{D3F}#DefensiveTechnique"}
-    ]
 
     [use] = body["used_by_datasets"]
     assert use["slug"] == "modbus-tcp-testbed"
@@ -232,20 +231,47 @@ def test_other_ontologies(api: TestClient) -> None:
     assert api.get("/ontologies/didx").status_code == 200
 
 
-def test_alignment_scope_from_axiom_annotation(api: TestClient, vocab_store: MemoryStore) -> None:
-    graph = vocab_store.get_graph(f"{ONTO}/1.2.0")
+def _add_alignment(store: MemoryStore, annotated: bool) -> None:
+    """Añade al grafo de itot 1.2.0 un alineamiento con D3FEND propio de las pruebas
+    (semantico lo retiró de los datos: no tiene fuente en el prototipo)."""
+    graph = store.get_graph(f"{ONTO}/1.2.0")
+    axiom = (
+        f"""[] a owl:Axiom ; owl:annotatedSource <{ONTO}#Control> ;
+           owl:annotatedProperty rdfs:subClassOf ;
+           owl:annotatedTarget <{D3F}#DefensiveTechnique> ;
+           rdfs:comment "Alcance de prueba"@es ."""
+        if annotated
+        else ""
+    )
     graph.parse(
         data=f"""
         @prefix owl: <http://www.w3.org/2002/07/owl#> .
         @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
-        [] a owl:Axiom ; owl:annotatedSource <{ONTO}#Control> ;
-           owl:annotatedProperty rdfs:subClassOf ;
-           owl:annotatedTarget <{D3F}#DefensiveTechnique> ;
-           rdfs:comment "Alcance de prueba"@es .
+        <{ONTO}#Control> rdfs:subClassOf <{D3F}#DefensiveTechnique> .
+        <{D3F}#DefensiveTechnique> a owl:Class .
+        {axiom}
         """,
         format="turtle",
     )
-    vocab_store.put_graph(f"{ONTO}/1.2.0", graph)
+    store.put_graph(f"{ONTO}/1.2.0", graph)
+
+
+def test_alignments(api: TestClient, vocab_store: MemoryStore) -> None:
+    _add_alignment(vocab_store, annotated=False)
+    [alignment] = api.get("/ontologies/itot").json()["alignments"]
+    # La declaración d3f:DefensiveTechnique a owl:Class no es un alineamiento.
+    assert alignment["target_ontology"] == D3F
+    assert alignment["prefix"] == "d3f"
+    assert alignment["relation"] == "http://www.w3.org/2000/01/rdf-schema#subClassOf"
+    assert alignment["version"] is None  # [VERSIÓN] de D3FEND: placeholder
+    assert alignment["scope"] is None
+    assert alignment["mappings"] == [
+        {"source": f"{ONTO}#Control", "target": f"{D3F}#DefensiveTechnique"}
+    ]
+
+
+def test_alignment_scope_from_axiom_annotation(api: TestClient, vocab_store: MemoryStore) -> None:
+    _add_alignment(vocab_store, annotated=True)
     [alignment] = api.get("/ontologies/itot").json()["alignments"]
     assert alignment["scope"] == "Alcance de prueba"
 

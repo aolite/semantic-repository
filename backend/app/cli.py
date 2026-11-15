@@ -19,6 +19,7 @@ from typing import Annotated
 
 import typer
 from rdflib import Graph
+from sqlalchemy.orm import Session
 
 from app import ingest, vocab_ingest
 from app.config import Settings, get_settings
@@ -104,7 +105,9 @@ class _Plan:
     """Todo lo que ``load-semantic`` va a escribir, ya validado."""
 
     schemes: list[tuple[str, vocab_ingest.PreparedScheme]] = field(default_factory=list)
-    ontologies: list[tuple[str, vocab_ingest.PreparedOntology]] = field(default_factory=list)
+    ontologies: list[tuple[str, vocab_ingest.PreparedOntology, vocab_ingest.OntologyAnalysis]] = (
+        field(default_factory=list)
+    )
     plain: list[tuple[str, str, Graph]] = field(default_factory=list)
     series: list[tuple[str, ingest.PreparedSeries]] = field(default_factory=list)
 
@@ -137,7 +140,9 @@ def _check_ontology_path(path: Path, prepared: vocab_ingest.PreparedOntology) ->
         )
 
 
-def _validate_all(settings: Settings, uris: Uris) -> tuple[_Plan, bool]:
+def _validate_all(settings: Settings, uris: Uris, session: Session) -> tuple[_Plan, bool]:
+    """Valida todo y calcula las métricas de las ontologías **antes de escribir**: si un
+    fichero falla (también al analizarlo con owlready2), no se carga ninguno."""
     semantic_dir = settings.semantic_dir
     plan = _Plan()
     failed = False
@@ -153,7 +158,7 @@ def _validate_all(settings: Settings, uris: Uris) -> tuple[_Plan, bool]:
     for path in _scheme_paths(semantic_dir):
         name = str(path.relative_to(semantic_dir))
         try:
-            graph = ingest.parse_file(path, uris.base)
+            graph = ingest.parse_file(path, uris.base, max_triples=settings.ingest_max_triples)
             prepared = vocab_ingest.prepare_scheme(graph, uris, settings)
             _check_scheme_path(path, prepared)
             remember(name, prepared.uri)
@@ -167,7 +172,7 @@ def _validate_all(settings: Settings, uris: Uris) -> tuple[_Plan, bool]:
     if auxiliary.is_file():  # obligatorio: load_semantic ya lo ha comprobado
         name = str(auxiliary.relative_to(semantic_dir))
         try:
-            graph = ingest.parse_file(auxiliary, uris.base)
+            graph = ingest.parse_file(auxiliary, uris.base, max_triples=settings.ingest_max_triples)
             ingest.validate_shacl(graph, semantic_dir, uris.base, support=False)
             for prepared in vocab_ingest.split_schemes(graph, uris):
                 remember(name, prepared.uri)
@@ -178,11 +183,12 @@ def _validate_all(settings: Settings, uris: Uris) -> tuple[_Plan, bool]:
     for path in _ontology_paths(semantic_dir):
         name = str(path.relative_to(semantic_dir))
         try:
-            graph = ingest.parse_file(path, uris.base)
+            graph = ingest.parse_file(path, uris.base, max_triples=settings.ingest_max_triples)
             prepared_onto = vocab_ingest.prepare_ontology(graph, uris, settings)
             _check_ontology_path(path, prepared_onto)
             remember(name, prepared_onto.version_iri)
-            plan.ontologies.append((name, prepared_onto))
+            analysis = vocab_ingest.analyze_ontology(prepared_onto, settings, session)
+            plan.ontologies.append((name, prepared_onto, analysis))
         except ingest.IngestError as exc:
             _print_ingest_error(name, exc)
             failed = True
@@ -195,7 +201,7 @@ def _validate_all(settings: Settings, uris: Uris) -> tuple[_Plan, bool]:
     for path, graph_uri in plain_files:
         name = str(path.relative_to(semantic_dir))
         try:
-            graph = ingest.parse_file(path, uris.base)
+            graph = ingest.parse_file(path, uris.base, max_triples=settings.ingest_max_triples)
             if path == externas:
                 vocab_ingest.prepare_external(graph, uris, settings)
             else:
@@ -209,7 +215,7 @@ def _validate_all(settings: Settings, uris: Uris) -> tuple[_Plan, bool]:
     for path in sorted(series_dir.glob("*.ttl")):
         name = str(path.relative_to(semantic_dir))
         try:
-            graph = ingest.parse_file(path, uris.base)
+            graph = ingest.parse_file(path, uris.base, max_triples=settings.ingest_max_triples)
             plan.series.append((name, ingest.prepare_series(graph, uris, semantic_dir)))
         except ingest.IngestError as exc:
             _print_ingest_error(name, exc)
@@ -243,16 +249,16 @@ def load_semantic() -> None:
             typer.echo(f"No hay ficheros .ttl en {series_dir}", err=True)
         raise typer.Exit(code=2)
 
-    # 1. Validar todo.
-    plan, failed = _validate_all(settings, uris)
-    if failed:
-        typer.echo("Validación fallida: no se ha cargado nada.", err=True)
-        raise typer.Exit(code=1)
-
-    # 2. Escribir.
-    store = get_store(settings)
     session = get_sessionmaker()()
     try:
+        # 1. Validar todo (y calcular métricas, que solo leen la base de datos).
+        plan, failed = _validate_all(settings, uris, session)
+        if failed:
+            typer.echo("Validación fallida: no se ha cargado nada.", err=True)
+            raise typer.Exit(code=1)
+
+        # 2. Escribir.
+        store = get_store(settings)
         for name, scheme in plan.schemes:
             result = vocab_ingest.publish_scheme_and_audit(
                 store, session, scheme, actor_username=CLI_ACTOR, via="cli"
@@ -262,9 +268,15 @@ def load_semantic() -> None:
         for name, graph_uri, graph in plan.plain:
             _created, changed = ingest.store_graph(store, graph_uri, graph)
             typer.echo(f"{name} -> <{graph_uri}>: {'cargado' if changed else 'sin cambios'}")
-        for name, ontology in plan.ontologies:
+        for name, ontology, analysis in plan.ontologies:
             onto = vocab_ingest.publish_ontology_and_audit(
-                store, session, ontology, settings, actor_username=CLI_ACTOR, via="cli"
+                store,
+                session,
+                ontology,
+                settings,
+                analysis=analysis,
+                actor_username=CLI_ACTOR,
+                via="cli",
             )
             state = "cargado" if onto.changed else "sin cambios"
             metrics = "métricas calculadas" if onto.metrics_recomputed else "métricas al día"

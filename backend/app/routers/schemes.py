@@ -90,7 +90,9 @@ def create_scheme(
 ) -> schemas.SchemeIngestResult | JSONResponse:
     data, rdf_format = body
     try:
-        graph = ingest.parse_rdf(data, rdf_format, uris.base)
+        graph = ingest.parse_rdf(
+            data, rdf_format, uris.base, max_triples=settings.ingest_max_triples
+        )
         prepared = vocab_ingest.prepare_scheme(graph, uris, settings)
     except ingest.IngestError as exc:
         return ingest_error_response(exc)

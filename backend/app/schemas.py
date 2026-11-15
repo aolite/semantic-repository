@@ -244,7 +244,10 @@ class IngestIssue(BaseModel):
 
 class IngestErrorResponse(BaseModel):
     detail: str
-    kind: Literal["syntax", "structure", "uri", "shacl"]
+    kind: Literal["syntax", "structure", "uri", "shacl", "limit"] = Field(
+        description="limit: se ha superado un límite de la ingesta (tripletas, tamaño "
+        "expandido, IRI, profundidad o tiempo o memoria de la validación SHACL)"
+    )
     issues: list[IngestIssue]
     report: str | None = Field(description="Informe SHACL en texto (solo kind=shacl)")
 
@@ -259,6 +262,7 @@ class ErrorResponse(BaseModel):
 
 VocabularyKind = Literal["own", "external", "skos_corp", "skos_domain"]
 VocabularyStatus = Literal["published", "draft", "referenced"]
+SchemeKind = Literal["skos_corp", "skos_domain", "auxiliary"]
 
 
 class MetricsSummary(BaseModel):
@@ -511,7 +515,10 @@ class SchemeMetadata(BaseModel):
 class SchemeDetail(BaseModel):
     slug: str
     corp: bool
-    kind: Literal["skos_corp", "skos_domain"]
+    kind: SchemeKind = Field(
+        description="skos_corp, skos_domain (con dct:subject hacia un dominio) o auxiliary "
+        "(vocab/dominio y vocab/tipo-dataset, sin tarjeta en /vocabularies)"
+    )
     uri: str
     title: str | None
     description: str | None

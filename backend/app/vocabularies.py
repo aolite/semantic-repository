@@ -42,6 +42,7 @@ from app.models import OntologyMetricsRecord
 from app.sparql import iri, iri_list, literal, render
 from app.triplestore import TripleStore
 from app.uris import ADMS, DCAT, DCT, FOAF, SKOS, VANN, Uris, is_slug, version_key
+from app.vocab_ingest import MAX_CONCEPT_DEPTH
 
 PREFIXES = """PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
 PREFIX owl: <http://www.w3.org/2002/07/owl#>
@@ -870,23 +871,42 @@ def _tree(graph: Graph, scheme: URIRef) -> list[schemas.ConceptNode]:
     }
     roots = [c for c in concepts if _is_top(graph, scheme, c) or c not in has_parent]
 
-    def build(concept: URIRef, ancestors: frozenset[URIRef]) -> schemas.ConceptNode:
-        children = [
-            build(child, ancestors | {concept})
-            for child in _children(graph, concepts, concept)
-            if child not in ancestors and child != concept
-        ]
+    def node_for(concept: URIRef) -> schemas.ConceptNode:
         return schemas.ConceptNode(
             uri=str(concept),
             slug=_slug_in(scheme, concept),
             label=pick_literal(graph.objects(concept, SKOS.prefLabel)),
             top_concept=_is_top(graph, scheme, concept),
             alt_labels=_lang_literals(graph.objects(concept, SKOS.altLabel)),
-            children=children,
+            children=[],
         )
 
+    # Sin recursión (QA-G3-04): pila explícita. Un ciclo no se recorre dos veces (no se
+    # baja a un antepasado) y el árbol se corta a MAX_CONCEPT_DEPTH niveles, el máximo que
+    # admite la ingesta: lo que hubiera por debajo (solo posible en datos cargados antes del
+    # límite) sigue accesible en /schemes/{slug}/concepts/{concepto}.
     roots.sort(key=lambda n: _label_key(graph, n))
-    return [build(root, frozenset()) for root in roots]
+    result = [node_for(root) for root in roots]
+    stack = [(root, node, frozenset({root}), 0) for root, node in zip(roots, result, strict=True)]
+    while stack:
+        concept, node, ancestors, depth = stack.pop()
+        if depth >= MAX_CONCEPT_DEPTH:
+            continue
+        for child in _children(graph, concepts, concept):
+            if child in ancestors:
+                continue
+            child_node = node_for(child)
+            node.children.append(child_node)
+            stack.append((child, child_node, ancestors | {child}, depth + 1))
+    return result
+
+
+def _scheme_kind(uris: Uris, graph: Graph, node: URIRef, corp: bool) -> schemas.SchemeKind:
+    """``skos_corp`` bajo ``vocab/corp/``; ``skos_domain`` con ``dct:subject`` hacia un
+    dominio; ``auxiliary`` el resto (``vocab/dominio`` y ``vocab/tipo-dataset``)."""
+    if corp:
+        return "skos_corp"
+    return "skos_domain" if _domain_subjects(graph, node, uris) else "auxiliary"
 
 
 def get_scheme(store: TripleStore, uris: Uris, slug: str, corp: bool) -> schemas.SchemeDetail:
@@ -896,7 +916,7 @@ def get_scheme(store: TripleStore, uris: Uris, slug: str, corp: bool) -> schemas
     return schemas.SchemeDetail(
         slug=slug,
         corp=corp,
-        kind="skos_corp" if corp else "skos_domain",
+        kind=_scheme_kind(uris, graph, node, corp),
         uri=str(node),
         title=_title(graph, node),
         description=_description(graph, node),
@@ -1029,8 +1049,14 @@ def jsonld_context() -> dict[str, str]:
     }
 
 
+class NotSerializableError(ValueError):
+    """El grafo no se puede escribir en ese formato (QA-G3-05: RDF/XML no admite
+    predicados cuyo nombre local no es un nombre XML, como ``<http://x.example/p/1>``)."""
+
+
 def serialize(graph: Graph, uris: Uris, rdf_format: str) -> str:
-    """``turtle``, ``json-ld`` o ``xml`` (RDF/XML)."""
+    """``turtle``, ``json-ld`` o ``xml`` (RDF/XML). ``NotSerializableError`` si el RDF/XML
+    no puede representar algún predicado."""
     out = Graph()
     for prefix, namespace in graph.namespaces():
         out.bind(prefix, namespace)
@@ -1039,4 +1065,9 @@ def serialize(graph: Graph, uris: Uris, rdf_format: str) -> str:
         out.add(triple)
     if rdf_format == "json-ld":
         return out.serialize(format="json-ld", context=jsonld_context(), auto_compact=True)
+    if rdf_format == "xml":
+        try:
+            return out.serialize(format="xml")
+        except Exception as exc:  # noqa: BLE001 - rdflib lanza tipos variados
+            raise NotSerializableError(str(exc)) from None
     return out.serialize(format=rdf_format)

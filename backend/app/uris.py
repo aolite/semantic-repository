@@ -24,6 +24,9 @@ CORP_SEGMENT = "corp"
 EXTERNAL_ONTOLOGIES_SLUG = "externas"
 DOMAIN_SCHEME_SLUG = "dominio"
 RESERVED_SCHEME_SLUGS = frozenset({CORP_SEGMENT})
+# Esquemas auxiliares (semantic/uris.md): se leen como cualquier esquema, pero no se pueden
+# publicar por la API; solo los carga load-semantic desde data/vocab-minimo.ttl (QA-G3-06).
+AUXILIARY_SCHEME_SLUGS = frozenset({DOMAIN_SCHEME_SLUG, "tipo-dataset"})
 RESERVED_ONTOLOGY_SLUGS = frozenset({EXTERNAL_ONTOLOGIES_SLUG})
 
 DCAT = Namespace("http://www.w3.org/ns/dcat#")
