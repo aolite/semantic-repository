@@ -79,11 +79,14 @@ class ReadinessStatus(BaseModel):
 
 
 class DomainRef(BaseModel):
-    """Dominio del dataset: esquema SKOS ``{BASE_URI}vocab/{slug}`` de sus temas."""
+    """Dominio: concepto ``{BASE_URI}vocab/dominio/{slug}``, el ``dct:subject`` del esquema
+    de los temas del dataset (o del propio esquema SKOS)."""
 
     slug: DomainSlug
-    uri: str
-    label: str | None = Field(description="skos:prefLabel del esquema (es), si está cargado")
+    uri: str = Field(description="IRI del concepto de dominio ({BASE_URI}vocab/dominio/{slug})")
+    label: str | None = Field(
+        description="skos:prefLabel (es) del concepto de dominio, si está cargado"
+    )
 
 
 class ThemeRef(BaseModel):
@@ -241,10 +244,350 @@ class IngestIssue(BaseModel):
 
 class IngestErrorResponse(BaseModel):
     detail: str
-    kind: Literal["syntax", "structure", "uri", "shacl"]
+    kind: Literal["syntax", "structure", "uri", "shacl", "limit"] = Field(
+        description="limit: se ha superado un límite de la ingesta (tripletas, tamaño "
+        "expandido, IRI, profundidad o tiempo o memoria de la validación SHACL)"
+    )
     issues: list[IngestIssue]
     report: str | None = Field(description="Informe SHACL en texto (solo kind=shacl)")
 
 
 class ErrorResponse(BaseModel):
     detail: str
+
+
+# --- Vocabularios y ontologías (fase 3) ------------------------------------------------
+# Tipos y estados de la pantalla «Vocabularios y ontologías». Los campos sin valor en el
+# RDF se devuelven como null o lista vacía. La expresividad DL no se calcula (null).
+
+VocabularyKind = Literal["own", "external", "skos_corp", "skos_domain"]
+VocabularyStatus = Literal["published", "draft", "referenced"]
+SchemeKind = Literal["skos_corp", "skos_domain", "auxiliary"]
+
+
+class MetricsSummary(BaseModel):
+    """Resumen de métricas de la tarjeta (solo ontologías propias)."""
+
+    classes: int
+    properties: int = Field(description="Propiedades de objeto más propiedades de datos")
+
+
+class VocabularyCard(BaseModel):
+    kind: VocabularyKind
+    slug: str | None = Field(
+        description="Slug de la ontología o del esquema (sin 'corp/'); null en las externas"
+    )
+    uri: str
+    rdf_type: Literal["owl:Ontology", "skos:ConceptScheme"]
+    title: str | None
+    prefix: str | None = Field(description="vann:preferredNamespacePrefix")
+    namespace: str | None = Field(
+        description="vann:preferredNamespaceUri o, si falta, {ontología}# / {esquema}/"
+    )
+    description: str | None
+    status: VocabularyStatus
+    version: str | None
+    metrics: MetricsSummary | None = Field(
+        description="Ontologías propias con métricas calculadas; null en el resto"
+    )
+    concepts: int | None = Field(description="Número de conceptos (solo esquemas)")
+    domain: DomainRef | None = Field(
+        description="Dominio del esquema de dominio (su dct:subject). null en ontologías "
+        "(propias y externas) y en esquemas corporativos: el RDF no les da dominio"
+    )
+    synthetic: bool
+
+
+class VocabularyCounts(BaseModel):
+    own: int
+    external: int
+    skos_corp: int
+    skos_domain: int
+
+
+class VocabularyPage(BaseModel):
+    items: list[VocabularyCard]
+    total: int = Field(description="Tarjetas que cumplen los filtros")
+    counts: VocabularyCounts = Field(
+        description="Recuento por tipo de todo el repositorio, sin aplicar q, kind ni domain"
+    )
+
+
+class LangLiteral(BaseModel):
+    value: str
+    lang: str | None = Field(description="Etiqueta de idioma (es, ca, en…); null si no tiene")
+
+
+class SchemeRef(BaseModel):
+    uri: str
+    slug: str
+    corp: bool
+    label: str | None
+
+
+class ConceptRef(BaseModel):
+    uri: str
+    label: str | None = Field(description="skos:prefLabel (es) si el concepto está cargado")
+    scheme: str | None = Field(description="IRI del esquema (skos:inScheme)")
+
+
+class SubjectRef(BaseModel):
+    """``dct:subject`` de una ontología: un esquema SKOS o un concepto."""
+
+    uri: str
+    type: Literal["scheme", "concept", "unknown"]
+    label: str | None
+    scheme: SchemeRef | None
+
+
+class OntologyMetricsRead(BaseModel):
+    classes: int
+    object_properties: int
+    data_properties: int
+    annotation_properties: int
+    individuals: int
+    logical_axioms: int = Field(description="Aproximado (ver backend/README.md)")
+    imports: int = Field(description="owl:imports declarados (no se descargan)")
+    dl_expressivity: None = Field(default=None, description="No se calcula: siempre null")
+
+
+class OwlProfile(BaseModel):
+    name: Literal["OWL 2 DL", "OWL 2 Full"]
+    compatible: list[Literal["OWL 2 EL", "OWL 2 QL", "OWL 2 RL"]] = Field(
+        description="Perfiles compatibles, aproximados por constructores"
+    )
+    approximate: bool = True
+
+
+class ConsistencyRead(BaseModel):
+    reasoner: str = Field(description="Siempre 'Pellet'")
+    consistent: bool | None = Field(description="null si el razonador no pudo ejecutarse")
+    unsatisfiable_classes: int | None
+    unsatisfiable: list[str] = Field(description="IRIs de las clases insatisfacibles")
+    detail: str | None = Field(description="Motivo si consistent es false o null")
+    includes_imports: bool = Field(
+        default=False, description="Siempre false: se razona sin las ontologías importadas"
+    )
+
+
+class DocumentationCoverageRead(BaseModel):
+    documented: int
+    total: int
+    percent: float | None = Field(description="% de clases y propiedades con rdfs:comment")
+    classes_documented: int
+    classes_total: int
+    properties_documented: int
+    properties_total: int
+
+
+class ImportRef(BaseModel):
+    uri: str
+    title: str | None
+    prefix: str | None
+    version: str | None
+    known: bool = Field(description="La ontología importada está descrita en las externas")
+
+
+class AlignmentMapping(BaseModel):
+    source: str
+    target: str
+
+
+class Alignment(BaseModel):
+    """Axiomas de la ontología hacia términos de una ontología externa, por relación."""
+
+    target_ontology: str | None = Field(description="null si no se reconoce la ontología")
+    title: str | None
+    prefix: str | None
+    relation: str = Field(description="IRI de la relación (rdfs:subClassOf, skos:exactMatch…)")
+    scope: str | None = Field(
+        description="rdfs:comment o dct:description de la anotación del axioma, si existe"
+    )
+    version: str | None = Field(description="owl:versionInfo de la ontología destino")
+    count: int
+    mappings: list[AlignmentMapping]
+
+
+class OntologyVersionSummary(BaseModel):
+    version: str | None
+    version_iri: str
+    notes: str | None = Field(description="adms:versionNotes")
+    issued: str | None
+    current: bool
+    described: bool = Field(
+        description="false si la versión solo se conoce por un owl:priorVersion"
+    )
+
+
+class OntologyVersionRef(BaseModel):
+    version_iri: str
+    version: str | None
+
+
+class OntologyVersioning(BaseModel):
+    version: str | None
+    version_iri: str
+    current_version: str | None
+    prior_version: OntologyVersionRef | None
+    backward_compatible_with: list[OntologyVersionRef]
+    history: list[OntologyVersionSummary]
+
+
+class OntologyMetadata(BaseModel):
+    """Metadatos VANN y DCT de la versión."""
+
+    prefix: str | None
+    namespace: str | None
+    title: str | None
+    description: str | None
+    creators: list[ResourceRef]
+    contributors: list[ResourceRef]
+    publisher: ResourceRef | None
+    license: ResourceRef | None
+    rights: str | None
+    issued: str | None
+    modified: str | None
+    created: str | None
+
+
+class DatasetVersionUse(BaseModel):
+    version: str | None
+    uri: str
+    conforms_to: str | None = Field(description="IRI exacta de dct:conformsTo, si aplica")
+
+
+class DatasetUse(BaseModel):
+    slug: str
+    uri: str
+    title: str | None
+    versions: list[DatasetVersionUse]
+
+
+class OntologyUse(BaseModel):
+    slug: str
+    uri: str
+    title: str | None
+    versions: list[str]
+
+
+class OntologyDetail(BaseModel):
+    slug: str
+    uri: str
+    kind: Literal["own"]
+    status: VocabularyStatus
+    synthetic: bool
+    title: str | None
+    description: str | None
+    metadata: OntologyMetadata
+    versioning: OntologyVersioning
+    metrics: OntologyMetricsRead | None = Field(description="null si no se han calculado")
+    profile: OwlProfile | None
+    consistency: ConsistencyRead | None
+    documentation: DocumentationCoverageRead | None
+    metrics_computed_at: datetime | None
+    metrics_tool: str | None
+    imports: list[ImportRef]
+    alignments: list[Alignment]
+    used_by_datasets: list[DatasetUse] = Field(
+        description="Series con alguna versión con dct:conformsTo hacia la ontología o una "
+        "de sus versiones"
+    )
+    subjects: list[SubjectRef] = Field(description="Esquemas SKOS usados (dct:subject)")
+
+
+class ConceptNode(BaseModel):
+    uri: str
+    slug: str | None
+    label: str | None
+    top_concept: bool = Field(description="skos:topConceptOf o skos:hasTopConcept")
+    alt_labels: list[LangLiteral] = Field(description="skos:altLabel por idioma")
+    children: list[ConceptNode] = Field(description="skos:narrower e inversa de skos:broader")
+
+
+class SchemeMetadata(BaseModel):
+    creators: list[ResourceRef]
+    publisher: ResourceRef | None
+    license: ResourceRef | None
+    issued: str | None
+    modified: str | None
+
+
+class SchemeDetail(BaseModel):
+    slug: str
+    corp: bool
+    kind: SchemeKind = Field(
+        description="skos_corp, skos_domain (con dct:subject hacia un dominio) o auxiliary "
+        "(vocab/dominio y vocab/tipo-dataset, sin tarjeta en /vocabularies)"
+    )
+    uri: str
+    title: str | None
+    description: str | None
+    prefix: str | None
+    namespace: str | None
+    version: str | None
+    status: VocabularyStatus
+    synthetic: bool
+    domain: DomainRef | None = Field(description="Dominio del esquema (dct:subject)")
+    responsible: None = Field(
+        default=None,
+        description="Responsable del esquema: placeholder del prototipo, siempre null hasta "
+        "que se decida (decisión abierta 11)",
+    )
+    metadata: SchemeMetadata
+    concept_count: int
+    tree: list[ConceptNode] = Field(
+        description="Conceptos raíz (los topConcept y los que no tienen broader dentro del "
+        "esquema) con sus hijos"
+    )
+
+
+class ConceptUsage(BaseModel):
+    datasets: list[DatasetUse] = Field(description="Series con versiones con dcat:theme")
+    ontologies: list[OntologyUse] = Field(description="Ontologías con dct:subject")
+
+
+class ConceptDetail(BaseModel):
+    uri: str
+    slug: str
+    scheme: SchemeRef
+    pref_label: str | None = Field(description="skos:prefLabel preferida (es)")
+    pref_labels: list[LangLiteral]
+    alt_labels: list[LangLiteral]
+    definition: str | None
+    definitions: list[LangLiteral]
+    top_concept: bool
+    broader: list[ConceptRef]
+    narrower: list[ConceptRef]
+    related: list[ConceptRef]
+    exact_match: list[str]
+    close_match: list[str]
+    used_by: ConceptUsage
+
+
+class OntologyIngestResult(BaseModel):
+    slug: str
+    uri: str = Field(description="URI de la ontología")
+    version: str
+    version_iri: str
+    graph: str = Field(description="Grafo con nombre (el versionIRI)")
+    triples: int
+    created: bool
+    changed: bool
+    metrics_recomputed: bool = Field(
+        description="false si la versión ya tenía métricas para el mismo contenido"
+    )
+    metrics: OntologyMetricsRead
+    profile: OwlProfile
+    consistency: ConsistencyRead
+    documentation: DocumentationCoverageRead
+
+
+class SchemeIngestResult(BaseModel):
+    slug: str
+    corp: bool
+    uri: str
+    graph: str
+    concepts: int
+    triples: int
+    created: bool
+    changed: bool

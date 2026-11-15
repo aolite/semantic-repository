@@ -33,12 +33,12 @@ from sqlalchemy import Engine, create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app import ingest
+from app import ingest, owl_metrics, vocab_ingest
 from app.config import Settings, get_settings
 from app.db import Base, get_db
 from app.deps import get_triplestore
 from app.main import create_app
-from app.models import Role, User
+from app.models import OntologyMetricsRecord, Role, User
 from app.routers.health import get_fuseki_checker
 from app.schemas import ComponentStatus
 from app.security import hash_password
@@ -53,6 +53,12 @@ REPO_SEMANTIC_DIR = TESTS_DIR.parent.parent / "semantic"
 # Copia de semantic/data/ de la rama de semantico (datos sintéticos de G2). Las formas
 # SHACL no se copian: se usan las de semantic/shapes/ del repositorio.
 FIXTURE_DATA_DIR = TESTS_DIR / "fixtures" / "data"
+# Copia de semantic/vocabularios, semantic/ontologias y de la forma
+# shapes/ontologias-vocabularios.ttl de la rama de semantico (fase 3). Cuando lleguen a
+# main, la forma ya estará en semantic/shapes/ y la copia se puede borrar.
+FIXTURE_SEMANTIC_DIR = TESTS_DIR / "fixtures" / "semantic"
+# Ontología propia del backend con recuentos conocidos (pruebas de métricas).
+FIXTURE_COUNTS_ONTOLOGY = TESTS_DIR / "fixtures" / "ontologia-recuentos.ttl"
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -60,7 +66,11 @@ def semantic_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """``SEMANTIC_DIR`` de pruebas: formas reales del repositorio + datos de fixtures."""
     root = tmp_path_factory.mktemp("semantic")
     shutil.copytree(REPO_SEMANTIC_DIR / "shapes", root / "shapes")
+    for shape in (FIXTURE_SEMANTIC_DIR / "shapes").glob("*.ttl"):
+        shutil.copy(shape, root / "shapes" / shape.name)
     shutil.copytree(FIXTURE_DATA_DIR, root / "data")
+    shutil.copytree(FIXTURE_SEMANTIC_DIR / "vocabularios", root / "vocabularios")
+    shutil.copytree(FIXTURE_SEMANTIC_DIR / "ontologias", root / "ontologias")
     os.environ["SEMANTIC_DIR"] = str(root)
     ingest.clear_caches()
     return root
@@ -77,11 +87,35 @@ def store() -> MemoryStore:
     return MemoryStore()
 
 
+def load_schemes(store: MemoryStore, semantic_dir: Path, uris: Uris) -> None:
+    """Cada esquema SKOS de las fixtures en el grafo de su URI (como ``load-semantic``),
+    también los auxiliares de ``data/vocab-minimo.ttl``."""
+    auxiliary = ingest.parse_file(semantic_dir / "data" / "vocab-minimo.ttl", uris.base)
+    for prepared in vocab_ingest.split_schemes(auxiliary, uris):
+        ingest.store_graph(store, prepared.uri, prepared.graph)
+    paths = sorted((semantic_dir / "vocabularios").glob("*.ttl"))
+    paths += sorted((semantic_dir / "vocabularios" / "corp").glob("*.ttl"))
+    for path in paths:
+        graph = ingest.parse_file(path, uris.base)
+        prepared = vocab_ingest.check_scheme_structure(graph, uris, allow_auxiliary=True)
+        ingest.store_graph(store, prepared.uri, graph)
+
+
+def load_ontology_graphs(store: MemoryStore, semantic_dir: Path, uris: Uris) -> None:
+    """Versiones de ontología y externas en sus grafos, sin calcular métricas."""
+    root = semantic_dir / "ontologias"
+    for path in sorted(root.glob("*/*.ttl")):
+        graph = ingest.parse_file(path, uris.base)
+        prepared = vocab_ingest.check_ontology_structure(graph, uris)
+        ingest.store_graph(store, prepared.version_iri, graph)
+    externas = ingest.parse_file(root / "externas.ttl", uris.base)
+    ingest.store_graph(store, uris.external_ontologies_graph, externas)
+
+
 def load_fixture_data(store: MemoryStore, semantic_dir: Path, uris: Uris) -> None:
-    """Carga vocabulario, catálogo y series como lo haría ``load-semantic``."""
+    """Carga esquemas SKOS, catálogo y series como lo haría ``load-semantic``."""
     data = semantic_dir / "data"
-    vocab = ingest.parse_file(data / "vocab-minimo.ttl", uris.base)
-    ingest.store_graph(store, uris.vocab_graph, vocab)
+    load_schemes(store, semantic_dir, uris)
     catalog = ingest.parse_file(data / "catalogo.ttl", uris.base)
     ingest.store_graph(store, uris.catalog, catalog)
     for path in sorted((data / "sintetico").glob("*.ttl")):
@@ -94,6 +128,50 @@ def loaded_store(store: MemoryStore, semantic_dir: Path, uris: Uris) -> MemorySt
     load_fixture_data(store, semantic_dir, uris)
     store.queries.clear()
     return store
+
+
+@pytest.fixture(scope="session")
+def itot_metrics(semantic_dir: Path) -> tuple[dict, dict]:
+    """Métricas y consistencia de la fixture ``itot`` 1.2.0, calculadas una vez.
+
+    Con Java, la consistencia es la real de Pellet; sin Java, el resultado «no disponible»
+    que devuelve el backend en ese caso."""
+    uris = Uris(BASE_URI)
+    graph = ingest.parse_file(semantic_dir / "ontologias" / "itot" / "1.2.0.ttl", uris.base)
+    # Las de la fixture real (se comprueban en test_vocab_read.py).
+    metrics = owl_metrics.compute_metrics(graph, uris.ontology("itot"))
+    consistency = owl_metrics.check_consistency(
+        graph, uris.ontology("itot"), timeout_seconds=120, java_memory_mb=512
+    )
+    return metrics.to_dict(), consistency.to_dict()
+
+
+@pytest.fixture
+def vocab_store(loaded_store: MemoryStore, semantic_dir: Path, uris: Uris) -> MemoryStore:
+    """Catálogo, esquemas, ontologías (todas las versiones) y externas cargados."""
+    load_ontology_graphs(loaded_store, semantic_dir, uris)
+    loaded_store.queries.clear()
+    return loaded_store
+
+
+@pytest.fixture
+def vocab_metrics(
+    session_factory: sessionmaker[Session], itot_metrics: tuple[dict, dict], uris: Uris
+) -> None:
+    """Métricas guardadas para ``itot`` 1.2.0 (la 1.1.0 queda sin métricas)."""
+    metrics, consistency = itot_metrics
+    with session_factory() as session:
+        session.add(
+            OntologyMetricsRecord(
+                version_iri=uris.ontology_version("itot", "1.2.0"),
+                ontology_iri=uris.ontology("itot"),
+                content_hash="0" * 64,
+                metrics=metrics,
+                consistency=consistency,
+                tool="owlready2 (pruebas)",
+            )
+        )
+        session.commit()
 
 
 def _make_engine() -> Engine:

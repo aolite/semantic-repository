@@ -1,0 +1,45 @@
+# Esquema SKOS corporativo SINTÉTICO «Sectores de aplicación» (sectores).
+#
+# Fuente: pantalla «Vocabularios y ontologías» del prototipo (metadatos).
+# Contenido de demostración: marcado con dct:type <vocab/tipo-dataset/sintetico>.
+#
+# Qué sale del prototipo y qué no:
+# - Título, descripción, versión (v0.3), estado (Borrador) y prefijo (ecsec).
+#   La URI va bajo BASE_URI, en vocab/corp/sectores, y no en /eurecat/ como
+#   en el prototipo (decisión del responsable, 2026-11-15).
+# - Sin conceptos: el prototipo no enumera los sectores («[N] conceptos»).
+# - Mapeos: el prototipo anuncia skos:closeMatch hacia NACE Rev. 2, sin
+#   códigos. Se OMITEN.
+# - Responsable del esquema: «[RESPONSABLE]» (placeholder). Se OMITE; el
+#   patrón previsto es [PROPUESTA] de semantico (ver semantic/uris.md).
+# - Publicador: el prototipo no lo da para los esquemas corporativos.
+#
+# BASE_URI: el fichero no declara @base; las URIs son relativas.
+# Grafo con nombre: {BASE_URI}vocab/corp/sectores.
+# Etiqueta Git: vocab/corp/sectores/v0.3.
+
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix dct:  <http://purl.org/dc/terms/> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix adms: <http://www.w3.org/ns/adms#> .
+@prefix vann: <http://purl.org/vocab/vann/> .
+
+<vocab/corp/sectores>
+    a skos:ConceptScheme ;
+    dct:type <vocab/tipo-dataset/sintetico> ;
+    dct:title "Sectores de aplicación"@es ;
+    skos:prefLabel "Sectores de aplicación"@es ;
+    dct:description "Sectores industriales y de servicio a los que se dirigen los proyectos, alineado con NACE Rev. 2."@es ;
+    owl:versionInfo "0.3" ;
+    adms:status <http://purl.org/adms/status/UnderDevelopment> ;
+    vann:preferredNamespacePrefix "ecsec" ;
+    vann:preferredNamespaceUri <vocab/corp/sectores/> .
+    # prov:qualifiedAttribution [
+    #     a prov:Attribution ;
+    #     prov:agent [RESPONSABLE] ;
+    #     dcat:hadRole <http://inspire.ec.europa.eu/metadata-codelist/ResponsiblePartyRole/custodian>
+    # ] ;
+    # dct:publisher [PUBLICADOR] ;
+    # dct:license [LICENCIA] ;
+    # dct:issued [FECHA] ;
+    # dct:modified [FECHA] .

@@ -33,9 +33,27 @@ from app.config import Settings
 from app.export_openapi import OPENAPI_PATH
 from app.models import AuditAction, AuditEvent, Role, User
 from app.security import create_access_token
-from tests.conftest import DEFAULT_PASSWORD, FIXTURE_DATA_DIR
+from tests.conftest import DEFAULT_PASSWORD, FIXTURE_DATA_DIR, FIXTURE_SEMANTIC_DIR
 
 _SERIES_TTL = FIXTURE_DATA_DIR / "sintetico" / "modbus-tcp-testbed.ttl"
+_SCHEME_TTL = FIXTURE_SEMANTIC_DIR / "vocabularios" / "corp" / "trl.ttl"
+_ONTOLOGY_TTL = FIXTURE_SEMANTIC_DIR / "ontologias" / "pqcm" / "0.4.0.ttl"
+
+
+@pytest.fixture
+def no_pellet(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Métricas sin lanzar Java (aquí solo importa la auditoría)."""
+    from app import owl_metrics, vocab_ingest
+
+    monkeypatch.setattr(
+        vocab_ingest,
+        "compute_ontology_metrics",
+        lambda p, _s: (
+            owl_metrics.compute_metrics(p.graph, p.uri).to_dict(),
+            owl_metrics.Consistency().to_dict(),
+        ),
+    )
+
 
 ALLOWED_ORIGIN = "http://localhost:5173"  # el de CORS_ORIGINS en conftest.py
 ATTACKER_SECRET = "secreto-del-atacante-no-es-el-del-servidor-000"
@@ -874,6 +892,7 @@ def test_create_user_rejects_control_chars_in_username_and_password(
 
 
 def test_audit_never_stores_passwords_tokens_or_hashes(
+    no_pellet: None,
     client: TestClient,
     settings: Settings,
     make_user: Callable[..., User],
@@ -915,6 +934,19 @@ def test_audit_never_stores_passwords_tokens_or_hashes(
         headers=headers | {"Content-Type": "text/turtle"},
     )
     assert published.status_code == 201, published.text
+    # Fase 3: publicación de un esquema SKOS y de una versión de ontología.
+    scheme = client.post(
+        "/schemes",
+        content=_SCHEME_TTL.read_bytes(),
+        headers=headers | {"Content-Type": "text/turtle"},
+    )
+    assert scheme.status_code == 201, scheme.text
+    ontology = client.post(
+        "/ontologies",
+        content=_ONTOLOGY_TTL.read_bytes(),
+        headers=headers | {"Content-Type": "text/turtle"},
+    )
+    assert ontology.status_code == 201, ontology.text
 
     with session_factory() as session:
         actions = set(session.scalars(select(AuditEvent.action)))
@@ -938,6 +970,7 @@ def test_audit_never_stores_passwords_tokens_or_hashes(
 
 
 def test_audit_details_have_only_the_expected_keys(
+    no_pellet: None,
     client: TestClient,
     make_user: Callable[..., User],
     login: Callable[..., dict[str, str]],
@@ -960,8 +993,37 @@ def test_audit_details_have_only_the_expected_keys(
         content=_SERIES_TTL.read_bytes(),
         headers=headers | {"Content-Type": "text/turtle"},
     )
+    for path, ttl in (("/schemes", _SCHEME_TTL), ("/ontologies", _ONTOLOGY_TTL)):
+        response = client.post(
+            path, content=ttl.read_bytes(), headers=headers | {"Content-Type": "text/turtle"}
+        )
+        assert response.status_code == 201, response.text
 
     allowed = {
+        AuditAction.SCHEME_PUBLISHED: {
+            "scheme",
+            "slug",
+            "corp",
+            "graph",
+            "concepts",
+            "triples",
+            "created",
+            "changed",
+            "via",
+        },
+        AuditAction.ONTOLOGY_PUBLISHED: {
+            "ontology",
+            "slug",
+            "version",
+            "version_iri",
+            "graph",
+            "triples",
+            "created",
+            "changed",
+            "metrics_recomputed",
+            "consistent",
+            "via",
+        },
         AuditAction.DATASET_PUBLISHED: {
             "series",
             "slug",
@@ -1083,6 +1145,22 @@ def test_openapi_marks_every_private_operation_as_secured(client: TestClient) ->
         ("get", "/datasets/{slug}/rdf"),
         ("get", "/dataset/{slug}"),
         ("get", "/dataset/{slug}/{version}"),
+        # Fase 3: lectura de vocabularios y ontologías y sus URIs persistentes.
+        ("get", "/vocabularies"),
+        ("get", "/ontologies/{slug}"),
+        ("get", "/ontologies/{slug}/rdf"),
+        ("get", "/schemes/{slug}"),
+        ("get", "/schemes/{slug}/rdf"),
+        ("get", "/schemes/{slug}/concepts/{concept}"),
+        ("get", "/schemes/corp/{slug}"),
+        ("get", "/schemes/corp/{slug}/rdf"),
+        ("get", "/schemes/corp/{slug}/concepts/{concept}"),
+        ("get", "/onto/{slug}"),
+        ("get", "/onto/{slug}/{version}"),
+        ("get", "/vocab/{slug}"),
+        ("get", "/vocab/{slug}/{concept}"),
+        ("get", "/vocab/corp/{slug}"),
+        ("get", "/vocab/corp/{slug}/{concept}"),
     }
     seen = set()
     for path, operations in schema["paths"].items():
@@ -1100,6 +1178,8 @@ def test_openapi_marks_every_private_operation_as_secured(client: TestClient) ->
         ("post", "/users"),
         ("patch", "/users/{user_id}"),
         ("post", "/datasets"),
+        ("post", "/ontologies"),
+        ("post", "/schemes"),
     }
 
 

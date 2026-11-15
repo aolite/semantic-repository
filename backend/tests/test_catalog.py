@@ -48,8 +48,8 @@ def test_list_returns_cards(api: TestClient) -> None:
         "uri": MODBUS,
         "title": "Tráfico Modbus/TCP del banco de pruebas OT",
         "description": card["description"],
-        "domain": {"slug": "ot", "uri": f"{BASE_URI}vocab/ot", "label": "OT / ICS"},
-        "domains": [{"slug": "ot", "uri": f"{BASE_URI}vocab/ot", "label": "OT / ICS"}],
+        "domain": {"slug": "ot", "uri": f"{BASE_URI}vocab/dominio/ot", "label": "OT / ICS"},
+        "domains": [{"slug": "ot", "uri": f"{BASE_URI}vocab/dominio/ot", "label": "OT / ICS"}],
         "themes": [
             {
                 "uri": f"{BASE_URI}vocab/ot/modbus-tcp",
@@ -260,7 +260,7 @@ def test_detail_referenced_only_previous_version(
         ("2.0.0", False),
     ]
     # Sin vocabulario cargado, el dominio sale del patrón de la URI del concepto.
-    assert body["domain"] == {"slug": "ot", "uri": f"{BASE_URI}vocab/ot", "label": None}
+    assert body["domain"] == {"slug": "ot", "uri": f"{BASE_URI}vocab/dominio/ot", "label": None}
     assert body["synthetic"] is False
 
 

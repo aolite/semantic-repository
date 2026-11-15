@@ -7,12 +7,13 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response, status
 from fastapi.responses import JSONResponse
+from rdflib import Graph, URIRef
 
-from app import catalog, ingest, schemas
+from app import catalog, downloads, ingest, schemas
 from app.deps import DbDep, SettingsDep, StoreDep, UrisDep, require_role
 from app.models import Role, User
 from app.negotiation import JSONLD, TURTLE, negotiate
-from app.uris import SLUG_PATTERN, VERSION_PATTERN, DomainSlug
+from app.uris import DCAT, SLUG_PATTERN, VERSION_PATTERN, DomainSlug
 
 router = APIRouter(prefix="/datasets", tags=["datasets"])
 
@@ -68,7 +69,7 @@ async def read_rdf_body(
     return b"".join(chunks), rdf_format
 
 
-def _ingest_error(exc: ingest.IngestError) -> JSONResponse:
+def ingest_error_response(exc: ingest.IngestError) -> JSONResponse:
     body = schemas.IngestErrorResponse(
         detail=exc.detail,
         kind=exc.kind,
@@ -128,10 +129,12 @@ def create_dataset(
 ) -> schemas.IngestResult | JSONResponse:
     data, rdf_format = body
     try:
-        graph = ingest.parse_rdf(data, rdf_format, uris.base)
+        graph = ingest.parse_rdf(
+            data, rdf_format, uris.base, max_triples=settings.ingest_max_triples
+        )
         prepared = ingest.prepare_series(graph, uris, settings.semantic_dir)
     except ingest.IngestError as exc:
-        return _ingest_error(exc)
+        return ingest_error_response(exc)
     result = ingest.publish_and_audit(store, db, prepared, actor=editor, via="api")
     if not result.created:
         response.status_code = status.HTTP_200_OK
@@ -223,6 +226,7 @@ def get_dataset_rdf(
     uris: UrisDep,
     version: VersionQuery = None,
     rdf_format: Annotated[Literal["turtle", "jsonld"] | None, Query(alias="format")] = None,
+    download: downloads.DownloadQuery = False,
 ) -> Response:
     if rdf_format is not None:
         media: str | None = FORMAT_TO_MEDIA[rdf_format]
@@ -238,4 +242,14 @@ def get_dataset_rdf(
     except catalog.NotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No existe") from exc
     text = catalog.serialize(graph, uris, "json-ld" if media == JSONLD else "turtle")
-    return rdf_response(text, media)
+    number = version or _version_in(graph, uris.series(slug))
+    return downloads.apply(rdf_response(text, media), download, [slug, number], media)
+
+
+def _version_in(graph: Graph, series_uri: str) -> str | None:
+    """``dcat:version`` de la versión que contiene el grafo (la actual si no se pidió)."""
+    for node in graph.subjects(DCAT.inSeries, URIRef(series_uri)):
+        value = graph.value(node, DCAT.version)
+        if value is not None:
+            return str(value)
+    return None

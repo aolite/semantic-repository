@@ -42,7 +42,7 @@ from app import catalog
 from app.config import Settings, get_settings
 from app.deps import get_triplestore
 from app.models import AuditAction, AuditEvent, Role, User
-from app.sparql import iri, literal, render
+from app.sparql import literal, render
 from app.triplestore import FusekiStore, MemoryStore
 from app.uris import DCAT, DCT, SKOS, Uris
 from tests.conftest import BASE_URI
@@ -118,8 +118,21 @@ def no_network(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> list[str]
 
         return _raise
 
-    monkeypatch.setattr(socket.socket, "connect", _blocked("connect"))
-    monkeypatch.setattr(socket.socket, "connect_ex", _blocked("connect_ex"))
+    def _network_only(name: str) -> Callable[..., object]:
+        # Los sockets Unix locales no son red: los usa el proceso de validación SHACL
+        # (forkserver de multiprocessing, QA-G3-10). Se bloquea cualquier otra familia.
+        original = getattr(socket.socket, name)
+        blocked = _blocked(name)
+
+        def _connect(self: socket.socket, *args: object, **kwargs: object) -> object:
+            if self.family == getattr(socket, "AF_UNIX", None):
+                return original(self, *args, **kwargs)
+            return blocked(self, *args, **kwargs)
+
+        return _connect
+
+    monkeypatch.setattr(socket.socket, "connect", _network_only("connect"))
+    monkeypatch.setattr(socket.socket, "connect_ex", _network_only("connect_ex"))
     monkeypatch.setattr(socket, "create_connection", _blocked("create_connection"))
     monkeypatch.setattr(socket, "getaddrinfo", _blocked("getaddrinfo"))
     monkeypatch.setattr(urllib.request, "urlopen", _blocked("urlopen"))
@@ -171,15 +184,15 @@ def _assert_only_fixed_queries(store: MemoryStore) -> None:
     """Toda consulta enviada al triplestore es una plantilla fija; lo único variable es la
     IRI de un grafo de serie, que sigue el patrón de slug."""
     uris = Uris(BASE_URI)
+    vocab = catalog.vocab_params(uris)
     fixed = {
-        render(
-            catalog.CATALOG_QUERY,
-            dataset_ns=literal(uris.dataset_ns),
-            vocab=iri(uris.vocab_graph),
-        ),
+        render(catalog.CATALOG_QUERY, dataset_ns=literal(uris.dataset_ns), **vocab),
         catalog.SERIES_GRAPH_QUERY,
-        # El grafo del vocabulario es fijo (sale de BASE_URI); el de la serie, variable.
-        catalog.THEME_LABELS_QUERY.replace("$vocab", iri(uris.vocab_graph).text),
+        # Los parámetros del vocabulario son fijos (salen de BASE_URI); el grafo de la
+        # serie, variable.
+        catalog.THEME_LABELS_QUERY.replace("$vocab_ns", vocab["vocab_ns"].text).replace(
+            "$dominio", vocab["dominio"].text
+        ),
         "CONSTRUCT { ?s ?p ?o } WHERE { GRAPH $graph { ?s ?p ?o } }",
     }
     for query in store.queries:
@@ -508,9 +521,17 @@ def test_no_query_is_built_outside_app_sparql() -> None:
 
 def test_query_templates_take_only_escaped_terms() -> None:
     """Las plantillas solo tienen los marcadores previstos y ``render`` exige términos."""
-    assert set(re.findall(r"\$[a-z_]+", catalog.CATALOG_QUERY)) == {"$dataset_ns", "$vocab"}
+    assert set(re.findall(r"\$[a-z_]+", catalog.CATALOG_QUERY)) == {
+        "$dataset_ns",
+        "$vocab_ns",
+        "$dominio",
+    }
     assert set(re.findall(r"\$[a-z_]+", catalog.SERIES_GRAPH_QUERY)) == {"$graph"}
-    assert set(re.findall(r"\$[a-z_]+", catalog.THEME_LABELS_QUERY)) == {"$graph", "$vocab"}
+    assert set(re.findall(r"\$[a-z_]+", catalog.THEME_LABELS_QUERY)) == {
+        "$graph",
+        "$vocab_ns",
+        "$dominio",
+    }
     with pytest.raises(TypeError):
         render(catalog.SERIES_GRAPH_QUERY, graph="<urn:x:g> } UNION { ?s ?p ?o")  # type: ignore[arg-type]
 

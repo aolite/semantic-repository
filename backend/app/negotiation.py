@@ -10,6 +10,7 @@ from dataclasses import dataclass
 TURTLE = "text/turtle"
 JSONLD = "application/ld+json"
 HTML = "text/html"
+RDFXML = "application/rdf+xml"
 
 
 @dataclass(frozen=True)

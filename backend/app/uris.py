@@ -18,6 +18,17 @@ _VERSION_RE = re.compile(VERSION_PATTERN)
 DomainSlug = Literal["it", "ot", "pqc", "ia"]
 DOMAIN_SLUGS: tuple[str, ...] = ("it", "ot", "pqc", "ia")
 
+# Slugs reservados: ``vocab/corp/`` es el espacio de los esquemas corporativos, y
+# ``onto/externas`` el grafo de las ontologías externas.
+CORP_SEGMENT = "corp"
+EXTERNAL_ONTOLOGIES_SLUG = "externas"
+DOMAIN_SCHEME_SLUG = "dominio"
+RESERVED_SCHEME_SLUGS = frozenset({CORP_SEGMENT})
+# Esquemas auxiliares (semantic/uris.md): se leen como cualquier esquema, pero no se pueden
+# publicar por la API; solo los carga load-semantic desde data/vocab-minimo.ttl (QA-G3-06).
+AUXILIARY_SCHEME_SLUGS = frozenset({DOMAIN_SCHEME_SLUG, "tipo-dataset"})
+RESERVED_ONTOLOGY_SLUGS = frozenset({EXTERNAL_ONTOLOGIES_SLUG})
+
 DCAT = Namespace("http://www.w3.org/ns/dcat#")
 DCT = Namespace("http://purl.org/dc/terms/")
 ADMS = Namespace("http://www.w3.org/ns/adms#")
@@ -25,6 +36,8 @@ PROV = Namespace("http://www.w3.org/ns/prov#")
 FOAF = Namespace("http://xmlns.com/foaf/0.1/")
 SKOS = Namespace("http://www.w3.org/2004/02/skos/core#")
 VCARD = Namespace("http://www.w3.org/2006/vcard/ns#")
+OWL = Namespace("http://www.w3.org/2002/07/owl#")
+VANN = Namespace("http://purl.org/vocab/vann/")
 IANA_MEDIA_TYPES = "http://www.iana.org/assignments/media-types/"
 EU_ACCESS_RIGHT = "http://publications.europa.eu/resource/authority/access-right/"
 
@@ -85,6 +98,73 @@ class Uris:
 
     def domain_scheme(self, domain: str) -> str:
         return f"{self.vocab_ns}{domain}"
+
+    # --- Fase 3: vocabularios y ontologías -------------------------------------------
+
+    @property
+    def onto_ns(self) -> str:
+        return f"{self.base}onto/"
+
+    @property
+    def corp_vocab_ns(self) -> str:
+        return f"{self.vocab_ns}corp/"
+
+    @property
+    def external_ontologies_graph(self) -> str:
+        """Grafo con nombre de las ontologías externas (solo referencia)."""
+        return f"{self.onto_ns}{EXTERNAL_ONTOLOGIES_SLUG}"
+
+    @property
+    def domain_concepts_scheme(self) -> str:
+        """Esquema ``{BASE_URI}vocab/dominio`` con un concepto por dominio del catálogo."""
+        return f"{self.vocab_ns}{DOMAIN_SCHEME_SLUG}"
+
+    def domain_concept(self, domain: str) -> str:
+        return f"{self.domain_concepts_scheme}/{domain}"
+
+    def domain_of_domain_concept(self, concept_uri: str) -> str | None:
+        """Slug de ``{BASE_URI}vocab/dominio/{it|ot|pqc|ia}``, o ``None``."""
+        prefix = f"{self.domain_concepts_scheme}/"
+        if not concept_uri.startswith(prefix):
+            return None
+        rest = concept_uri[len(prefix) :]
+        return rest if rest in DOMAIN_SLUGS else None
+
+    def ontology(self, slug: str) -> str:
+        return f"{self.onto_ns}{slug}"
+
+    def ontology_version(self, slug: str, version: str) -> str:
+        return f"{self.onto_ns}{slug}/{version}"
+
+    def ontology_slug(self, uri: str) -> str | None:
+        """Slug de ``{BASE_URI}onto/{slug}`` (sin versión ni fragmento), o ``None``."""
+        if not uri.startswith(self.onto_ns):
+            return None
+        rest = uri[len(self.onto_ns) :]
+        return rest if is_slug(rest) and rest not in RESERVED_ONTOLOGY_SLUGS else None
+
+    def ontology_version_parts(self, uri: str) -> tuple[str, str] | None:
+        """``(slug, version)`` de ``{BASE_URI}onto/{slug}/{version}``, o ``None``."""
+        if not uri.startswith(self.onto_ns):
+            return None
+        slug, _, version = uri[len(self.onto_ns) :].partition("/")
+        if self.ontology_slug(f"{self.onto_ns}{slug}") is None or not is_version(version):
+            return None
+        return slug, version
+
+    def scheme(self, slug: str, *, corp: bool = False) -> str:
+        return f"{self.corp_vocab_ns if corp else self.vocab_ns}{slug}"
+
+    def scheme_parts(self, uri: str) -> tuple[str, bool] | None:
+        """``(slug, corporativo)`` de ``{BASE_URI}vocab/{slug}`` o ``…/vocab/corp/{slug}``."""
+        if uri.startswith(self.corp_vocab_ns):
+            rest = uri[len(self.corp_vocab_ns) :]
+            return (rest, True) if is_slug(rest) else None
+        if uri.startswith(self.vocab_ns):
+            rest = uri[len(self.vocab_ns) :]
+            if is_slug(rest) and rest not in RESERVED_SCHEME_SLUGS:
+                return rest, False
+        return None
 
     def series_slug(self, uri: str) -> str | None:
         """Slug de una URI de serie, o ``None`` si no sigue el patrón."""

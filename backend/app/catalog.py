@@ -19,7 +19,7 @@ from rdflib.namespace import RDF, RDFS
 from rdflib.term import Node
 
 from app import schemas
-from app.sparql import iri, literal, render
+from app.sparql import SparqlTerm, iri, literal, render
 from app.triplestore import TripleStore
 from app.uris import (
     ADMS,
@@ -49,8 +49,35 @@ PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
 # - Grafos de serie: el grafo con nombre de una serie es su propia URI
 #   (``GRAPH ?s { ?s a dcat:DatasetSeries }``), bajo ``{BASE_URI}dataset/``. Una serie
 #   guardada en cualquier otro grafo no aparece.
-# - Grafo del vocabulario (``$vocab``): de ahí, y solo de ahí, salen las etiquetas de
-#   temas y dominios.
+# - Grafos de esquemas: ver ``THEME_VOCAB``.
+#
+# Etiquetas, esquema y dominio de los temas (``?c``), comunes al catálogo y a la ficha.
+#
+# Solo se leen los grafos de esquemas (QA-G2-04): el grafo ``?cg`` tiene que estar bajo
+# ``{BASE_URI}vocab/`` (``$vocab_ns``) y ser el del esquema del concepto
+# (``?c skos:inScheme ?cg`` dentro de ``?cg``, con ``?c`` en ``{?cg}/``), y la etiqueta
+# del dominio sale solo del
+# esquema de dominios (``$dominio``). Un tema que apunte a un recurso descrito en otro
+# grafo no expone etiquetas: aparece con ``label`` y ``scheme`` a ``null``.
+#
+# Dominio (fase 3): el ``dct:subject`` del esquema de los temas, un concepto
+# ``{BASE_URI}vocab/dominio/{slug}``.
+THEME_VOCAB = """    {
+      GRAPH ?cg { ?c skos:inScheme ?cg ; ?cp ?co . }
+      VALUES ?cp { skos:prefLabel skos:altLabel skos:inScheme }
+      FILTER(STRSTARTS(STR(?cg), $vocab_ns))
+      FILTER(STRSTARTS(STR(?c), CONCAT(STR(?cg), "/")))
+    } UNION {
+      GRAPH ?sch { ?c skos:inScheme ?sch . ?sch skos:prefLabel ?schl . }
+      FILTER(STRSTARTS(STR(?sch), $vocab_ns))
+      FILTER(STRSTARTS(STR(?c), CONCAT(STR(?sch), "/")))
+    } UNION {
+      GRAPH ?sch { ?c skos:inScheme ?sch . ?sch dct:subject ?dom . }
+      FILTER(STRSTARTS(STR(?sch), $vocab_ns))
+      FILTER(STRSTARTS(STR(?c), CONCAT(STR(?sch), "/")))
+      OPTIONAL { GRAPH $dominio { ?dom skos:inScheme $dominio ; skos:prefLabel ?doml . } }
+    }"""
+
 CATALOG_QUERY = (
     PREFIXES
     + """CONSTRUCT {
@@ -58,7 +85,8 @@ CATALOG_QUERY = (
   ?v ?vp ?vo .
   ?d ?dp ?do .
   ?c ?cp ?co .
-  ?sch skos:prefLabel ?schl .
+  ?sch skos:prefLabel ?schl . ?sch dct:subject ?dom .
+  ?dom skos:prefLabel ?doml .
 } WHERE {
   {
     GRAPH ?s { ?s a dcat:DatasetSeries ; ?sp ?so . }
@@ -76,13 +104,10 @@ CATALOG_QUERY = (
     FILTER(STRSTARTS(STR(?ds), $dataset_ns))
   } UNION {
     GRAPH ?ts { ?ts a dcat:DatasetSeries . ?tv dcat:inSeries ?ts ; dcat:theme ?c . }
-    GRAPH $vocab { ?c ?cp ?co . }
-    VALUES ?cp { skos:prefLabel skos:altLabel skos:inScheme }
     FILTER(STRSTARTS(STR(?ts), $dataset_ns))
-  } UNION {
-    GRAPH ?ls { ?ls a dcat:DatasetSeries . ?lv dcat:inSeries ?ls ; dcat:theme ?lc . }
-    GRAPH $vocab { ?lc skos:inScheme ?sch . ?sch skos:prefLabel ?schl . }
-    FILTER(STRSTARTS(STR(?ls), $dataset_ns))
+"""
+    + THEME_VOCAB
+    + """
   }
 }"""
 )
@@ -93,15 +118,14 @@ THEME_LABELS_QUERY = (
     PREFIXES
     + """CONSTRUCT {
   ?c ?cp ?co .
-  ?sch skos:prefLabel ?schl .
+  ?sch skos:prefLabel ?schl . ?sch dct:subject ?dom .
+  ?dom skos:prefLabel ?doml .
 } WHERE {
   {
-    GRAPH $graph { ?v dcat:theme ?c . }
-    GRAPH $vocab { ?c ?cp ?co . }
-    VALUES ?cp { skos:prefLabel skos:altLabel skos:inScheme }
-  } UNION {
-    GRAPH $graph { ?v dcat:theme ?c . }
-    GRAPH $vocab { ?c skos:inScheme ?sch . ?sch skos:prefLabel ?schl . }
+    GRAPH $graph { ?tv dcat:theme ?c . }
+"""
+    + THEME_VOCAB
+    + """
   }
 }"""
 )
@@ -112,6 +136,15 @@ LABEL_PROPERTIES = (SKOS.prefLabel, RDFS.label, FOAF.name, DCT.title, VCARD.fn)
 
 class NotFoundError(LookupError):
     pass
+
+
+def vocab_params(uris: Uris) -> dict[str, SparqlTerm]:
+    """Parámetros de ``THEME_VOCAB``: prefijo de los grafos de esquemas y esquema de
+    dominios."""
+    return {
+        "vocab_ns": literal(uris.vocab_ns),
+        "dominio": iri(uris.domain_concepts_scheme),
+    }
 
 
 # --- Utilidades RDF ------------------------------------------------------------------
@@ -276,7 +309,14 @@ class SeriesView:
         return texts
 
     def domains(self) -> list[schemas.DomainRef]:
-        """Dominios del dataset: esquemas de dominio de los temas de la versión actual."""
+        """Dominios del dataset: el ``dct:subject`` (concepto ``vocab/dominio/{slug}``) del
+        esquema de los temas de la versión actual.
+
+        Respaldos, por orden, si el esquema no declara ``dct:subject``: el esquema mismo
+        cuando es ``{BASE_URI}vocab/{it|ot|pqc|ia}`` (modelo de la fase 2) y, si el
+        vocabulario no está cargado, el patrón de la URI del concepto
+        (``{BASE_URI}vocab/{esquema}/{slug}``).
+        """
         current = self.current()
         if current is None:
             return []
@@ -284,24 +324,31 @@ class SeriesView:
         for concept in sorted_nodes(self.graph.objects(current, DCAT.theme)):
             if not isinstance(concept, URIRef):
                 continue
-            slugs = [
-                (slug, scheme)
-                for scheme in self.graph.objects(concept, SKOS.inScheme)
-                if (slug := self.uris.domain_of_scheme(str(scheme)))
-            ]
-            if not slugs:
-                # Respaldo si el vocabulario no está cargado: patrón vocab/{esquema}/{slug}.
-                slug = self.uris.domain_of_concept_uri(str(concept))
-                if slug:
-                    slugs = [(slug, URIRef(self.uris.domain_scheme(slug)))]
-            for slug, scheme in slugs:
+            for slug, label in self._concept_domains(concept):
                 if slug not in found:
                     found[slug] = schemas.DomainRef(
                         slug=slug,  # type: ignore[arg-type]
-                        uri=str(scheme),
-                        label=pick_literal(self.graph.objects(scheme, SKOS.prefLabel)),
+                        uri=self.uris.domain_concept(slug),
+                        label=label,
                     )
         return list(found.values())
+
+    def _concept_domains(self, concept: URIRef) -> list[tuple[str, str | None]]:
+        result: list[tuple[str, str | None]] = []
+        schemes = sorted_nodes(self.graph.objects(concept, SKOS.inScheme))
+        for scheme in schemes:
+            subjects = sorted_nodes(self.graph.objects(scheme, DCT.subject))
+            for subject in subjects:
+                slug = self.uris.domain_of_domain_concept(str(subject))
+                if slug:
+                    result.append((slug, pick_literal(self.graph.objects(subject, SKOS.prefLabel))))
+            if not subjects and (slug := self.uris.domain_of_scheme(str(scheme))):
+                result.append((slug, pick_literal(self.graph.objects(scheme, SKOS.prefLabel))))
+        if not result and not schemes:
+            slug = self.uris.domain_of_concept_uri(str(concept))
+            if slug:
+                result.append((slug, None))
+        return result
 
     def formats(self, version: URIRef | None) -> list[str]:
         if version is None:
@@ -362,7 +409,11 @@ def list_datasets(
     page_size: int = 20,
 ) -> schemas.DatasetPage:
     graph = store.construct(
-        render(CATALOG_QUERY, dataset_ns=literal(uris.dataset_ns), vocab=iri(uris.vocab_graph))
+        render(
+            CATALOG_QUERY,
+            dataset_ns=literal(uris.dataset_ns),
+            **vocab_params(uris),
+        )
     )
     cards: list[schemas.DatasetCard] = []
     for node in sorted_nodes(graph.subjects(RDF.type, DCAT.DatasetSeries)):
@@ -399,7 +450,7 @@ def load_series(store: TripleStore, uris: Uris, slug: str) -> SeriesView:
     if (node, RDF.type, DCAT.DatasetSeries) not in graph:
         raise NotFoundError(slug)
     labels = store.construct(
-        render(THEME_LABELS_QUERY, graph=iri(uris.series(slug)), vocab=iri(uris.vocab_graph))
+        render(THEME_LABELS_QUERY, graph=iri(uris.series(slug)), **vocab_params(uris))
     )
     for triple in labels:
         graph.add(triple)
