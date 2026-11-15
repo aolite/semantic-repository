@@ -1,4 +1,4 @@
-"""Entorno de las pruebas de extremo a extremo de las puertas (G1 y G2).
+"""Entorno de las pruebas de extremo a extremo de las puertas (G1 a G3).
 
 Levanta el ``docker-compose.yml`` real del repositorio en un proyecto de Compose propio
 (``itot-e2e-<aleatorio>``), con puertos libres elegidos al vuelo y un fichero de entorno
@@ -237,6 +237,27 @@ class Stack:
     def remember(self, name: str, value: str) -> str:
         self.sensitive[name] = value
         return value
+
+
+def fuseki_probe_url(stack: Stack, marker: str, *, from_host: bool = False) -> str:
+    """URL del Fuseki del entorno que deja ``marker`` en el log de Fuseki si alguien la pide.
+
+    Es una consulta ``ASK`` al endpoint SPARQL: Fuseki registra las consultas con su texto,
+    pero no las peticiones a rutas que no son de un dataset. Sirve para comprobar que el
+    backend (o un proceso que lance, como Pellet) no sale a buscar una URL que viene en el
+    RDF. Por defecto es la URL vista desde la red de Compose; con ``from_host``, la del
+    puerto publicado, para lanzar una petición de control desde la prueba.
+    """
+    query = urllib.parse.quote(f"ASK {{ <urn:qa:{marker}> ?p ?o }}", safe="")
+    base = stack.fuseki if from_host else stack.env["FUSEKI_URL"]
+    return f"{base}/{stack.env['FUSEKI_DATASET']}/sparql?query={query}"
+
+
+def fuseki_logged(stack: Stack, marker: str) -> bool:
+    """¿Aparece ``marker`` en el log de Fuseki?"""
+    logs = stack.compose("logs", "--no-color", "--no-log-prefix", "fuseki", timeout=120)
+    assert logs.returncode == 0, logs.stderr
+    return marker in logs.stdout + logs.stderr
 
 
 def _docker_available() -> str | None:

@@ -22,7 +22,17 @@ import urllib.parse
 from http.client import HTTPConnection
 
 import pytest
-from conftest import REPO_ROOT, Account, Response, Stack, create_account, http, wait_for_http
+from conftest import (
+    REPO_ROOT,
+    Account,
+    Response,
+    Stack,
+    create_account,
+    fuseki_logged,
+    fuseki_probe_url,
+    http,
+    wait_for_http,
+)
 
 SYNTHETIC_DIR = REPO_ROOT / "semantic" / "data" / "sintetico"
 INVALID_DIR = REPO_ROOT / "semantic" / "examples" / "invalid"
@@ -219,8 +229,11 @@ def test_el_catalogo_esta_vacio_antes_de_cargar(stack: Stack) -> None:
 
 def test_load_semantic_carga_las_cinco_piezas(stack: Stack, loaded: str) -> None:
     base = _base_uri(stack)
+    # Desde la fase 3, los dos esquemas auxiliares de vocab-minimo.ttl van cada uno en el
+    # grafo de su URI (antes, juntos en {BASE_URI}vocab/).
     expected = {
-        "vocab-minimo.ttl": f"{base}vocab/",
+        "vocab-minimo.ttl (dominio)": f"{base}vocab/dominio",
+        "vocab-minimo.ttl (tipo-dataset)": f"{base}vocab/tipo-dataset",
         "catalogo.ttl": f"{base}catalogo",
         **{f"{slug}.ttl": f"{base}dataset/{slug}" for slug in SYNTHETIC},
     }
@@ -242,7 +255,9 @@ def test_load_semantic_es_idempotente(stack: Stack, loaded: str) -> None:
     code, output = _load_semantic(stack)
     assert code == 0, output
     lines = [line for line in output.splitlines() if " -> <" in line]
-    assert len(lines) == 5, output
+    # Las piezas de la fase 2 (el vocabulario mínimo son ahora dos esquemas, cada uno en
+    # su grafo). Desde la fase 3 hay más: el recuento exacto está en la prueba de G3.
+    assert len(lines) >= 6, output
     assert all("sin cambios" in line for line in lines), output
     assert _graphs(stack) == before
 
@@ -776,17 +791,20 @@ def test_la_ingesta_rechaza_sintaxis_tipos_y_contextos_remotos(
         assert _publish(stack, body, token, {"Content-Type": content_type}).status == 415
 
     # Contexto JSON-LD remoto: se rechaza sin que el backend salga a buscarlo. El destino
-    # es el propio Fuseki del entorno, que registraría la petición en su log.
+    # es el endpoint SPARQL del propio Fuseki del entorno, que registra cada consulta en su
+    # log (una ruta cualquiera de Fuseki no queda registrada: por eso hay una de control).
     probe = f"qa-ssrf-{secrets.token_hex(6)}"
     remote = {
-        "@context": f"{stack.env['FUSEKI_URL']}/{probe}",
+        "@context": fuseki_probe_url(stack, probe),
         "@id": f"dataset/{slug}",
     }
     response = _publish(stack, json.dumps(remote), token, JSONLD)
     assert response.status == 422
     assert "contextos remotos" in response.json()["detail"]
-    logs = stack.compose("logs", "--no-color", "--no-log-prefix", "fuseki", timeout=120)
-    assert probe not in logs.stdout + logs.stderr
+    assert not fuseki_logged(stack, probe)
+    control = f"qa-control-{secrets.token_hex(6)}"
+    http("GET", fuseki_probe_url(stack, control, from_host=True))
+    assert fuseki_logged(stack, control), "el log de Fuseki no registra las consultas"
 
     assert _graphs(stack) == before
     assert http("GET", f"{stack.api}/datasets/{slug}").status == 404
