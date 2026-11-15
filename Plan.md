@@ -166,7 +166,7 @@ Modelos decididos por el responsable el 2026-11-14:
 | `backend` | Read, Edit, Write, Bash, Grep, Glob | Claude Opus 5.5 (`opus`) |
 | `frontend` | Read, Edit, Write, Bash, Grep, Glob | Claude Opus 5.5 (`opus`) |
 | `infra` | Read, Edit, Write, Bash, Grep, Glob | Claude Sonnet 5.5, el último Sonnet (`sonnet`) |
-| `qa` | Read, Edit, Write, Bash, Grep, Glob. Necesita escribir para crear las pruebas; la restricción de no tocar código de producción va en su system prompt, porque `tools` no se puede limitar por ruta | Claude Fable 5.2 (`fable`), para las pruebas y las pruebas de seguridad |
+| `qa` | Read, Edit, Write, Bash, Grep, Glob. Necesita escribir para crear las pruebas; la restricción de no tocar código de producción va en su system prompt, porque `tools` no se puede limitar por ruta | Claude Sonnet 5.5 (`sonnet`). Cambiado el 2026-11-15 desde Claude Fable 5.2 para consumir menos tokens |
 | `docs` | Read, Edit, Write, Grep, Glob | Claude Sonnet 5.5, el último Sonnet (`sonnet`) |
 
 La documentación de Claude Code confirma que el campo `model:` acepta los alias `opus`, `sonnet`, `haiku` y `fable`.
