@@ -45,10 +45,12 @@ from rdflib.namespace import OWL, RDF, SKOS
 DEFAULT_BASE_URI = "https://semantic.example.org/itot/"
 SLUG = r"[a-z0-9]+(?:-[a-z0-9]+)*"
 VERSION = r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)"
+# Esquemas SKOS: dos o tres números (1.0, 2026.1, 1.2.3), no siempre semver.
+SCHEME_VERSION = r"(?:0|[1-9][0-9]*)(?:\.(?:0|[1-9][0-9]*)){1,2}"
 TAG_PATTERNS = (
     ("onto", re.compile(rf"^onto/({SLUG})/v({VERSION})$")),
-    ("vocab-corp", re.compile(rf"^vocab/corp/({SLUG})/v({VERSION})$")),
-    ("vocab", re.compile(rf"^vocab/({SLUG})/v({VERSION})$")),
+    ("vocab-corp", re.compile(rf"^vocab/corp/({SLUG})/v({SCHEME_VERSION})$")),
+    ("vocab", re.compile(rf"^vocab/({SLUG})/v({SCHEME_VERSION})$")),
 )
 # REPO_ROOT solo sirve para probar el script contra un árbol de prueba.
 ROOT = Path(os.environ.get("REPO_ROOT") or Path(__file__).resolve().parents[2])

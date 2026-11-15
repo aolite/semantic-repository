@@ -96,7 +96,7 @@ El job `e2e` (propuesta pendiente de decisión del responsable) ejecuta `uv run 
 | Vocabulario SKOS | `vocab/{slug}/v{version}` | `semantic/vocabularios/{slug}.ttl` |
 | Vocabulario corporativo | `vocab/corp/{slug}/v{version}` | `semantic/vocabularios/corp/{slug}.ttl` |
 
-`{slug}` y `{version}` siguen `semantic/uris.md` (`MAYOR.MENOR.PARCHE`, sin `v` en el fichero ni en el RDF; la `v` solo va en la etiqueta).
+`{slug}` sigue `semantic/uris.md`. La versión de una ontología es semver de 3 números (`1.2.0`). La de un esquema SKOS lleva 2 o 3 números (`1.0`, `2026.1`). La `v` solo va en la etiqueta, no en el fichero ni en el RDF.
 
 ```bash
 git switch main && git pull
@@ -112,7 +112,7 @@ Si una etiqueta sale mal y la Release aún no existe, bórrala con `git push --d
 2. Valida con `uv run semantic/scripts/validate.py` (todo `semantic/`).
 3. `infra/scripts/publicar.py` deduce tipo, slug y versión de la etiqueta; falla si no existe el fichero o si la versión no coincide con la del RDF:
    - ontologías: `owl:versionInfo` y/o `owl:versionIRI` (que debe terminar en `/{version}`); debe haber al menos uno y un único `owl:Ontology`;
-   - SKOS: la propiedad indicada por la variable `SKOS_VERSION_PREDICATE` en cada `skos:ConceptScheme` (por defecto `owl:versionInfo`; `none` desactiva la comprobación). **Pendiente de que `semantico` fije dónde va la versión del esquema.**
+   - SKOS: la propiedad indicada por la variable `SKOS_VERSION_PREDICATE` en cada `skos:ConceptScheme` (por defecto `owl:versionInfo`; `none` desactiva la comprobación). `semantico` lo fijó así: `owl:versionInfo` en el `skos:ConceptScheme`.
 4. Los `.ttl` usan IRIs relativas sin `@base`. El script los lee con rdflib y `publicID=BASE_URI`, de modo que las IRIs relativas quedan expandidas, y serializa los artefactos ya expandidos. `BASE_URI` es la variable de repositorio del mismo nombre; si no existe, vale `https://semantic.example.org/itot/` (hasta que se fije el dominio real en la fase 5).
 5. Documentación:
    - ontologías: **WIDOCO 1.4.26** (JAR oficial con dependencias, JDK 17, fijado por versión y SHA-256) sobre el RDF/XML expandido, con idioma `WIDOCO_LANG` (por defecto `es`; con varios idiomas la 1.4.26 falla en LODE) y vista WebVOWL. WIDOCO resuelve los `owl:imports` por red al cargar la ontología y no tiene opción para desactivarlo; si una ontología importa otras, hay que valorar vendorizarlas.
