@@ -242,7 +242,7 @@ Las fases y las puertas son las del plan de implementación. Las semanas son ori
 | Puerta | Estado | Fecha | Evidencia |
 |---|---|---|---|
 | G1 · Entorno local listo | Cerrada, validada por el responsable | 2026-11-14 | PR #1 a #7; CI en verde en `main`; e2e de G1 (`tests/e2e/`) con 33 casos; entorno levantado y revisado en local |
-| G2 · Primer dataset publicado | Pendiente | | |
+| G2 · Primer dataset publicado | Cerrada, validada por el responsable | 2026-11-15 | PR #9 a #15; CI en verde en `main`; e2e de G2 (`tests/e2e/test_g2_catalogo.py`); catálogo y ficha con los tres datasets sintéticos revisados en local |
 | G3 · Vocabularios cargados | Pendiente | | |
 | G4 · FAIR y versiones integrados | Pendiente | | |
 
@@ -279,15 +279,15 @@ Hay que resolverlas antes de la fase o el paso indicado.
 | 4 | ~~Detalles del frontend~~. Decidido: TypeScript, Vite, React Router y Vitest (la librería de estado sigue abierta) | `frontend` | Cerrada |
 | 5 | ~~Motor de base de datos~~. Decidido: PostgreSQL | `backend`, `infra` | Cerrada |
 | 6 | ~~Almacenamiento de distribuciones~~. Decidido: disco de la máquina en el MVP y Cloudflare R2 en el despliegue, cuando se configure | `infra`, `backend` | Cerrada |
-| 7 | ROBOT u owlready2 para las métricas OWL | `backend`, `semantico` | Fase 3 |
+| 7 | ~~ROBOT u owlready2 para las métricas OWL~~. Decidido (2026-11-15): owlready2 | `backend`, `semantico` | Cerrada |
 | 8 | ~~Modelo de Claude para cada subagente~~. Decidido: ver la tabla de la sección 3 | Coste y calidad | Cerrada |
 | 9 | ~~Convención de ramas, commits y registro de decisiones~~. Decidido: `<agente>/<descripción-corta>`, Conventional Commits y ADR en `docs/adr/` | Todos | Cerrada |
 | 10 | ~~Primer dataset para G2~~. Decidido (2026-11-14): G2 se demuestra con datasets **sintéticos**, los tres del catálogo del prototipo (Modbus/TCP, hallazgos de auditorías y ejemplos adversarios en visión), marcados como sintéticos. Los datasets reales y los valores de licencia, contacto y proyecto llegan en el piloto | `semantico`, `backend` | Cerrada (datos reales en la fase 5) |
-| 11 | Responsable nombrado por cada esquema corporativo (mitigación de gobernanza) | `semantico` | Fase 3 |
+| 11 | Responsable nombrado por cada esquema corporativo (mitigación de gobernanza). Decidido (2026-11-15): se modela el campo y queda como placeholder `[RESPONSABLE]` hasta el piloto; no se escriben nombres en el repositorio | `semantico` | Valor real en la fase 5 |
 | 12 | Proveedor cloud. Cloudflare es una opción: las distribuciones ya irán a R2; falta evaluar qué otros componentes pueden alojarse ahí (p. ej. el frontend estático) y cuáles necesitan otro sitio (FastAPI, Fuseki, F-UJI, PostgreSQL) | `infra` | Fase 5 |
 | 13 | Papel de ChatGPT Pro y Gemini: el plan de implementación los cita como asistentes, pero este sistema multi-agente se limita a Claude Code | Proceso | Cuando el responsable lo decida |
 | 14 | ~~Alcance y herramientas de las pruebas de seguridad~~. Decidido: JWT, autorización por rol, acceso a distribuciones restringidas, inyección en SPARQL y análisis de dependencias, con pip-audit, npm audit y pruebas pytest propias | `qa` | Cerrada |
-| 15 | Razonador para la consistencia OWL: el diseño y el plan de implementación citan HermiT; una versión anterior de este plan decía Pellet | `backend`, `semantico` | Fase 3 |
+| 15 | ~~Razonador para la consistencia OWL~~. Decidido (2026-11-15): Pellet (vía owlready2). El diseño citaba HermiT; la interfaz muestra el razonador que devuelve la API | `backend`, `semantico`, `frontend` | Cerrada |
 | 16 | ~~¿El admin hereda los permisos de editor?~~ Decidido (2026-11-14): sí | `backend` | Cerrada |
 | 17 | ~~`dcat:accessURL` de las distribuciones~~. Decidido (2026-11-14): la URI de la propia distribución | `semantico`, `backend` | Cerrada |
 | 18 | Seguridad del login: límite de intentos, si la auditoría guarda el `username` de los fallos y revocación de tokens tras una baja | `backend` | Antes del piloto |
@@ -297,5 +297,17 @@ Hay que resolverlas antes de la fase o el paso indicado.
 | 22 | Revisar las obligatoriedades de las formas SHACL contra el texto oficial de DCAT-AP 3, y si se añaden sus cardinalidades máximas | `semantico` | Fase 2 |
 | 23 | Fuente IBM Plex Mono servida desde el propio frontend (`@fontsource`) en lugar de Google Fonts, por la residencia en la UE; y los elementos de interfaz que no salen del prototipo (iconos de navegación, colores de error, bloque de sesión) | `frontend` | Fase 2 |
 | 24 | `/docs` y `/redoc` públicos en el despliegue (cargan recursos de un CDN externo) | `backend`, `infra` | Fase 5 |
-| 25 | Ejecución de la e2e en CI (propuesta en un commit separado de la PR de infra de la fase 2). El healthcheck del frontend ya está hecho en esa misma PR | `infra` | Al revisar la PR de infra de la fase 2 |
+| 25 | ~~Ejecución de la e2e en CI~~. Incluida al fusionar la PR #11 sin revertir el commit propuesto; el healthcheck del frontend también está hecho | `infra` | Cerrada (2026-11-15) |
 | 26 | ~~Alcance de la ficha de dataset en G2~~. Decidido (2026-11-14): versionado y distribuciones con los datos que haya en el RDF; la sección FAIR muestra «Disponible en la fase 4» sin puntuaciones inventadas | `frontend` | Cerrada |
+| 27 | ~~Contenido de la fase 3~~. Decidido (2026-11-15): vocabularios y ontologías **sintéticos**, sacados de las pantallas del prototipo y marcados como sintéticos; definiciones y mapeos externos que el prototipo no detalla quedan como placeholder; los reales llegan en el piloto | `semantico` | Cerrada |
+| 28 | ¿Las versiones publicadas de un dataset son inmutables? Hoy, republicar una serie sin una versión la elimina | `backend` | Antes del piloto |
+| 29 | ¿Quién mantiene `dcat:dataset` del catálogo al publicar por la API? Hoy nadie, aunque el listado sí muestra la serie | `backend`, `semantico` | Fase 3 |
+| 30 | ¿La búsqueda `q` cubre también la URI, o se cambia el texto «Título, concepto o URI» del buscador? | `backend`, `frontend` | Fase 3 |
+| 31 | Sin `Accept` o con `*/*`, ¿las URIs persistentes devuelven Turtle (hoy) o HTML? | `backend` | Antes del piloto |
+| 32 | Usuario de escritura en Fuseki propio para el backend, en lugar de `admin` | `infra`, `backend` | Antes del piloto |
+| 33 | Paginación de la pantalla Catálogo (hoy se piden 100) y filtros en la URL | `frontend` | Fase 3 |
+| 34 | Herramienta para pruebas de pantallas en navegador (propuesta: Playwright) | `qa` | Fase 3 |
+| 35 | Pantalla para publicar datasets desde el frontend (hoy solo por API o `load-semantic`) | `frontend`, `backend` | Cuando lo decida el responsable |
+| 36 | ~~URIs de los vocabularios corporativos~~. Decidido (2026-11-15): bajo `BASE_URI`, en `{BASE_URI}vocab/corp/{slug}/`, no en un dominio `/eurecat/` aparte como el prototipo; si Eurecat los publica en su dominio, se enlazan con `skos:exactMatch` | `semantico`, `backend` | Cerrada |
+| 37 | ~~Qué es «publicar» en el flujo de Git de la fase 3~~. Decidido (2026-11-15): una Release de GitHub con el RDF validado y la documentación WIDOCO al empujar una etiqueta `onto/{slug}/v{version}` o `vocab/[corp/]{slug}/v{version}`; la carga en un entorno es con `load-semantic` y el despliegue automático llega en la fase 5 | `infra` | Cerrada |
+| 38 | ~~Contenido de las ontologías sintéticas sin fuente~~. Decidido (2026-11-15): se retiran los `rdfs:comment`, las propiedades de objeto y el alineamiento concreto con D3FEND que el prototipo no da; se mantienen las clases que nombra el prototipo con etiqueta en español y las traducciones del nombre como propuesta | `semantico` | Cerrada |
