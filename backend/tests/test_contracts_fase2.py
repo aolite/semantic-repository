@@ -140,21 +140,44 @@ def test_env_example_matches_backend_settings() -> None:
 TYPE_NAMES = {"TokenResponse": "Token", "CurrentUser": "UserRead", "HealthResponse": "HealthStatus"}
 
 
-def _typescript_interfaces() -> dict[str, dict[str, bool]]:
-    """``{interfaz: {propiedad: admite_null}}`` de ``frontend/src/api/types.ts``."""
+def _typescript_source() -> str:
+    """``frontend/src/api/types.ts`` sin comentarios."""
     text = _require(FRONTEND_TYPES).read_text(encoding="utf-8")
     text = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
-    text = re.sub(r"//[^\n]*", "", text)
-    interfaces: dict[str, dict[str, bool]] = {}
-    for name, body in re.findall(r"export interface (\w+) \{(.*?)\n\}", text, flags=re.DOTALL):
-        properties: dict[str, bool] = {}
-        for prop, optional, ts_type in re.findall(
-            r"^\s*(\w+)(\??):\s*([^\n]+)$", body, re.MULTILINE
-        ):
-            assert optional == "", f"{name}.{prop}: el contrato no tiene propiedades opcionales"
-            properties[prop] = bool(re.search(r"\|\s*null\b", ts_type))
-        interfaces[name] = properties
+    return re.sub(r"//[^\n]*", "", text)
+
+
+def _typescript_properties() -> dict[str, dict[str, tuple[str, bool]]]:
+    """``{interfaz: {propiedad: (tipo, opcional)}}`` de ``frontend/src/api/types.ts``."""
+    interfaces: dict[str, dict[str, tuple[str, bool]]] = {}
+    for name, body in re.findall(
+        r"export interface (\w+) \{(.*?)\n\}", _typescript_source(), flags=re.DOTALL
+    ):
+        interfaces[name] = {
+            prop: (ts_type.strip(), optional == "?")
+            for prop, optional, ts_type in re.findall(
+                r"^\s*(\w+)(\??):\s*([^\n]+)$", body, re.MULTILINE
+            )
+        }
     return interfaces
+
+
+def _typescript_interfaces() -> dict[str, dict[str, bool]]:
+    """``{interfaz: {propiedad: admite_null}}`` de ``frontend/src/api/types.ts``."""
+    return {
+        name: {
+            prop: bool(re.search(r"\|\s*null\b", ts_type)) for prop, (ts_type, _) in props.items()
+        }
+        for name, props in _typescript_properties().items()
+    }
+
+
+def _typescript_optional() -> dict[str, set[str]]:
+    """``{interfaz: {propiedades con ?:}}``."""
+    return {
+        name: {prop for prop, (_, optional) in props.items() if optional}
+        for name, props in _typescript_properties().items()
+    }
 
 
 def _nullable(schema: dict) -> bool:
@@ -170,10 +193,16 @@ def test_frontend_types_match_the_openapi_contract() -> None:
         assert schema_name in schemas, f"{ts_name}: no hay esquema {schema_name} en openapi.json"
         schema = schemas[schema_name]
         assert set(properties) == set(schema["properties"]), ts_name
-        # El frontend trata todos los campos como siempre presentes: el contrato debe
-        # exigirlos, salvo los que declaran un valor por defecto (siempre se devuelven).
+        # Un campo que el frontend trata como siempre presente (sin ``?:``) tiene que
+        # exigirlo el contrato, o declarar un valor por defecto (siempre se devuelve). Y al
+        # revés: lo que el contrato exige no puede ser opcional en el frontend. Desde la
+        # fase 3 el frontend marca con ``?:`` los campos que el contrato no exige.
+        required = set(schema.get("required", []))
         with_default = {p for p, s in schema["properties"].items() if "default" in s}
-        assert set(schema.get("required", [])) | with_default == set(properties), ts_name
+        optional = _typescript_optional()[ts_name]
+        assert optional & required == set(), f"{ts_name}: {optional & required}"
+        always = set(properties) - optional
+        assert required <= always <= required | with_default, ts_name
         for prop, nullable in properties.items():
             assert nullable == _nullable(schema["properties"][prop]), f"{ts_name}.{prop}"
 
