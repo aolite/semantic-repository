@@ -12,8 +12,8 @@
 
 Las pruebas de la fase 2 (``test_contracts_fase2.py``) siguen vigentes. Cada prueba se
 salta si la carpeta de la otra capa no está (p. ej. dentro de la imagen Docker del
-backend). Los defectos abiertos van con ``xfail(strict=True)`` y su identificador (hoy,
-QA-G3-13).
+backend). Los defectos abiertos van con ``xfail(strict=True)`` y su identificador
+(hoy, ninguno).
 """
 
 import importlib.util
@@ -100,10 +100,6 @@ def test_frontend_declares_every_phase_3_read_schema() -> None:
     assert interfaces >= PHASE_3_INTERFACES, PHASE_3_INTERFACES - interfaces
 
 
-# Propiedades cuyo enumerado no coincide todavía con el contrato (defectos abiertos).
-KNOWN_ENUM_GAPS = {("SchemeDetail", "kind")}
-
-
 def _aliases() -> dict[str, list[str]]:
     """``export type X = 'a' | 'b'`` -> ``{X: [a, b]}``."""
     return {
@@ -155,23 +151,19 @@ def test_frontend_literal_types_match_the_contract_enums() -> None:
                 alias = re.match(r"\(?(\w+)", ts_type)
                 assert alias and alias.group(1) in aliases, f"{ts_name}.{prop}: {ts_type}"
                 literals = aliases[alias.group(1)]
-            if (ts_name, prop) in KNOWN_ENUM_GAPS:
-                continue  # defecto abierto, con su propia prueba
             assert sorted(literals) == sorted(expected), f"{ts_name}.{prop}"
             checked += 1
     assert checked >= 12
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="QA-G3-13: el contrato añade 'auxiliary' a SchemeDetail.kind (esquemas vocab/dominio y "
-    "vocab/tipo-dataset) y el tipo del frontend sigue con 'skos_corp' | 'skos_domain'; KindTag "
-    "no tiene estilo para ese valor y el Navegador SKOS se rompe al pintarlo",
-)
 def test_frontend_scheme_kind_matches_the_contract() -> None:
+    """QA-G3-13 (corregido): el frontend contempla ``auxiliary`` (esquemas ``vocab/dominio``
+    y ``vocab/tipo-dataset``), con el tipo en la propiedad o en un alias."""
     ts_type, _optional = _typescript_properties()["SchemeDetail"]["kind"]
     expected = _contract()["components"]["schemas"]["SchemeDetail"]["properties"]["kind"]["enum"]
-    assert sorted(re.findall(r"'([^']+)'", ts_type)) == sorted(expected)
+    literals = re.findall(r"'([^']+)'", ts_type) or _aliases()[ts_type]
+    assert sorted(literals) == sorted(expected)
+    assert "auxiliary" in literals
 
 
 def _query_enum(path: str, parameter: str) -> list[str]:

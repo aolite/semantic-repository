@@ -814,6 +814,9 @@ def test_rdf_de_un_esquema_y_de_un_concepto(stack: Stack, loaded: str) -> None:
         ("/vocab/corp/trl", "/vocabularios/corp/trl"),
         ("/vocab/ot/modbus-tcp", "/vocabularios/ot?concepto=modbus-tcp"),
         ("/vocab/corp/trl/trl-1", "/vocabularios/corp/trl?concepto=trl-1"),
+        # Esquema auxiliar: la URI de dominio que la API devuelve en cada dataset.
+        ("/vocab/dominio", "/vocabularios/dominio"),
+        ("/vocab/dominio/ot", "/vocabularios/dominio?concepto=ot"),
     ],
 )
 def test_las_uris_persistentes_redirigen_303_al_frontend(
@@ -1303,6 +1306,33 @@ def test_los_esquemas_auxiliares_se_sirven_como_tales(stack: Stack, loaded: str)
         "ot",
         "pqc",
     ]
+
+
+def test_la_uri_de_dominio_de_un_dataset_lleva_al_esquema_auxiliar(
+    stack: Stack, loaded: str
+) -> None:
+    """QA-G3-13: la ``uri`` de dominio de un dataset se puede seguir hasta el Navegador SKOS:
+    303 al frontend, y la API da el esquema auxiliar y el concepto que esa pantalla pide."""
+    base = _base(stack)
+    (domain,) = _json(stack, "/datasets/modbus-tcp-testbed")["domains"]
+    assert domain["uri"] == f"{base}vocab/dominio/ot"
+    path = "/" + domain["uri"].removeprefix(base)
+    redirect = _get(stack, path, headers=HTML, follow_redirects=False)
+    assert redirect.status == 303
+    location = urllib.parse.urlsplit(redirect.headers["location"])
+    assert location.path == "/vocabularios/dominio"
+    assert urllib.parse.parse_qs(location.query) == {"concepto": ["ot"]}
+    page = wait_for_http(f"{stack.frontend}{location.path}?{location.query}")
+    assert page.status == 200 and '<div id="root">' in page.text
+    # Lo que pide la pantalla: el esquema (kind auxiliary) y el concepto.
+    scheme = _json(stack, "/schemes/dominio")
+    assert scheme["kind"] == "auxiliary" and scheme["concept_count"] == 4
+    concept = _json(stack, "/schemes/dominio/concepts/ot")
+    assert concept["uri"] == domain["uri"]
+    assert concept["pref_label"] == domain["label"] == "OT / ICS"
+    assert concept["scheme"]["slug"] == "dominio"
+    rdf = _get(stack, path, headers={"Accept": "text/turtle"})
+    assert rdf.status == 200 and "OT / ICS" in rdf.text
 
 
 # --- 9. Dominio de los datasets ---------------------------------------------------------

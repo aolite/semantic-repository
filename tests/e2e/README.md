@@ -76,11 +76,9 @@ Los hallazgos QA-G3-01 a QA-G3-10 de la revisión de la fase 3 están corregidos
 | QA-G3-09 | `semantic/uris.md` documentaba otro grafo para los esquemas auxiliares | Documento corregido |
 | QA-G3-10 | La validación SHACL no tenía límite de tiempo | Proceso hijo con `SHACL_TIMEOUT_SECONDS` y `SHACL_MEMORY_MB`; 422 `limit` |
 
-Defecto abierto, marcado hasta que el agente dueño lo corrija (entonces la prueba pasa y hay que quitar la marca):
+QA-G3-13 también está corregido: el contrato añadió `auxiliary` a `SchemeDetail.kind` y el Navegador SKOS se quedaba en blanco en `/vocabularios/dominio`, adonde redirige (303) la URI de dominio de un dataset. El frontend ya contempla ese valor, muestra tal cual cualquier valor desconocido de un enumerado y tiene un error boundary. Lo cubren `test_frontend_scheme_kind_matches_the_contract`, las pruebas del propio frontend y, aquí, el caso que sigue la URI de dominio de un dataset hasta el esquema auxiliar.
 
-| Id | Defecto | Prueba | Dueño |
-|---|---|---|---|
-| QA-G3-13 | El contrato añade `auxiliary` a `SchemeDetail.kind` (esquemas `vocab/dominio` y `vocab/tipo-dataset`) y el frontend no lo contempla: `KindTag` lanza un error y el Navegador SKOS se queda en blanco en `/vocabularios/dominio`, que es adonde redirige (303) la URI persistente de un dominio | `backend/tests/test_contracts_fase3.py` (`xfail` estricto) y `frontend/src/pages/SkosPage.auxiliary.test.tsx` (`it.fails`) | `frontend` |
+No queda ningún defecto abierto de la fase 3: no hay pruebas marcadas como `xfail`.
 
 ### Requisitos
 
