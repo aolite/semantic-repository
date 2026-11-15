@@ -25,3 +25,4 @@ La autenticación es JWT dentro del backend, sin SSO en el MVP. Los flujos de ap
 
 - La autorización por rol se aplica en el backend y se prueba (ADR 0010).
 - Los usuarios se guardan en PostgreSQL (ADR 0007); su alta se describe en el ADR 0015.
+- Relacionado: el [ADR 0017](0017-admin-hereda-permisos-de-editor.md) añade que el admin hereda los permisos de editor; el resto de roles no hereda nada.

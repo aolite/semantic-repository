@@ -11,9 +11,15 @@ En la fase 1 existen:
 - **`semantic/`:** patrón de URIs, formas SHACL mínimas y un ejemplo.
 - **Infraestructura:** Docker Compose con postgres, Fuseki, backend y frontend, y CI en GitHub Actions.
 
+En la fase 2 se añaden:
+
+- **Backend:** ingesta de datasets con validación SHACL, lectura pública del catálogo y URIs persistentes de dataset con negociación de contenido.
+- **Frontend:** catálogo y ficha de dataset, con los datasets sintéticos (ADR 0016).
+- **`semantic/`:** comando `load-semantic` para cargar los datos sintéticos.
+
 Todo lo demás es objetivo de fases posteriores y está marcado como [Posterior].
 
-Leyenda: **[Fase 1]** objetivo de la fase actual; **[Posterior]** objetivo de fases posteriores.
+Leyenda: **[Fase 1]** y **[Fase 2]** existen hoy; **[Posterior]** objetivo de fases posteriores.
 
 ## Componentes
 
@@ -31,13 +37,13 @@ flowchart TD
 
 | Componente | Función | Alcance |
 |---|---|---|
-| Frontend (React, TypeScript, Vite, React Router, Vitest) | Las 6 pantallas del prototipo: Catálogo, Ficha de dataset, Vocabularios y ontologías, Ficha de ontología, Navegador SKOS y Consola SPARQL. Login JWT desde el cliente | [Fase 1] esqueleto mínimo con login; [Posterior] las 6 pantallas |
-| Backend (Python, FastAPI) | Catálogo DCAT-AP, versionado, control de acceso JWT, orquestación FAIR, métricas OWL, endpoint SPARQL, negociación de contenido sobre URIs persistentes | [Fase 1] JWT, roles, usuarios; [Posterior] el resto |
-| Triplestore (Apache Jena Fuseki; GraphDB Free como alternativa) | Almacén RDF del catálogo, ontologías y vocabularios | [Fase 1] en el Compose; [Posterior] uso desde la ingesta |
+| Frontend (React, TypeScript, Vite, React Router, Vitest) | Las 6 pantallas del prototipo: Catálogo, Ficha de dataset, Vocabularios y ontologías, Ficha de ontología, Navegador SKOS y Consola SPARQL. Login JWT desde el cliente | [Fase 1] esqueleto mínimo con login; [Fase 2] Catálogo (búsqueda, filtros por dominio y tipo, tarjetas) y Ficha de dataset (versionado, distribuciones, PROV-O, RDF, metadatos DCAT-AP; FAIR con «Disponible en la fase 4»); [Posterior] fases 3 y 4 el resto de pantallas |
+| Backend (Python, FastAPI) | Catálogo DCAT-AP, versionado, control de acceso JWT, orquestación FAIR, métricas OWL, endpoint SPARQL, negociación de contenido sobre URIs persistentes | [Fase 1] JWT, roles, usuarios; [Fase 2] ingesta y lectura del catálogo, URIs persistentes y herencia de permisos del admin sobre el editor; [Posterior] el resto |
+| Triplestore (Apache Jena Fuseki; GraphDB Free como alternativa) | Almacén RDF del catálogo, ontologías y vocabularios | [Fase 1] en el Compose; [Fase 2] el backend escribe con credenciales (grafo con nombre por serie) y lee de forma anónima; Fuseki rechaza las escrituras anónimas |
 | PostgreSQL | Usuarios y auditoría | [Fase 1] |
-| Almacenamiento de distribuciones | Interfaz con dos implementaciones, disco (MVP) y Cloudflare R2 (despliegue), elegida por configuración | [Posterior] |
+| Almacenamiento de distribuciones | Interfaz con dos implementaciones, disco (MVP) y Cloudflare R2 (despliegue), elegida por configuración | [Posterior] fase 4 |
 | F-UJI | Evaluador FAIR como servicio interno; puntuación por versión | [Posterior] fase 4 |
-| Ingesta | Validación con formas SHACL y carga al triplestore, siempre mediante el backend | [Posterior] fase 2 |
+| Ingesta | Validación con formas SHACL y carga al triplestore, siempre mediante el backend | [Fase 2] para datasets |
 | Repositorio Git de ontologías y vocabularios | Fuente de verdad; solo se publican versiones etiquetadas, y cada etiqueta dispara validación, documentación y publicación (CI) | [Posterior] fase 3 |
 
 ## Reglas de arquitectura
@@ -61,10 +67,10 @@ JWT emitido y verificado dentro del backend, sin SSO en el MVP. Roles: lector (a
 | Flujo | Descripción | Alcance |
 |---|---|---|
 | Login | El frontend envía credenciales al backend, que valida contra PostgreSQL y devuelve un JWT; el frontend lo usa en las llamadas siguientes | [Fase 1] |
-| Publicación de un dataset | Un editor envía metadatos al backend, que los valida con SHACL, los carga en el triplestore, guarda las distribuciones en el almacenamiento y lanza la evaluación FAIR | [Posterior] fases 2 y 4 |
+| Publicación de un dataset | Un editor o admin envía metadatos con `POST /datasets`; el backend los valida con SHACL y los escribe en un grafo con nombre por serie en Fuseki. La lectura pública es `GET /datasets`, `GET /datasets/{slug}` y `GET /datasets/{slug}/rdf`. Las URIs persistentes `/dataset/{slug}[/{version}]` negocian contenido (Turtle o JSON-LD) y redirigen con 303 a la ficha del frontend. El comando `load-semantic` carga los datasets sintéticos (ADR 0016) | [Fase 2]; [Posterior] fase 4 la evaluación FAIR con F-UJI y el guardado de distribuciones en el almacenamiento |
 | Publicación de ontologías y vocabularios | Una etiqueta de versión en Git dispara validación, documentación y publicación | [Posterior] fase 3 |
 | Consulta SPARQL | El frontend consulta a través del backend, que expone o hace de proxy del endpoint | [Posterior] fase 4 |
-| Descarga de distribución restringida | Cada ruta enumera los roles que admite; el backend no tiene jerarquía de roles. Según `Plan.md`, el miembro puede solicitar o descargar distribuciones restringidas. Si el admin hereda los permisos de editor es una decisión abierta del responsable | [Posterior] fase 4 |
+| Descarga de distribución restringida | Cada ruta enumera los roles que admite; el admin hereda los permisos de editor y el resto de roles no hereda nada (ADR 0017). Según `Plan.md`, el miembro puede solicitar o descargar distribuciones restringidas | [Posterior] fase 4 |
 
 ## Contratos entre capas
 
