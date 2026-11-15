@@ -45,10 +45,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Comprobar que la etiqueta apunta a un commit de main
         run: |
-          git fetch --no-tags origin main
           if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
             echo "ERROR: el commit de la etiqueta no está en main" >&2
             exit 1

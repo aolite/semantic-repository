@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.11"
 # dependencies = [
-#     "rdflib>=7.1,<8",
+#     "rdflib==7.6.0",
 # ]
 # ///
 """Prepara la publicación de una versión de ontología o vocabulario.
@@ -48,9 +48,9 @@ VERSION = r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)"
 # Esquemas SKOS: dos o tres números (1.0, 2026.1, 1.2.3), no siempre semver.
 SCHEME_VERSION = r"(?:0|[1-9][0-9]*)(?:\.(?:0|[1-9][0-9]*)){1,2}"
 TAG_PATTERNS = (
-    ("onto", re.compile(rf"^onto/({SLUG})/v({VERSION})$")),
-    ("vocab-corp", re.compile(rf"^vocab/corp/({SLUG})/v({SCHEME_VERSION})$")),
-    ("vocab", re.compile(rf"^vocab/({SLUG})/v({SCHEME_VERSION})$")),
+    ("onto", re.compile(rf"onto/({SLUG})/v({VERSION})")),
+    ("vocab-corp", re.compile(rf"vocab/corp/({SLUG})/v({SCHEME_VERSION})")),
+    ("vocab", re.compile(rf"vocab/({SLUG})/v({SCHEME_VERSION})")),
 )
 # REPO_ROOT solo sirve para probar el script contra un árbol de prueba.
 ROOT = Path(os.environ.get("REPO_ROOT") or Path(__file__).resolve().parents[2])
@@ -63,7 +63,7 @@ def fail(msg: str):
 
 def parse_tag(tag: str) -> tuple[str, str, str]:
     for kind, rx in TAG_PATTERNS:
-        m = rx.match(tag)
+        m = rx.fullmatch(tag)
         if m:
             return kind, m.group(1), m.group(2)
     fail(f"etiqueta no válida: {tag!r} (ver infra/README.md)")
