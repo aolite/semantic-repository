@@ -1,4 +1,4 @@
-"""Entorno de la prueba de extremo a extremo de la puerta G1.
+"""Entorno de las pruebas de extremo a extremo de las puertas (G1 y G2).
 
 Levanta el ``docker-compose.yml`` real del repositorio en un proyecto de Compose propio
 (``itot-e2e-<aleatorio>``), con puertos libres elegidos al vuelo y un fichero de entorno
@@ -46,6 +46,16 @@ class Response:
         return json.loads(self.text)
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """No sigue redirecciones: urllib las entrega entonces como ``HTTPError`` 3xx."""
+
+    def redirect_request(self, *_args: object, **_kwargs: object) -> None:
+        return None
+
+
+_NO_REDIRECT_OPENER = urllib.request.build_opener(_NoRedirect)
+
+
 def http(
     method: str,
     url: str,
@@ -55,8 +65,13 @@ def http(
     raw_body: bytes | None = None,
     headers: dict[str, str] | None = None,
     token: str | None = None,
+    follow_redirects: bool = True,
 ) -> Response:
-    """Petición HTTP con urllib. Devuelve también las respuestas 4xx y 5xx."""
+    """Petición HTTP con urllib. Devuelve también las respuestas 4xx y 5xx.
+
+    Con ``follow_redirects=False`` devuelve la propia respuesta 3xx (con su ``Location``)
+    en lugar de seguirla.
+    """
     request_headers = dict(headers or {})
     data = raw_body
     if form is not None:
@@ -71,8 +86,9 @@ def http(
         # Las pruebas de seguridad solo se lanzan contra el entorno local del proyecto.
         raise ValueError(f"URL fuera del entorno local de pruebas: {url}")
     request = urllib.request.Request(url, data=data, method=method, headers=request_headers)  # noqa: S310
+    opener = urllib.request.urlopen if follow_redirects else _NO_REDIRECT_OPENER.open
     try:
-        with urllib.request.urlopen(request, timeout=HTTP_TIMEOUT_SECONDS) as raw:  # noqa: S310
+        with opener(request, timeout=HTTP_TIMEOUT_SECONDS) as raw:
             return Response(
                 raw.status,
                 {k.lower(): v for k, v in raw.headers.items()},
@@ -265,6 +281,8 @@ def _build_stack(workdir: Path) -> Stack:
     env["JWT_SECRET"] = secrets.token_hex(32)
     env["CORS_ORIGINS"] = f"http://localhost:{frontend_port}"
     env["VITE_API_BASE_URL"] = f"http://localhost:{backend_port}"
+    # Fase 2: el backend redirige (303) las URIs persistentes a la ficha del frontend.
+    env["FRONTEND_BASE_URL"] = f"http://localhost:{frontend_port}"
     # Variables opcionales del Compose para no chocar con otros servicios de la máquina.
     env["POSTGRES_HOST_PORT"] = str(pg_port)
     env["FUSEKI_HOST_PORT"] = str(fuseki_port)
@@ -313,8 +331,8 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Stack]:
     reason = _docker_available()
     if reason is not None:
         if os.environ.get("E2E_REQUIRE_DOCKER") == "1":
-            pytest.fail(f"La prueba de G1 necesita Docker: {reason}")
-        pytest.skip(f"La prueba de G1 necesita Docker: {reason}")
+            pytest.fail(f"Las pruebas de extremo a extremo necesitan Docker: {reason}")
+        pytest.skip(f"Las pruebas de extremo a extremo necesitan Docker: {reason}")
 
     stack = _build_stack(tmp_path_factory.mktemp("g1"))
     keep = os.environ.get("E2E_KEEP") == "1"
@@ -388,6 +406,11 @@ def admin(stack: Stack) -> Account:
     me = http("GET", f"{stack.api}/auth/me", token=token)
     assert me.status == 200, me.text
     return Account(username, password, "admin", id=me.json()["id"], token=token)  # type: ignore[index]
+
+
+def create_account(stack: Stack, admin: Account, role: str) -> Account:
+    """Da de alta una cuenta nueva con el admin y devuelve sus credenciales y su token."""
+    return _create_account(stack, admin, role)
 
 
 def _create_account(stack: Stack, admin: Account, role: str) -> Account:
