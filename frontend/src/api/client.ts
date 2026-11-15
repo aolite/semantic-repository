@@ -34,6 +34,14 @@ export function withQuery(path: string, params: QueryParams = {}): string {
   return query ? `${path}?${query}` : path
 }
 
+/**
+ * URL absoluta de un recurso de la API, para enlaces que abre el navegador
+ * directamente (p. ej. descargas de RDF).
+ */
+export function apiUrl(path: string): string {
+  return `${getApiBaseUrl()}${path}`
+}
+
 /** Indica si el error se debe a una petición cancelada con `AbortSignal`. */
 export function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError'

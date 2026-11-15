@@ -36,6 +36,21 @@ describe('Navegación lateral', () => {
     expect(screen.getByText('Disponible en la fase 4')).toBeInTheDocument()
   })
 
+  it('enlaza «Esquemas de conceptos» a los esquemas de dominio en el navegador SKOS', () => {
+    renderApp('/sparql')
+    const nav = screen.getByRole('navigation', { name: 'Principal' })
+    expect(within(nav).getByRole('heading', { name: 'Esquemas de conceptos' })).toBeInTheDocument()
+    expect(within(nav).queryByRole('heading', { name: 'Tipos de vocabulario' })).not.toBeInTheDocument()
+    for (const [label, slug] of [
+      ['Seguridad IT', 'it'],
+      ['OT / ICS', 'ot'],
+      ['PQC e identidad', 'pqc'],
+      ['IA adversaria', 'ia'],
+    ]) {
+      expect(within(nav).getByRole('link', { name: label })).toHaveAttribute('href', `/vocabularios/${slug}`)
+    }
+  })
+
   it('construye la URL SPARQL a partir de VITE_BASE_URI', () => {
     renderApp('/')
     expect(screen.getByText('http://uri.test/itot/sparql')).toBeInTheDocument()

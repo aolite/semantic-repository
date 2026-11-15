@@ -1,8 +1,18 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { Link } from 'react-router'
-import { isAbortError, listDatasets, type DatasetCard, type DatasetPage, type DomainSlug } from '../api'
+import {
+  listDatasets,
+  listVocabularies,
+  type DatasetCard,
+  type DatasetPage,
+  type DomainSlug,
+  type VocabularyCard,
+  type VocabularyPage,
+} from '../api'
 import { accessLabel, DOMAINS, DOMAIN_SLUGS, formatsLine, resourceCount, themeLabel } from '../catalog/labels'
 import { DomainTag, SyntheticTag, TypeTag } from '../components/Tags'
+import { VocabularyCardView } from '../components/VocabularyCardView'
+import { useApiLoad } from '../hooks/useApiLoad'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import '../styles/catalog.css'
 
@@ -29,41 +39,48 @@ const TYPE_CHIPS: { id: TypeFilter; label: string }[] = [
   { id: 'vocab', label: 'Vocabularios y ontologías' },
 ]
 
-interface Result {
-  key: string
-  data?: DatasetPage
-  error?: boolean
+interface CatalogResult {
+  datasets: DatasetPage | null
+  vocabularies: VocabularyPage | null
 }
+
+type CatalogItem = { type: 'dataset'; item: DatasetCard } | { type: 'vocab'; item: VocabularyCard }
 
 export function CatalogPage() {
   const [query, setQuery] = useState('')
   const [domain, setDomain] = useState<DomainFilter>('all')
   const [type, setType] = useState<TypeFilter>('all')
-  const [reload, setReload] = useState(0)
-  const [result, setResult] = useState<Result | null>(null)
   const q = useDebouncedValue(query.trim(), SEARCH_DEBOUNCE_MS)
 
-  // Los vocabularios y ontologías llegan en la fase 3: con ese filtro no se pide nada.
+  // Las tarjetas de `/vocabularies` no traen dominio: con un dominio elegido no se pueden filtrar
+  // y no se muestran (se avisa debajo de los filtros).
   const fetchesDatasets = type !== 'vocab'
-  const requestKey = JSON.stringify({ q, domain, reload })
+  const fetchesVocabularies = type !== 'dataset' && domain === 'all'
+  const vocabHiddenByDomain = type !== 'dataset' && domain !== 'all'
 
-  useEffect(() => {
-    if (!fetchesDatasets) return
-    const controller = new AbortController()
-    listDatasets({ q, domain: domain === 'all' ? undefined : domain, pageSize: PAGE_SIZE }, controller.signal)
-      .then((data) => setResult({ key: requestKey, data }))
-      .catch((error: unknown) => {
-        if (isAbortError(error) || controller.signal.aborted) return
-        setResult({ key: requestKey, error: true })
-      })
-    return () => controller.abort()
-  }, [fetchesDatasets, q, domain, requestKey])
+  const loader = useCallback(
+    async (signal: AbortSignal): Promise<CatalogResult> => {
+      const [datasets, vocabularies] = await Promise.all([
+        fetchesDatasets
+          ? listDatasets({ q, domain: domain === 'all' ? undefined : domain, pageSize: PAGE_SIZE }, signal)
+          : null,
+        fetchesVocabularies ? listVocabularies({ q }, signal) : null,
+      ])
+      return { datasets, vocabularies }
+    },
+    [fetchesDatasets, fetchesVocabularies, q, domain],
+  )
+  const { state, retry } = useApiLoad(fetchesDatasets || fetchesVocabularies ? loader : null)
 
-  const current = result?.key === requestKey ? result : null
-  const loading = fetchesDatasets && !current
-  const items: DatasetCard[] = fetchesDatasets ? (current?.data?.items ?? []) : []
-  const total = fetchesDatasets ? (current?.data?.total ?? 0) : 0
-  const failed = fetchesDatasets && current?.error === true
+  const loading = state.status === 'loading'
+  const failed = state.status === 'error' || state.status === 'not-found'
+  const data = state.status === 'ok' ? state.data : null
+  // «Todo» muestra primero los datasets y después los vocabularios y ontologías.
+  const items: CatalogItem[] = [
+    ...(data?.datasets?.items ?? []).map((item) => ({ type: 'dataset' as const, item })),
+    ...(data?.vocabularies?.items ?? []).map((item) => ({ type: 'vocab' as const, item })),
+  ]
+  const total = (data?.datasets?.total ?? 0) + (data?.vocabularies?.total ?? 0)
 
   return (
     <div className="catalog">
@@ -122,6 +139,11 @@ export function CatalogPage() {
             ))}
           </div>
         </div>
+        {vocabHiddenByDomain && (
+          <p className="catalog__note" role="note">
+            Los vocabularios y ontologías no se filtran por dominio todavía: elige «Todos los dominios» para verlos.
+          </p>
+        )}
       </div>
 
       <div className="section-bar">
@@ -140,7 +162,7 @@ export function CatalogPage() {
       {failed && (
         <div role="alert" className="state state--error">
           <p>No se ha podido cargar el catálogo.</p>
-          <button type="button" className="button button--secondary" onClick={() => setReload((n) => n + 1)}>
+          <button type="button" className="button button--secondary" onClick={retry}>
             Reintentar
           </button>
         </div>
@@ -148,11 +170,17 @@ export function CatalogPage() {
 
       {!loading && !failed && items.length > 0 && (
         <ul className="cards" aria-label="Recursos">
-          {items.map((item) => (
-            <li key={item.slug}>
-              <DatasetCardView item={item} />
-            </li>
-          ))}
+          {items.map((entry) =>
+            entry.type === 'dataset' ? (
+              <li key={`dataset-${entry.item.slug}`}>
+                <DatasetCardView item={entry.item} />
+              </li>
+            ) : (
+              <li key={`vocab-${entry.item.kind}-${entry.item.uri}`}>
+                <VocabularyCardView item={entry.item} />
+              </li>
+            ),
+          )}
         </ul>
       )}
 

@@ -11,6 +11,7 @@ import {
   type DomainRef,
   type ProvenanceStep,
   type RdfFormat,
+  type ResourceRef,
   type ThemeRef,
   type VersionDetail,
   type VersionSummary,
@@ -24,7 +25,9 @@ import {
   resourceLabel,
   themeLabel,
 } from '../catalog/labels'
+import { CopyUriButton } from '../components/CopyUriButton'
 import { DomainTag, SyntheticTag, TypeTag } from '../components/Tags'
+import { conceptRouteFromUri, ontologyRouteFromUri } from '../vocab/routes'
 import '../styles/dataset.css'
 
 type Load =
@@ -181,32 +184,6 @@ function DatasetView({ data, requestedVersion }: { data: DatasetDetail; requeste
         </div>
       </div>
     </div>
-  )
-}
-
-type CopyState = 'idle' | 'copied' | 'failed'
-
-function CopyUriButton({ uri }: { uri: string }) {
-  const [state, setState] = useState<CopyState>('idle')
-
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(uri)
-      setState('copied')
-    } catch {
-      setState('failed')
-    }
-  }
-
-  return (
-    <>
-      <button type="button" className="button button--secondary" onClick={copy}>
-        Copiar URI
-      </button>
-      <span role="status" className="dataset__copy-status">
-        {state === 'copied' ? 'URI copiada' : state === 'failed' ? 'No se ha podido copiar la URI' : ''}
-      </span>
-    </>
   )
 }
 
@@ -439,9 +416,43 @@ function RdfSection({ slug, version }: { slug: string; version: string | null })
   )
 }
 
-function themeStyle(theme: ThemeRef, domains: DomainRef[]) {
-  const domain = domains.find((d) => d.uri === theme.scheme)
-  return domain ? { background: DOMAINS[domain.slug].tagBg, color: DOMAINS[domain.slug].tagFg } : undefined
+/**
+ * Color de los temas: el del dominio de la serie. Desde la fase 3 el dominio
+ * es un concepto de `vocab/dominio` y no el esquema de los temas, así que solo
+ * se colorean si la serie tiene un único dominio.
+ */
+function themeStyle(domains: DomainRef[]) {
+  if (domains.length !== 1) return undefined
+  const style = DOMAINS[domains[0].slug]
+  return { background: style.tagBg, color: style.tagFg }
+}
+
+/** Tema enlazado a su concepto en el navegador SKOS si su URI sigue el patrón. */
+function ThemePill({ theme, domains }: { theme: ThemeRef; domains: DomainRef[] }) {
+  const to = conceptRouteFromUri(theme.uri)
+  const style = themeStyle(domains)
+  return to ? (
+    <Link to={to} className="pill pill--link" style={style}>
+      {themeLabel(theme)}
+    </Link>
+  ) : (
+    <span className="pill" style={style}>
+      {themeLabel(theme)}
+    </span>
+  )
+}
+
+/** `dct:conformsTo` enlazado a la ficha de ontología si es una ontología propia (o una versión). */
+function ConformsToPill({ resource }: { resource: ResourceRef }) {
+  const to = resource.uri ? ontologyRouteFromUri(resource.uri) : null
+  const label = resourceLabel(resource, NOT_STATED)
+  return to ? (
+    <Link to={to} className="pill pill--brand pill--link">
+      {label}
+    </Link>
+  ) : (
+    <span className="pill pill--brand">{label}</span>
+  )
 }
 
 function MetadataAside({ metadata: m, domains }: { metadata: DcatMetadata; domains: DomainRef[] }) {
@@ -486,11 +497,7 @@ function MetadataAside({ metadata: m, domains }: { metadata: DcatMetadata; domai
           <dt className="mono">dcat:theme</dt>
           <dd className="pills">
             {m.themes.length > 0 ? (
-              m.themes.map((t) => (
-                <span key={t.uri} className="pill" style={themeStyle(t, domains)}>
-                  {themeLabel(t)}
-                </span>
-              ))
+              m.themes.map((t) => <ThemePill key={t.uri} theme={t} domains={domains} />)
             ) : (
               <span className="muted">Sin temas en esta versión</span>
             )}
@@ -500,11 +507,7 @@ function MetadataAside({ metadata: m, domains }: { metadata: DcatMetadata; domai
           <dt className="mono">dct:conformsTo</dt>
           <dd className="pills">
             {m.conforms_to.length > 0 ? (
-              m.conforms_to.map((c, i) => (
-                <span key={c.uri ?? `conforms-${i}`} className="pill pill--brand">
-                  {resourceLabel(c, NOT_STATED)}
-                </span>
-              ))
+              m.conforms_to.map((c, i) => <ConformsToPill key={c.uri ?? `conforms-${i}`} resource={c} />)
             ) : (
               <span className="muted">{NOT_STATED}</span>
             )}

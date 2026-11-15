@@ -193,6 +193,18 @@
   color: var(--color-brand);
 }
 
+/* Píldora enlazada (temas, conformsTo, vocabularios usados): objetivo táctil de 44 px. */
+.pill--link {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--touch-target);
+  text-decoration: none;
+}
+
+.pill--link:hover {
+  text-decoration: underline;
+}
+
 /* Historial de versiones */
 .history {
   border-top: 1px solid var(--color-divider);

@@ -1,20 +1,32 @@
 import { screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
-import type { DatasetPage } from '../api'
+import type { DatasetPage, VocabularyPage } from '../api'
 import { cardFixture, pageFixture } from '../test/fixtures'
 import { jsonResponse, mockFetch, renderApp } from '../test/utils'
+import { vocabCardsFixture, vocabPageFixture } from '../test/vocabFixtures'
 
-function mockCatalog(respond: (url: URL) => DatasetPage | Response = () => pageFixture([cardFixture()])) {
+function mockCatalog(
+  respond: (url: URL) => DatasetPage | Response = () => pageFixture([cardFixture()]),
+  vocab: (url: URL) => VocabularyPage | Response = () => vocabPageFixture([]),
+) {
   return mockFetch({
     '/datasets': (url) => {
       const result = respond(new URL(url))
       return result instanceof Response ? result : jsonResponse(result)
     },
+    '/vocabularies': (url) => {
+      const result = vocab(new URL(url))
+      return result instanceof Response ? result : jsonResponse(result)
+    },
   })
 }
 
+function callsTo(fetchMock: ReturnType<typeof mockFetch>, path: string): URL[] {
+  return fetchMock.mock.calls.map(([u]) => new URL(String(u))).filter((u) => u.pathname === path)
+}
+
 function datasetsCalls(fetchMock: ReturnType<typeof mockFetch>): URL[] {
-  return fetchMock.mock.calls.map(([u]) => new URL(String(u))).filter((u) => u.pathname === '/datasets')
+  return callsTo(fetchMock, '/datasets')
 }
 
 describe('Catálogo', () => {
@@ -105,8 +117,8 @@ describe('Catálogo', () => {
     expect(datasetsCalls(fetchMock).length).toBeLessThan(4)
   })
 
-  it('con «Vocabularios y ontologías» muestra el estado vacío sin pedir datasets', async () => {
-    const fetchMock = mockCatalog()
+  it('con «Vocabularios y ontologías» muestra las tarjetas de /vocabularies sin pedir datasets', async () => {
+    const fetchMock = mockCatalog(undefined, () => vocabPageFixture())
     const { user } = renderApp('/')
     await screen.findByRole('link', { name: 'Dataset de prueba' })
     const before = datasetsCalls(fetchMock).length
@@ -117,13 +129,64 @@ describe('Catálogo', () => {
 
     expect(vocab).toHaveAttribute('aria-pressed', 'true')
     expect(within(group).getByRole('button', { name: 'Todo' })).toHaveAttribute('aria-pressed', 'false')
-    expect(screen.getByText('Ningún recurso coincide con los filtros.')).toBeInTheDocument()
-    expect(screen.getByText('0 recursos')).toBeInTheDocument()
+    const onto = await screen.findByRole('link', { name: 'Ontología de prueba' })
     expect(screen.queryByRole('link', { name: 'Dataset de prueba' })).not.toBeInTheDocument()
+    expect(screen.getByText('4 recursos')).toBeInTheDocument()
     expect(datasetsCalls(fetchMock).length).toBe(before)
+
+    // Tarjeta al estilo del catálogo: tipo RDF, tipo de vocabulario, estado, prefijo, métricas y versión.
+    expect(onto).toHaveAttribute('href', '/ontologias/onto-prueba')
+    const card = onto.closest('article')!
+    expect(within(card).getByText('owl:Ontology')).toBeInTheDocument()
+    expect(within(card).getByText('Ontología propia')).toBeInTheDocument()
+    expect(within(card).getByText('Publicada')).toBeInTheDocument()
+    expect(within(card).getByText('13 clases · 7 propiedades')).toBeInTheDocument()
+    expect(within(card).getByText('v1.2.0')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Esquema de dominio de prueba' })).toHaveAttribute(
+      'href',
+      '/vocabularios/esq-prueba',
+    )
 
     await user.click(within(group).getByRole('button', { name: 'Datasets' }))
     expect(await screen.findByRole('link', { name: 'Dataset de prueba' })).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Ontología de prueba' })).not.toBeInTheDocument()
+  })
+
+  it('«Todo» mezcla los datasets y los vocabularios, y pasa q a las dos rutas', async () => {
+    const fetchMock = mockCatalog(undefined, () => vocabPageFixture(vocabCardsFixture().slice(0, 1)))
+    const { user } = renderApp('/')
+
+    const list = await screen.findByRole('list', { name: 'Recursos' })
+    await within(list).findByRole('link', { name: 'Ontología de prueba' })
+    const links = within(list)
+      .getAllByRole('link')
+      .map((l) => l.textContent)
+    expect(links).toEqual(['Dataset de prueba', 'Ontología de prueba'])
+    expect(screen.getByText('2 recursos')).toBeInTheDocument()
+
+    await user.type(screen.getByLabelText('Buscar en el catálogo'), 'prueba')
+    await waitFor(() => expect(callsTo(fetchMock, '/vocabularies').at(-1)!.searchParams.get('q')).toBe('prueba'))
+    expect(datasetsCalls(fetchMock).at(-1)!.searchParams.get('q')).toBe('prueba')
+  })
+
+  it('con un dominio elegido no muestra vocabularios (no traen dominio) y lo avisa', async () => {
+    const fetchMock = mockCatalog(undefined, () => vocabPageFixture())
+    const { user } = renderApp('/')
+    await screen.findByRole('link', { name: 'Ontología de prueba' })
+    const before = callsTo(fetchMock, '/vocabularies').length
+
+    await user.click(within(screen.getByRole('group', { name: 'Dominio' })).getByRole('button', { name: 'OT / ICS' }))
+    await waitFor(() => expect(datasetsCalls(fetchMock).at(-1)!.searchParams.get('domain')).toBe('ot'))
+    expect(await screen.findByText('1 recurso')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Ontología de prueba' })).not.toBeInTheDocument()
+    expect(screen.getByRole('note')).toHaveTextContent('no se filtran por dominio todavía')
+    expect(callsTo(fetchMock, '/vocabularies').length).toBe(before)
+  })
+
+  it('mantiene el placeholder del buscador (decisión abierta 30)', () => {
+    mockCatalog()
+    renderApp('/')
+    expect(screen.getByLabelText('Buscar en el catálogo')).toHaveAttribute('placeholder', 'Título, concepto o URI')
   })
 
   it('muestra el estado de carga y después el vacío', async () => {
@@ -146,5 +209,11 @@ describe('Catálogo', () => {
     await user.click(within(alert).getByRole('button', { name: 'Reintentar' }))
     expect(await screen.findByRole('link', { name: 'Dataset de prueba' })).toBeInTheDocument()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('muestra el error si falla /vocabularies', async () => {
+    mockCatalog(undefined, () => jsonResponse({ detail: 'Service Unavailable' }, 503))
+    renderApp('/')
+    expect(await screen.findByRole('alert')).toHaveTextContent('No se ha podido cargar el catálogo.')
   })
 })
