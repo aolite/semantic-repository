@@ -19,6 +19,9 @@ Zona del agente `semantico`. Contiene contratos que consumen otras capas: el pat
 | `ontologias/{slug}/{version}.ttl` | Ontologías propias sintéticas, una versión por fichero: `itot` 1.0.0, 1.1.0 y 1.2.0; `pqcm` 0.4.0 (borrador); `didx` 1.0.0 | `backend` (carga y métricas), `frontend`, `qa` |
 | `ontologias/externas.ttl` | Ontologías externas (SAREF, SOSA/SSN, D3FEND), solo por referencia y con su IRI oficial | `backend`, `frontend` |
 | `data/catalogo.ttl` | El `dcat:Catalog` «itot-catalogo» con sus series | `backend`, `frontend` |
+| `data/sintetico/ficheros/{slug}/{version}/{dist}.{ext}` | Ficheros **sintéticos** de distribución (fase 4): uno mínimo y marcado por cada distribución `PUBLIC` o `RESTRICTED` de `data/sintetico/`, ninguno para `NON_PUBLIC` | `backend` (`load-semantic` los sube), `qa` |
+| `consultas/{id}.rq` | Consultas SPARQL de referencia de la Consola SPARQL (fase 4), con cabecera `# title:` / `# hint:` y el marcador `{BASE_URI}` | `backend` (`GET /sparql/queries`), `frontend`, `qa` |
+| `scripts/ficheros_sinteticos.py` | Genera `data/sintetico/ficheros/` a partir de las distribuciones, sin red | `semantico`, `qa` |
 | `scripts/validate.py` | Validación de todo lo anterior | CI, `qa` |
 
 ## Validar
@@ -40,6 +43,29 @@ Para `vocabularios/` y `ontologias/`, valida cada fichero por separado (un fiche
 - **Externas:** IRI fuera de `BASE_URI`, sin `owl:versionIRI` ni `adms:status`.
 - **Prefijos VANN** únicos entre todos los esquemas y ontologías.
 
+Para `data/sintetico/ficheros/`, comprueba que hay un fichero por cada distribución `PUBLIC` o `RESTRICTED`, ninguno para las `NON_PUBLIC` ni ninguno que no corresponda a una distribución, y que cada uno es byte a byte el que genera `scripts/ficheros_sinteticos.py` (≤ 64 KB, con la marca `SINTETICO`). Los formatos pendientes (hoy Parquet) se informan como `PENDIENTE` sin fallar.
+
+Para `consultas/`, comprueba la cabecera `# title:` / `# hint:`, que no escriban el dominio ni otro marcador que `{BASE_URI}` y que, sustituido el marcador, cada consulta se analiza y se ejecuta con rdflib sobre `data/` (sin los ficheros de distribución), `vocabularios/` y `ontologias/` juntos. Informa del número de filas: son las de los datos sintéticos, no las del prototipo. Con los datos actuales, `mapeos` devuelve 0 filas, porque todos los destinos de los mapeos de `ot` son placeholders comentados.
+
+## Ficheros sintéticos de distribución
+
+```sh
+uv run semantic/scripts/ficheros_sinteticos.py
+```
+
+Escribe `data/sintetico/ficheros/{slug}/{version}/{dist}.{ext}` para cada distribución con `dct:accessRights` efectivo (el de la distribución o el de su versión) `PUBLIC` o `RESTRICTED`, y borra lo que sobre. Hay que ejecutarlo tras cambiar las distribuciones de `data/sintetico/`; `validate.py` falla si los ficheros no coinciden. Sin red, sin fechas ni azar: dos ejecuciones dan los mismos bytes. Los ficheros no contienen `BASE_URI`: se identifican por su clave de almacenamiento `{slug}/{version}/{dist}`. No reproducen tamaños, recuentos ni columnas del prototipo, que siguen como placeholder.
+
+| Tipo de medio (`dcat:mediaType`) | Extensión | Contenido y marca |
+|---|---|---|
+| `application/vnd.tcpdump.pcap` | `.pcap` | libpcap clásico con un paquete Ethernet/IPv4/UDP entre direcciones de documentación (192.0.2.0/24, RFC 5737), marca de tiempo 0, y la marca en la carga útil. El formato clásico no admite comentarios ni nombres de interfaz (eso es pcapng, con otro tipo de medio). No es tráfico Modbus |
+| `text/csv` | `.csv` | Columnas `sintetico,distribucion,nota` y una fila (RFC 4180, CRLF) |
+| `application/json` | `.json` | Objeto con `sintetico: true`, `distribucion` y `nota` |
+| `text/turtle` | `.ttl` | Comentario con la marca y un nodo en blanco con `rdfs:label` y `rdfs:comment`, sin IRIs propias |
+| sin tipo IANA (NPZ, distribución `npz`) | `.npz` | Zip sin comprimir, como `numpy.savez`, con un array `SINTETICO` de `uint8` y la marca como comentario del zip. Se escribe sin NumPy |
+| `application/vnd.apache.parquet` | `.parquet` | **Pendiente**: escribirlo exige una dependencia nueva (p. ej. `pyarrow`) |
+
+`load-semantic` del backend los sube con la misma lógica que la API (`PUT …/distributions/{dist}/file`), con actor `cli`. El tipo de medio de la descarga sale del RDF, no del fichero.
+
 ## Etiquetas de Git (pipeline de publicación)
 
 El catálogo solo publica versiones etiquetadas (`Plan.md`, sección 1). Cada etiqueta identifica un recurso y su versión, que es el `owl:versionInfo` del fichero:
@@ -60,6 +86,8 @@ El RDF **no lleva métricas** (clases, propiedades, axiomas, imports, perfil, co
 - Los `owl:imports` (SOSA y SAREF en `itot`) apuntan a IRIs externas. Si el cálculo los resuelve, descarga esas ontologías de la red.
 
 En local, sin imports, las cinco versiones cargan con owlready2 y son consistentes con Pellet y con HermiT (comprobación hecha al escribir la fase 3, no forma parte del CI).
+
+Fase 4 (decisión 44): en `itot` 1.2.0, `itot:IED` pasa de `rdfs:subClassOf itot:Activo` a `rdfs:subClassOf itot:ActivoIndustrial`. Es una corrección de una versión ya publicada, así que el entorno local se recarga desde cero. Con `app.owl_metrics` del backend las métricas no cambian (13 clases, 8 axiomas lógicos, 2 imports, OWL 2 DL compatible con EL, QL y RL) y sigue siendo consistente con Pellet.
 
 ## `BASE_URI` en los ficheros RDF
 
