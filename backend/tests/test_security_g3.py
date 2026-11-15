@@ -26,10 +26,12 @@ import json
 import shutil
 import socket
 import subprocess
+import tempfile
 import time
 import tracemalloc
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 import jwt
@@ -880,6 +882,54 @@ def test_hung_reasoner_is_killed_and_the_service_keeps_working(
     assert after.status_code == 201, after.text
     assert after.json()["consistency"]["consistent"] is True
     assert client.get("/health").status_code == 200
+
+
+REASONER_OUTCOMES = {
+    "consistente": (":A a owl:Class .", 60.0),
+    "inconsistente": (":A a owl:Class ; owl:equivalentClass owl:Nothing . :i a :A .", 60.0),
+    "fallo de Pellet": (None, 60.0),  # se rellena con PELLET_CRASHES
+    "tiempo agotado": (None, 2.0),  # se rellena con hard_ontology()
+}
+
+
+def _reasoner_leftovers(name: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Ficheros que quedan en el directorio temporal tras razonar."""
+    body, timeout = REASONER_OUTCOMES[name]
+    if name == "fallo de Pellet":
+        data = _onto(PELLET_CRASHES["lista cíclica"])
+    elif name == "tiempo agotado":
+        data = hard_ontology()
+    else:
+        data = _onto(body or "")
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    graph = ingest.parse_rdf(data, "turtle", BASE_URI)
+    result = owl_metrics.check_consistency(
+        graph, PRUEBA, timeout_seconds=timeout, java_memory_mb=512
+    )
+    expected = {"consistente": True, "inconsistente": False}.get(name)
+    assert result.consistent is expected, result
+    return sorted(p.name for p in tmp_path.iterdir())
+
+
+@requires_java
+def test_reasoner_leaves_no_temporary_file_when_it_succeeds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert _reasoner_leftovers("consistente", tmp_path, monkeypatch) == []
+
+
+@requires_java
+@pytest.mark.xfail(
+    strict=True,
+    reason="QA-G3-07: owlready2 solo borra el fichero temporal que pasa a Pellet cuando el "
+    "razonamiento termina bien. Si la ontología es inconsistente, Pellet falla o se agota el "
+    "tiempo, queda en /tmp una copia en N-Triples de la ontología en cada ingesta",
+)
+@pytest.mark.parametrize("name", ["inconsistente", "fallo de Pellet", "tiempo agotado"])
+def test_reasoner_leaves_no_temporary_file_when_it_fails(
+    name: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert _reasoner_leftovers(name, tmp_path, monkeypatch) == []
 
 
 def test_reasoner_timeout_has_an_upper_bound() -> None:
