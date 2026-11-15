@@ -50,10 +50,38 @@ export const KINDS: Record<VocabularyKind, KindStyle> = {
 
 export const KIND_ORDER: VocabularyKind[] = ['own', 'external', 'skos_corp', 'skos_domain']
 
+/**
+ * Esquemas auxiliares (`vocab/dominio`, `vocab/tipo-dataset`): no están en el
+ * prototipo; etiqueta neutra.
+ */
+const AUXILIARY: KindStyle = {
+  label: 'Esquema auxiliar',
+  short: 'Esquemas auxiliares',
+  swatch: 'var(--color-nav-muted)',
+  tagBg: 'var(--color-surface-muted)',
+  tagFg: 'var(--color-text)',
+}
+
+/**
+ * Estilo de un tipo de vocabulario o de esquema que manda la API. Un valor
+ * desconocido no rompe la pantalla: se muestra tal cual con colores neutros.
+ */
+export function kindStyle(kind: string): KindStyle {
+  if (Object.hasOwn(KINDS, kind)) return KINDS[kind as VocabularyKind]
+  if (kind === 'auxiliary') return AUXILIARY
+  return { ...AUXILIARY, label: kind, short: kind }
+}
+
 export const STATUSES: Record<VocabularyStatus, { label: string; className: string }> = {
   published: { label: 'Publicada', className: 'status--published' },
   draft: { label: 'Borrador', className: 'status--draft' },
   referenced: { label: 'Referenciada', className: 'status--referenced' },
+}
+
+/** Estado que manda la API; un valor desconocido se muestra tal cual con el estilo neutro. */
+export function statusStyle(status: string): { label: string; className: string } {
+  if (Object.hasOwn(STATUSES, status)) return STATUSES[status as VocabularyStatus]
+  return { label: status, className: 'status--referenced' }
 }
 
 /** Placeholders del prototipo para los campos que llegan `null`. */

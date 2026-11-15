@@ -29,6 +29,20 @@ export const DOMAINS: Record<DomainSlug, DomainStyle> = {
 
 export const DOMAIN_SLUGS: DomainSlug[] = ['it', 'ot', 'pqc', 'ia']
 
+/**
+ * Estilo de un dominio a partir del slug que manda la API. Un slug
+ * desconocido no rompe la pantalla: se muestra tal cual con colores neutros.
+ */
+export function domainStyle(slug: string): DomainStyle {
+  if (Object.hasOwn(DOMAINS, slug)) return DOMAINS[slug as DomainSlug]
+  return {
+    label: slug,
+    swatch: 'var(--color-nav-muted)',
+    tagBg: 'var(--color-surface-muted)',
+    tagFg: 'var(--color-text)',
+  }
+}
+
 export function isDomainSlug(value: string | null | undefined): value is DomainSlug {
   return value !== null && value !== undefined && (DOMAIN_SLUGS as string[]).includes(value)
 }

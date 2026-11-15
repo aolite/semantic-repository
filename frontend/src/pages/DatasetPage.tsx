@@ -18,7 +18,7 @@ import {
 } from '../api'
 import {
   accessLabel,
-  DOMAINS,
+  domainStyle,
   lastSegment,
   NOT_STATED,
   PLACEHOLDERS,
@@ -108,7 +108,7 @@ function Breadcrumbs({ domain }: { domain?: DomainRef | null }) {
       {domain && (
         <>
           <span aria-hidden="true">/</span>
-          <span>{DOMAINS[domain.slug].label}</span>
+          <span>{domainStyle(domain.slug).label}</span>
         </>
       )}
       <span aria-hidden="true">/</span>
@@ -423,7 +423,7 @@ function RdfSection({ slug, version }: { slug: string; version: string | null })
  */
 function themeStyle(domains: DomainRef[]) {
   if (domains.length !== 1) return undefined
-  const style = DOMAINS[domains[0].slug]
+  const style = domainStyle(domains[0].slug)
   return { background: style.tagBg, color: style.tagFg }
 }
 

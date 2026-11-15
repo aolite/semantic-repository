@@ -93,6 +93,7 @@ src/
 - Lista de esquemas («De dominio» y «Corporativos») a partir de `GET /vocabularies`, con el actual marcado con `aria-current` y el color del dominio cuando el esquema lo tiene.
 - Árbol con el patrón «tree» de WAI-ARIA (`role="tree"`, `treeitem` con `aria-expanded`, `aria-selected` y `aria-level`, foco itinerante): flechas arriba y abajo, derecha (abrir o bajar al primer hijo), izquierda (cerrar o subir al padre), Inicio, Fin, e Intro o Espacio para seleccionar. El filtro busca por `prefLabel` y `altLabel` sin distinguir mayúsculas ni acentos, abre las ramas y conserva los antepasados. Los conceptos salen en el orden de la API (hoy, alfabético): el contrato no trae un orden y el frontend no lo fuerza.
 - Detalle del concepto: `prefLabel` por idioma (es, ca, en y el resto), `altLabel`, `broader` y `related` enlazados, mapeos externos («Sin mapeos externos todavía» si no hay; los que contienen placeholders no se enlazan) y recursos que lo usan.
+- Los esquemas auxiliares (`vocab/dominio` y `vocab/tipo-dataset`, `kind: auxiliary`) también se ven: llevan la etiqueta neutra «Esquema auxiliar». El backend redirige aquí la URI del dominio de cada dataset (`/vocabularios/dominio?concepto=ot`).
 - «Exportar Turtle» enlaza a `GET /schemes/…/rdf?format=turtle&download=1`. No se muestra «Nuevo concepto». Los corporativos muestran «Responsable: [RESPONSABLE]».
 
 ### Navegación lateral
@@ -107,7 +108,8 @@ src/
 - Acceso: `RESTRICTED` → «Restringido», `PUBLIC` → «Público»; otros códigos, tal cual.
 - Placeholders cuando el campo llega `null`: `[LICENCIA]`, `[CONTACTO]`, `[FECHA]` y `[PROYECTO]`. Para campos sin placeholder en el prototipo: «Sin indicar».
 - Marca «Dataset sintético» cuando `synthetic` es `true` (decisión de G2, no está en el prototipo). En ontologías y esquemas, «Sintético».
-- Tipos y estados de vocabulario con los nombres y colores del prototipo (`src/vocab/labels.ts`).
+- Tipos y estados de vocabulario con los nombres y colores del prototipo (`src/vocab/labels.ts`). Si la API manda un dominio, tipo o estado desconocido, se muestra tal cual con colores neutros, sin romper la pantalla.
+- Un error de renderizado en una pantalla muestra «No se ha podido mostrar esta pantalla.» (`role="alert"`) en lugar de una página en blanco (`src/components/ErrorBoundary.tsx`).
 - Placeholders de vocabularios cuando el campo llega `null`: `[VERSIÓN]`, `[AUTORES]`, `[REPOSITORIO GIT]` (la API no lo da), `[RESPONSABLE]` y `[N] conceptos` (esquemas sin conceptos).
 
 ## API

@@ -330,6 +330,51 @@ describe('Navegador SKOS', () => {
     )
   })
 
+  it('muestra los esquemas auxiliares (kind auxiliary) con una etiqueta neutra', async () => {
+    const uri = 'http://uri.test/itot/vocab/dominio'
+    mockFetch({
+      '/vocabularies': () => jsonResponse(vocabPageFixture()),
+      '/schemes/dominio': () =>
+        jsonResponse(
+          schemeFixture({
+            slug: 'dominio',
+            kind: 'auxiliary',
+            uri,
+            title: 'Esquema auxiliar de prueba',
+            prefix: null,
+            namespace: null,
+            domain: null,
+            concept_count: 1,
+            tree: [{ uri: `${uri}/ot`, slug: 'ot', label: 'Dominio OT de prueba', top_concept: true, alt_labels: [], children: [] }],
+          }),
+        ),
+      '/schemes/dominio/concepts/ot': () =>
+        jsonResponse(
+          conceptFixture({
+            uri: `${uri}/ot`,
+            slug: 'ot',
+            pref_label: 'Dominio OT de prueba',
+            broader: [],
+            related: [],
+            used_by: { datasets: [], ontologies: [] },
+          }),
+        ),
+    })
+    renderApp('/vocabularios/dominio?concepto=ot')
+    await screen.findByRole('heading', { level: 1, name: 'Esquema auxiliar de prueba' })
+    const header = screen.getByRole('heading', { level: 1 }).closest('header') as HTMLElement
+    expect(within(header).getByText('Esquema auxiliar')).toBeInTheDocument()
+    const crumbs = screen.getByRole('navigation', { name: 'Migas de pan' })
+    expect(within(crumbs).getByText('Esquemas auxiliares')).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { level: 2, name: 'Dominio OT de prueba' })).toBeInTheDocument()
+    expect(
+      within(screen.getByRole('tree', { name: 'Conceptos de Esquema auxiliar de prueba' })).getByRole('treeitem', {
+        name: 'Dominio OT de prueba',
+      }),
+    ).toHaveAttribute('aria-selected', 'true')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
   it('muestra «Esquema no encontrado» si la API responde 404', async () => {
     mockFetch({ '/vocabularies': () => jsonResponse(vocabPageFixture()) })
     renderApp('/vocabularios/no-existe')

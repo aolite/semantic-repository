@@ -45,6 +45,30 @@ export interface HealthResponse {
 /** Slugs de dominio (enum de `DomainRef.slug` y del filtro `domain`). */
 export type DomainSlug = 'it' | 'ot' | 'pqc' | 'ia'
 
+/**
+ * Esquema `IngestErrorResponse`: error de `POST /datasets`, `/ontologies` y
+ * `/schemes`. El cliente todavía no tiene pantallas de ingesta; se recoge para
+ * que el tipo siga alineado con el contrato.
+ */
+export interface IngestErrorResponse {
+  detail: string
+  /** `limit`: se ha superado un límite de la ingesta (tripletas, tamaño, IRI, profundidad o tiempo). */
+  kind: 'syntax' | 'structure' | 'uri' | 'shacl' | 'limit'
+  issues: IngestIssue[]
+  /** Informe SHACL en texto (solo `kind=shacl`). */
+  report: string | null
+}
+
+/** Esquema `IngestIssue`. */
+export interface IngestIssue {
+  message: string
+  focus_node: string | null
+  path: string | null
+  value: string | null
+  severity: string
+  source_shape: string | null
+}
+
 /** Esquema `ErrorResponse`. */
 export interface ErrorResponse {
   detail: string
@@ -465,10 +489,16 @@ export interface ConceptNode {
 }
 
 /** Esquema `SchemeDetail`: respuesta de `GET /schemes/{slug}` y `/schemes/corp/{slug}`. */
+/**
+ * Tipo de un esquema: corporativo, de dominio o auxiliar (`vocab/dominio` y
+ * `vocab/tipo-dataset`, sin tarjeta en `/vocabularies`).
+ */
+export type SchemeKind = 'skos_corp' | 'skos_domain' | 'auxiliary'
+
 export interface SchemeDetail {
   slug: string
   corp: boolean
-  kind: 'skos_corp' | 'skos_domain'
+  kind: SchemeKind
   uri: string
   title: string | null
   description: string | null

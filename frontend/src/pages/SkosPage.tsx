@@ -9,9 +9,10 @@ import {
   type ConceptNode,
   type ConceptRef,
   type SchemeDetail,
+  type SchemeKind,
   type VocabularyCard,
 } from '../api'
-import { DOMAINS, NOT_STATED } from '../catalog/labels'
+import { domainStyle, NOT_STATED } from '../catalog/labels'
 import { ConceptTree } from '../components/ConceptTree'
 import { DomainTag, KindTag, StatusTag, SyntheticTag, TypeTag } from '../components/Tags'
 import { useApiLoad } from '../hooks/useApiLoad'
@@ -19,6 +20,7 @@ import {
   conceptsLabel,
   isLinkableIri,
   KINDS,
+  kindStyle,
   langRank,
   prefixLabel,
   VOCAB_PLACEHOLDERS,
@@ -97,12 +99,13 @@ export function SkosPage({ corp }: { corp: boolean }) {
   )
 }
 
-function Breadcrumbs({ corp, slug }: { corp: boolean; slug: string }) {
+function Breadcrumbs({ corp, slug, kind }: { corp: boolean; slug: string; kind?: SchemeKind }) {
+  const section = kindStyle(kind ?? (corp ? 'skos_corp' : 'skos_domain')).short
   return (
     <nav aria-label="Migas de pan" className="breadcrumbs">
       <Link to="/vocabularios">Vocabularios</Link>
       <span aria-hidden="true">/</span>
-      <span>{corp ? KINDS.skos_corp.short : KINDS.skos_domain.short}</span>
+      <span>{section}</span>
       <span aria-hidden="true">/</span>
       <span aria-current="page">{slug}</span>
     </nav>
@@ -119,7 +122,7 @@ function SchemeView({ scheme, selected, onSelect }: SchemeViewProps) {
   const prefix = prefixLabel(scheme.prefix)
   return (
     <div className="dataset">
-      <Breadcrumbs corp={scheme.corp} slug={scheme.slug} />
+      <Breadcrumbs corp={scheme.corp} slug={scheme.slug} kind={scheme.kind} />
 
       <header className="vocab-header">
         <div className="dataset__header">
@@ -212,7 +215,7 @@ function SchemeList({ current }: { current: SchemeDetail }) {
                 const isCurrent = item.slug === current.slug && g.corp === current.corp
                 const kind = g.corp ? 'skos_corp' : 'skos_domain'
                 // Color del dominio si el esquema lo tiene; si no, el del tipo de vocabulario.
-                const swatch = item.domain ? DOMAINS[item.domain.slug].swatch : KINDS[kind].swatch
+                const swatch = item.domain ? domainStyle(item.domain.slug).swatch : KINDS[kind].swatch
                 return (
                   <li key={item.uri}>
                     <Link
