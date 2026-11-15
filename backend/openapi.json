@@ -642,6 +642,18 @@
               ],
               "title": "Format"
             }
+          },
+          {
+            "name": "download",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "true (o 1): añade Content-Disposition: attachment con un nombre de fichero {slug}-{versión}.{ttl|jsonld|rdf}. Por defecto se muestra en línea",
+              "default": false,
+              "title": "Download"
+            },
+            "description": "true (o 1): añade Content-Disposition: attachment con un nombre de fichero {slug}-{versión}.{ttl|jsonld|rdf}. Por defecto se muestra en línea"
           }
         ],
         "responses": {
@@ -935,6 +947,30 @@
               "title": "Kind"
             },
             "description": "Tipo de tarjeta"
+          },
+          {
+            "name": "domain",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "it",
+                    "ot",
+                    "pqc",
+                    "ia"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Slug del dominio (it, ot, pqc, ia). Solo quedan las tarjetas con ese dominio: los esquemas de dominio cuyo dct:subject es el concepto del dominio",
+              "title": "Domain"
+            },
+            "description": "Slug del dominio (it, ot, pqc, ia). Solo quedan las tarjetas con ese dominio: los esquemas de dominio cuyo dct:subject es el concepto del dominio"
           }
         ],
         "responses": {
@@ -1219,6 +1255,18 @@
               ],
               "title": "Format"
             }
+          },
+          {
+            "name": "download",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "true (o 1): añade Content-Disposition: attachment con un nombre de fichero {slug}-{versión}.{ttl|jsonld|rdf}. Por defecto se muestra en línea",
+              "default": false,
+              "title": "Download"
+            },
+            "description": "true (o 1): añade Content-Disposition: attachment con un nombre de fichero {slug}-{versión}.{ttl|jsonld|rdf}. Por defecto se muestra en línea"
           }
         ],
         "responses": {
@@ -1495,6 +1543,18 @@
               ],
               "title": "Format"
             }
+          },
+          {
+            "name": "download",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "true (o 1): añade Content-Disposition: attachment con un nombre de fichero {slug}-{versión}.{ttl|jsonld|rdf}. Por defecto se muestra en línea",
+              "default": false,
+              "title": "Download"
+            },
+            "description": "true (o 1): añade Content-Disposition: attachment con un nombre de fichero {slug}-{versión}.{ttl|jsonld|rdf}. Por defecto se muestra en línea"
           }
         ],
         "responses": {
@@ -1750,6 +1810,18 @@
               ],
               "title": "Format"
             }
+          },
+          {
+            "name": "download",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "true (o 1): añade Content-Disposition: attachment con un nombre de fichero {slug}-{versión}.{ttl|jsonld|rdf}. Por defecto se muestra en línea",
+              "default": false,
+              "title": "Download"
+            },
+            "description": "true (o 1): añade Content-Disposition: attachment con un nombre de fichero {slug}-{versión}.{ttl|jsonld|rdf}. Por defecto se muestra en línea"
           }
         ],
         "responses": {
@@ -2850,6 +2922,14 @@
             "title": "Top Concept",
             "description": "skos:topConceptOf o skos:hasTopConcept"
           },
+          "alt_labels": {
+            "items": {
+              "$ref": "#/components/schemas/LangLiteral"
+            },
+            "type": "array",
+            "title": "Alt Labels",
+            "description": "skos:altLabel por idioma"
+          },
           "children": {
             "items": {
               "$ref": "#/components/schemas/ConceptNode"
@@ -2865,6 +2945,7 @@
           "slug",
           "label",
           "top_concept",
+          "alt_labels",
           "children"
         ],
         "title": "ConceptNode"
@@ -5538,6 +5619,17 @@
             "title": "Concepts",
             "description": "Número de conceptos (solo esquemas)"
           },
+          "domain": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DomainRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Dominio del esquema de dominio (su dct:subject). null en ontologías (propias y externas) y en esquemas corporativos: el RDF no les da dominio"
+          },
           "synthetic": {
             "type": "boolean",
             "title": "Synthetic"
@@ -5557,6 +5649,7 @@
           "version",
           "metrics",
           "concepts",
+          "domain",
           "synthetic"
         ],
         "title": "VocabularyCard"
@@ -5605,7 +5698,7 @@
           },
           "counts": {
             "$ref": "#/components/schemas/VocabularyCounts",
-            "description": "Recuento por tipo de todo el repositorio, sin aplicar q ni kind"
+            "description": "Recuento por tipo de todo el repositorio, sin aplicar q, kind ni domain"
           }
         },
         "type": "object",
