@@ -297,5 +297,5 @@ Hay que resolverlas antes de la fase o el paso indicado.
 | 22 | Revisar las obligatoriedades de las formas SHACL contra el texto oficial de DCAT-AP 3, y si se añaden sus cardinalidades máximas | `semantico` | Fase 2 |
 | 23 | Fuente IBM Plex Mono servida desde el propio frontend (`@fontsource`) en lugar de Google Fonts, por la residencia en la UE; y los elementos de interfaz que no salen del prototipo (iconos de navegación, colores de error, bloque de sesión) | `frontend` | Fase 2 |
 | 24 | `/docs` y `/redoc` públicos en el despliegue (cargan recursos de un CDN externo) | `backend`, `infra` | Fase 5 |
-| 25 | Healthcheck del frontend en el Compose y ejecución de la e2e en CI | `infra` | Fase 2 |
+| 25 | Ejecución de la e2e en CI (propuesta en un commit separado de la PR de infra de la fase 2). El healthcheck del frontend ya está hecho en esa misma PR | `infra` | Al revisar la PR de infra de la fase 2 |
 | 26 | ~~Alcance de la ficha de dataset en G2~~. Decidido (2026-11-14): versionado y distribuciones con los datos que haya en el RDF; la sección FAIR muestra «Disponible en la fase 4» sin puntuaciones inventadas | `frontend` | Cerrada |
