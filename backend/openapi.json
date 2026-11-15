@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Repositorio semántico IT&OT · API",
-    "description": "API del catálogo DCAT-AP del repositorio semántico IT&OT. Fase 1: health checks, autenticación JWT y gestión de cuentas. Fase 2: lectura del catálogo, ingesta validada con SHACL y negociación de contenido en las URIs persistentes.",
+    "description": "API del catálogo DCAT-AP del repositorio semántico IT&OT. Fase 1: health checks, autenticación JWT y gestión de cuentas. Fase 2: lectura del catálogo, ingesta validada con SHACL y negociación de contenido en las URIs persistentes. Fase 3: ingesta y lectura de ontologías (con métricas OWL y consistencia) y de esquemas SKOS, y negociación en sus URIs persistentes.",
     "version": "0.1.0"
   },
   "paths": {
@@ -883,6 +883,1593 @@
           }
         }
       }
+    },
+    "/vocabularies": {
+      "get": {
+        "tags": [
+          "vocabularies"
+        ],
+        "summary": "Tarjetas de ontologías propias y externas y de esquemas SKOS",
+        "description": "Una tarjeta por ontología propia (con su versión actual), por ontología externa (estado `referenced`) y por esquema SKOS (corporativo o de dominio). `counts` es el recuento por tipo de todo el repositorio, para las tarjetas de estadísticas.",
+        "operationId": "list_vocabularies_vocabularies_get",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Texto en el nombre, el prefijo o el espacio de nombres (sin distinguir mayúsculas ni acentos)",
+              "title": "Q"
+            },
+            "description": "Texto en el nombre, el prefijo o el espacio de nombres (sin distinguir mayúsculas ni acentos)"
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "own",
+                    "external",
+                    "skos_corp",
+                    "skos_domain"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Tipo de tarjeta",
+              "title": "Kind"
+            },
+            "description": "Tipo de tarjeta"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VocabularyPage"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ontologies": {
+      "post": {
+        "tags": [
+          "ontologies"
+        ],
+        "summary": "Publica una versión de ontología validada con SHACL y calcula sus métricas",
+        "description": "Recibe una versión de ontología (una owl:Ontology `{BASE_URI}onto/{slug}` con owl:versionIRI `{BASE_URI}onto/{slug}/{version}`) en Turtle o JSON-LD; las IRIs relativas se resuelven contra BASE_URI. Sustituye por completo el grafo con nombre del versionIRI. Antes de escribir calcula las métricas OWL (owlready2) y la consistencia (Pellet) **sin descargar los owl:imports**, y las guarda como metadatos de la versión. 201 si la versión es nueva; 200 si ya existía (`changed=false` si era idéntica). Requiere rol editor (admin hereda los permisos de editor).",
+        "operationId": "create_ontology_ontologies_post",
+        "requestBody": {
+          "content": {
+            "text/turtle": {
+              "schema": {
+                "type": "string",
+                "description": "RDF serializado"
+              }
+            },
+            "application/ld+json": {
+              "schema": {
+                "type": "string",
+                "description": "RDF serializado"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OntologyIngestResult"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Versión sustituida",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OntologyIngestResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No autenticado"
+          },
+          "403": {
+            "description": "Requiere rol editor o admin"
+          },
+          "413": {
+            "description": "Content Too Large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported Media Type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "RDF no válido: sintaxis, estructura, URIs o informe SHACL",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Triplestore no disponible o sin credenciales de escritura",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
+      }
+    },
+    "/ontologies/{slug}": {
+      "get": {
+        "tags": [
+          "ontologies"
+        ],
+        "summary": "Ficha de ontología: versión actual (o ?version=), métricas, versionado y usos",
+        "operationId": "get_ontology_ontologies__slug__get",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+              "description": "Slug de la ontología",
+              "title": "Slug"
+            },
+            "description": "Slug de la ontología"
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 50,
+                  "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Versión MAYOR.MENOR.PARCHE",
+              "title": "Version"
+            },
+            "description": "Versión MAYOR.MENOR.PARCHE"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OntologyDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "La ontología o la versión no existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ontologies/{slug}/rdf": {
+      "get": {
+        "tags": [
+          "ontologies"
+        ],
+        "summary": "RDF de una versión de ontología: Turtle, RDF/XML o JSON-LD",
+        "description": "Formato por `?format=` o, si no se indica, por la cabecera `Accept`.",
+        "operationId": "get_ontology_rdf_ontologies__slug__rdf_get",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+              "description": "Slug de la ontología",
+              "title": "Slug"
+            },
+            "description": "Slug de la ontología"
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 50,
+                  "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Versión MAYOR.MENOR.PARCHE",
+              "title": "Version"
+            },
+            "description": "Versión MAYOR.MENOR.PARCHE"
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "turtle",
+                    "rdfxml",
+                    "jsonld"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Format"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "RDF en Turtle, JSON-LD o RDF/XML",
+            "content": {
+              "text/turtle": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              },
+              "application/ld+json": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              },
+              "application/rdf+xml": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "406": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Acceptable"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/schemes": {
+      "post": {
+        "tags": [
+          "schemes"
+        ],
+        "summary": "Publica un esquema SKOS validado con SHACL",
+        "description": "Recibe un skos:ConceptScheme (`{BASE_URI}vocab/{slug}` o `{BASE_URI}vocab/corp/{slug}`) con sus conceptos (`{esquema}/{slug}`) en Turtle o JSON-LD; las IRIs relativas se resuelven contra BASE_URI. Sustituye por completo el grafo con nombre del esquema. 201 si es nuevo; 200 si ya existía (`changed=false` si era idéntico). Requiere rol editor (admin hereda los permisos de editor).",
+        "operationId": "create_scheme_schemes_post",
+        "requestBody": {
+          "content": {
+            "text/turtle": {
+              "schema": {
+                "type": "string",
+                "description": "RDF serializado"
+              }
+            },
+            "application/ld+json": {
+              "schema": {
+                "type": "string",
+                "description": "RDF serializado"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SchemeIngestResult"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Sustituido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SchemeIngestResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No autenticado"
+          },
+          "403": {
+            "description": "Requiere rol editor o admin"
+          },
+          "413": {
+            "description": "Content Too Large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported Media Type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "RDF no válido: sintaxis, estructura, URIs o informe SHACL",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Triplestore no disponible o sin credenciales de escritura",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
+      }
+    },
+    "/schemes/corp/{slug}": {
+      "get": {
+        "tags": [
+          "schemes"
+        ],
+        "summary": "Esquema SKOS corporativo: metadatos, dominio y árbol de conceptos",
+        "operationId": "get_corp_scheme_schemes_corp__slug__get",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+              "description": "Slug del esquema",
+              "title": "Slug"
+            },
+            "description": "Slug del esquema"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SchemeDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "El esquema o el concepto no existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/schemes/corp/{slug}/rdf": {
+      "get": {
+        "tags": [
+          "schemes"
+        ],
+        "summary": "RDF de un esquema corporativo",
+        "operationId": "get_corp_scheme_rdf_schemes_corp__slug__rdf_get",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+              "description": "Slug del esquema",
+              "title": "Slug"
+            },
+            "description": "Slug del esquema"
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "turtle",
+                    "rdfxml",
+                    "jsonld"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Format"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "RDF en Turtle, JSON-LD o RDF/XML",
+            "content": {
+              "text/turtle": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              },
+              "application/ld+json": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              },
+              "application/rdf+xml": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "406": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Acceptable"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/schemes/corp/{slug}/concepts/{concept}": {
+      "get": {
+        "tags": [
+          "schemes"
+        ],
+        "summary": "Concepto de un esquema corporativo",
+        "operationId": "get_corp_concept_schemes_corp__slug__concepts__concept__get",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+              "description": "Slug del esquema",
+              "title": "Slug"
+            },
+            "description": "Slug del esquema"
+          },
+          {
+            "name": "concept",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+              "description": "Slug del concepto",
+              "title": "Concept"
+            },
+            "description": "Slug del concepto"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConceptDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "El esquema o el concepto no existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/schemes/{slug}": {
+      "get": {
+        "tags": [
+          "schemes"
+        ],
+        "summary": "Esquema SKOS de dominio: metadatos, dominio y árbol de conceptos",
+        "operationId": "get_scheme_schemes__slug__get",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+              "description": "Slug del esquema",
+              "title": "Slug"
+            },
+            "description": "Slug del esquema"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SchemeDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "El esquema o el concepto no existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/schemes/{slug}/rdf": {
+      "get": {
+        "tags": [
+          "schemes"
+        ],
+        "summary": "RDF de un esquema de dominio",
+        "operationId": "get_scheme_rdf_schemes__slug__rdf_get",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+              "description": "Slug del esquema",
+              "title": "Slug"
+            },
+            "description": "Slug del esquema"
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "turtle",
+                    "rdfxml",
+                    "jsonld"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Format"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "RDF en Turtle, JSON-LD o RDF/XML",
+            "content": {
+              "text/turtle": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              },
+              "application/ld+json": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              },
+              "application/rdf+xml": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "406": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Acceptable"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/schemes/{slug}/concepts/{concept}": {
+      "get": {
+        "tags": [
+          "schemes"
+        ],
+        "summary": "Concepto: etiquetas por idioma, jerarquía, mapeos y recursos que lo usan",
+        "operationId": "get_concept_schemes__slug__concepts__concept__get",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+              "description": "Slug del esquema",
+              "title": "Slug"
+            },
+            "description": "Slug del esquema"
+          },
+          {
+            "name": "concept",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+              "description": "Slug del concepto",
+              "title": "Concept"
+            },
+            "description": "Slug del concepto"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConceptDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "El esquema o el concepto no existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/onto/{slug}": {
+      "get": {
+        "tags": [
+          "linked-data"
+        ],
+        "summary": "URI persistente de una ontología (versión actual; también sus términos #…)",
+        "operationId": "resolve_ontology_onto__slug__get",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+              "title": "Slug"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "RDF del recurso",
+            "content": {
+              "text/turtle": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              },
+              "application/ld+json": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              },
+              "application/rdf+xml": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              }
+            }
+          },
+          "303": {
+            "description": "Accept: text/html. Redirige al frontend"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "406": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Acceptable"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/onto/{slug}/{version}": {
+      "get": {
+        "tags": [
+          "linked-data"
+        ],
+        "summary": "URI persistente de una versión de ontología (owl:versionIRI)",
+        "operationId": "resolve_ontology_version_onto__slug___version__get",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+              "title": "Slug"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 50,
+              "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+              "title": "Version"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "RDF del recurso",
+            "content": {
+              "text/turtle": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              },
+              "application/ld+json": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              },
+              "application/rdf+xml": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              }
+            }
+          },
+          "303": {
+            "description": "Accept: text/html. Redirige al frontend"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "406": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Acceptable"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/vocab/corp/{slug}": {
+      "get": {
+        "tags": [
+          "linked-data"
+        ],
+        "summary": "URI persistente de un esquema SKOS corporativo",
+        "operationId": "resolve_corp_scheme_vocab_corp__slug__get",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+              "title": "Slug"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "RDF del recurso",
+            "content": {
+              "text/turtle": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              },
+              "application/ld+json": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              },
+              "application/rdf+xml": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              }
+            }
+          },
+          "303": {
+            "description": "Accept: text/html. Redirige al frontend"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "406": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Acceptable"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/vocab/corp/{slug}/{concept}": {
+      "get": {
+        "tags": [
+          "linked-data"
+        ],
+        "summary": "URI persistente de un concepto de un esquema corporativo",
+        "operationId": "resolve_corp_concept_vocab_corp__slug___concept__get",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+              "title": "Slug"
+            }
+          },
+          {
+            "name": "concept",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+              "title": "Concept"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "RDF del recurso",
+            "content": {
+              "text/turtle": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              },
+              "application/ld+json": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              },
+              "application/rdf+xml": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              }
+            }
+          },
+          "303": {
+            "description": "Accept: text/html. Redirige al frontend"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "406": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Acceptable"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/vocab/{slug}": {
+      "get": {
+        "tags": [
+          "linked-data"
+        ],
+        "summary": "URI persistente de un esquema SKOS de dominio",
+        "operationId": "resolve_scheme_vocab__slug__get",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+              "title": "Slug"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "RDF del recurso",
+            "content": {
+              "text/turtle": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              },
+              "application/ld+json": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              },
+              "application/rdf+xml": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              }
+            }
+          },
+          "303": {
+            "description": "Accept: text/html. Redirige al frontend"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "406": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Acceptable"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/vocab/{slug}/{concept}": {
+      "get": {
+        "tags": [
+          "linked-data"
+        ],
+        "summary": "URI persistente de un concepto SKOS",
+        "operationId": "resolve_concept_vocab__slug___concept__get",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+              "title": "Slug"
+            }
+          },
+          {
+            "name": "concept",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+              "title": "Concept"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "RDF del recurso",
+            "content": {
+              "text/turtle": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              },
+              "application/ld+json": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              },
+              "application/rdf+xml": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              }
+            }
+          },
+          "303": {
+            "description": "Accept: text/html. Redirige al frontend"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "406": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Acceptable"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -913,6 +2500,115 @@
         ],
         "title": "AccessRights",
         "description": "``dct:accessRights``. ``code`` es la entrada de la tabla de autoridad de la UE."
+      },
+      "Alignment": {
+        "properties": {
+          "target_ontology": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Ontology",
+            "description": "null si no se reconoce la ontología"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "prefix": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prefix"
+          },
+          "relation": {
+            "type": "string",
+            "title": "Relation",
+            "description": "IRI de la relación (rdfs:subClassOf, skos:exactMatch…)"
+          },
+          "scope": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope",
+            "description": "rdfs:comment o dct:description de la anotación del axioma, si existe"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version",
+            "description": "owl:versionInfo de la ontología destino"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          },
+          "mappings": {
+            "items": {
+              "$ref": "#/components/schemas/AlignmentMapping"
+            },
+            "type": "array",
+            "title": "Mappings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "target_ontology",
+          "title",
+          "prefix",
+          "relation",
+          "scope",
+          "version",
+          "count",
+          "mappings"
+        ],
+        "title": "Alignment",
+        "description": "Axiomas de la ontología hacia términos de una ontología externa, por relación."
+      },
+      "AlignmentMapping": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "target": {
+            "type": "string",
+            "title": "Target"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source",
+          "target"
+        ],
+        "title": "AlignmentMapping"
       },
       "Body_login_auth_token_post": {
         "properties": {
@@ -1000,6 +2696,310 @@
           "status"
         ],
         "title": "ComponentStatus"
+      },
+      "ConceptDetail": {
+        "properties": {
+          "uri": {
+            "type": "string",
+            "title": "Uri"
+          },
+          "slug": {
+            "type": "string",
+            "title": "Slug"
+          },
+          "scheme": {
+            "$ref": "#/components/schemas/SchemeRef"
+          },
+          "pref_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pref Label",
+            "description": "skos:prefLabel preferida (es)"
+          },
+          "pref_labels": {
+            "items": {
+              "$ref": "#/components/schemas/LangLiteral"
+            },
+            "type": "array",
+            "title": "Pref Labels"
+          },
+          "alt_labels": {
+            "items": {
+              "$ref": "#/components/schemas/LangLiteral"
+            },
+            "type": "array",
+            "title": "Alt Labels"
+          },
+          "definition": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Definition"
+          },
+          "definitions": {
+            "items": {
+              "$ref": "#/components/schemas/LangLiteral"
+            },
+            "type": "array",
+            "title": "Definitions"
+          },
+          "top_concept": {
+            "type": "boolean",
+            "title": "Top Concept"
+          },
+          "broader": {
+            "items": {
+              "$ref": "#/components/schemas/ConceptRef"
+            },
+            "type": "array",
+            "title": "Broader"
+          },
+          "narrower": {
+            "items": {
+              "$ref": "#/components/schemas/ConceptRef"
+            },
+            "type": "array",
+            "title": "Narrower"
+          },
+          "related": {
+            "items": {
+              "$ref": "#/components/schemas/ConceptRef"
+            },
+            "type": "array",
+            "title": "Related"
+          },
+          "exact_match": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Exact Match"
+          },
+          "close_match": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Close Match"
+          },
+          "used_by": {
+            "$ref": "#/components/schemas/ConceptUsage"
+          }
+        },
+        "type": "object",
+        "required": [
+          "uri",
+          "slug",
+          "scheme",
+          "pref_label",
+          "pref_labels",
+          "alt_labels",
+          "definition",
+          "definitions",
+          "top_concept",
+          "broader",
+          "narrower",
+          "related",
+          "exact_match",
+          "close_match",
+          "used_by"
+        ],
+        "title": "ConceptDetail"
+      },
+      "ConceptNode": {
+        "properties": {
+          "uri": {
+            "type": "string",
+            "title": "Uri"
+          },
+          "slug": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slug"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "top_concept": {
+            "type": "boolean",
+            "title": "Top Concept",
+            "description": "skos:topConceptOf o skos:hasTopConcept"
+          },
+          "children": {
+            "items": {
+              "$ref": "#/components/schemas/ConceptNode"
+            },
+            "type": "array",
+            "title": "Children",
+            "description": "skos:narrower e inversa de skos:broader"
+          }
+        },
+        "type": "object",
+        "required": [
+          "uri",
+          "slug",
+          "label",
+          "top_concept",
+          "children"
+        ],
+        "title": "ConceptNode"
+      },
+      "ConceptRef": {
+        "properties": {
+          "uri": {
+            "type": "string",
+            "title": "Uri"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label",
+            "description": "skos:prefLabel (es) si el concepto está cargado"
+          },
+          "scheme": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scheme",
+            "description": "IRI del esquema (skos:inScheme)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "uri",
+          "label",
+          "scheme"
+        ],
+        "title": "ConceptRef"
+      },
+      "ConceptUsage": {
+        "properties": {
+          "datasets": {
+            "items": {
+              "$ref": "#/components/schemas/DatasetUse"
+            },
+            "type": "array",
+            "title": "Datasets",
+            "description": "Series con versiones con dcat:theme"
+          },
+          "ontologies": {
+            "items": {
+              "$ref": "#/components/schemas/OntologyUse"
+            },
+            "type": "array",
+            "title": "Ontologies",
+            "description": "Ontologías con dct:subject"
+          }
+        },
+        "type": "object",
+        "required": [
+          "datasets",
+          "ontologies"
+        ],
+        "title": "ConceptUsage"
+      },
+      "ConsistencyRead": {
+        "properties": {
+          "reasoner": {
+            "type": "string",
+            "title": "Reasoner",
+            "description": "Siempre 'Pellet'"
+          },
+          "consistent": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Consistent",
+            "description": "null si el razonador no pudo ejecutarse"
+          },
+          "unsatisfiable_classes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unsatisfiable Classes"
+          },
+          "unsatisfiable": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Unsatisfiable",
+            "description": "IRIs de las clases insatisfacibles"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail",
+            "description": "Motivo si consistent es false o null"
+          },
+          "includes_imports": {
+            "type": "boolean",
+            "title": "Includes Imports",
+            "description": "Siempre false: se razona sin las ontologías importadas",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "reasoner",
+          "consistent",
+          "unsatisfiable_classes",
+          "unsatisfiable",
+          "detail"
+        ],
+        "title": "ConsistencyRead"
       },
       "DatasetCard": {
         "properties": {
@@ -1240,6 +3240,82 @@
         ],
         "title": "DatasetPage"
       },
+      "DatasetUse": {
+        "properties": {
+          "slug": {
+            "type": "string",
+            "title": "Slug"
+          },
+          "uri": {
+            "type": "string",
+            "title": "Uri"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "versions": {
+            "items": {
+              "$ref": "#/components/schemas/DatasetVersionUse"
+            },
+            "type": "array",
+            "title": "Versions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "slug",
+          "uri",
+          "title",
+          "versions"
+        ],
+        "title": "DatasetUse"
+      },
+      "DatasetVersionUse": {
+        "properties": {
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          },
+          "uri": {
+            "type": "string",
+            "title": "Uri"
+          },
+          "conforms_to": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conforms To",
+            "description": "IRI exacta de dct:conformsTo, si aplica"
+          }
+        },
+        "type": "object",
+        "required": [
+          "version",
+          "uri",
+          "conforms_to"
+        ],
+        "title": "DatasetVersionUse"
+      },
       "DcatMetadata": {
         "properties": {
           "publisher": {
@@ -1414,6 +3490,57 @@
         ],
         "title": "DistributionRead"
       },
+      "DocumentationCoverageRead": {
+        "properties": {
+          "documented": {
+            "type": "integer",
+            "title": "Documented"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "percent": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Percent",
+            "description": "% de clases y propiedades con rdfs:comment"
+          },
+          "classes_documented": {
+            "type": "integer",
+            "title": "Classes Documented"
+          },
+          "classes_total": {
+            "type": "integer",
+            "title": "Classes Total"
+          },
+          "properties_documented": {
+            "type": "integer",
+            "title": "Properties Documented"
+          },
+          "properties_total": {
+            "type": "integer",
+            "title": "Properties Total"
+          }
+        },
+        "type": "object",
+        "required": [
+          "documented",
+          "total",
+          "percent",
+          "classes_documented",
+          "classes_total",
+          "properties_documented",
+          "properties_total"
+        ],
+        "title": "DocumentationCoverageRead"
+      },
       "DomainRef": {
         "properties": {
           "slug": {
@@ -1428,7 +3555,8 @@
           },
           "uri": {
             "type": "string",
-            "title": "Uri"
+            "title": "Uri",
+            "description": "IRI del concepto de dominio ({BASE_URI}vocab/dominio/{slug})"
           },
           "label": {
             "anyOf": [
@@ -1440,7 +3568,7 @@
               }
             ],
             "title": "Label",
-            "description": "skos:prefLabel del esquema (es), si está cargado"
+            "description": "skos:prefLabel (es) del concepto de dominio, si está cargado"
           }
         },
         "type": "object",
@@ -1450,7 +3578,7 @@
           "label"
         ],
         "title": "DomainRef",
-        "description": "Dominio del dataset: esquema SKOS ``{BASE_URI}vocab/{slug}`` de sus temas."
+        "description": "Dominio: concepto ``{BASE_URI}vocab/dominio/{slug}``, el ``dct:subject`` del esquema\nde los temas del dataset (o del propio esquema SKOS)."
       },
       "ErrorResponse": {
         "properties": {
@@ -1491,6 +3619,61 @@
           "status"
         ],
         "title": "HealthStatus"
+      },
+      "ImportRef": {
+        "properties": {
+          "uri": {
+            "type": "string",
+            "title": "Uri"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "prefix": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prefix"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          },
+          "known": {
+            "type": "boolean",
+            "title": "Known",
+            "description": "La ontología importada está descrita en las externas"
+          }
+        },
+        "type": "object",
+        "required": [
+          "uri",
+          "title",
+          "prefix",
+          "version",
+          "known"
+        ],
+        "title": "ImportRef"
       },
       "IngestErrorResponse": {
         "properties": {
@@ -1653,6 +3836,716 @@
         ],
         "title": "IngestResult"
       },
+      "LangLiteral": {
+        "properties": {
+          "value": {
+            "type": "string",
+            "title": "Value"
+          },
+          "lang": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lang",
+            "description": "Etiqueta de idioma (es, ca, en…); null si no tiene"
+          }
+        },
+        "type": "object",
+        "required": [
+          "value",
+          "lang"
+        ],
+        "title": "LangLiteral"
+      },
+      "MetricsSummary": {
+        "properties": {
+          "classes": {
+            "type": "integer",
+            "title": "Classes"
+          },
+          "properties": {
+            "type": "integer",
+            "title": "Properties",
+            "description": "Propiedades de objeto más propiedades de datos"
+          }
+        },
+        "type": "object",
+        "required": [
+          "classes",
+          "properties"
+        ],
+        "title": "MetricsSummary",
+        "description": "Resumen de métricas de la tarjeta (solo ontologías propias)."
+      },
+      "OntologyDetail": {
+        "properties": {
+          "slug": {
+            "type": "string",
+            "title": "Slug"
+          },
+          "uri": {
+            "type": "string",
+            "title": "Uri"
+          },
+          "kind": {
+            "type": "string",
+            "const": "own",
+            "title": "Kind"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "published",
+              "draft",
+              "referenced"
+            ],
+            "title": "Status"
+          },
+          "synthetic": {
+            "type": "boolean",
+            "title": "Synthetic"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/OntologyMetadata"
+          },
+          "versioning": {
+            "$ref": "#/components/schemas/OntologyVersioning"
+          },
+          "metrics": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OntologyMetricsRead"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "null si no se han calculado"
+          },
+          "profile": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OwlProfile"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "consistency": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConsistencyRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "documentation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DocumentationCoverageRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "metrics_computed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metrics Computed At"
+          },
+          "metrics_tool": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metrics Tool"
+          },
+          "imports": {
+            "items": {
+              "$ref": "#/components/schemas/ImportRef"
+            },
+            "type": "array",
+            "title": "Imports"
+          },
+          "alignments": {
+            "items": {
+              "$ref": "#/components/schemas/Alignment"
+            },
+            "type": "array",
+            "title": "Alignments"
+          },
+          "used_by_datasets": {
+            "items": {
+              "$ref": "#/components/schemas/DatasetUse"
+            },
+            "type": "array",
+            "title": "Used By Datasets",
+            "description": "Series con alguna versión con dct:conformsTo hacia la ontología o una de sus versiones"
+          },
+          "subjects": {
+            "items": {
+              "$ref": "#/components/schemas/SubjectRef"
+            },
+            "type": "array",
+            "title": "Subjects",
+            "description": "Esquemas SKOS usados (dct:subject)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "slug",
+          "uri",
+          "kind",
+          "status",
+          "synthetic",
+          "title",
+          "description",
+          "metadata",
+          "versioning",
+          "metrics",
+          "profile",
+          "consistency",
+          "documentation",
+          "metrics_computed_at",
+          "metrics_tool",
+          "imports",
+          "alignments",
+          "used_by_datasets",
+          "subjects"
+        ],
+        "title": "OntologyDetail"
+      },
+      "OntologyIngestResult": {
+        "properties": {
+          "slug": {
+            "type": "string",
+            "title": "Slug"
+          },
+          "uri": {
+            "type": "string",
+            "title": "Uri",
+            "description": "URI de la ontología"
+          },
+          "version": {
+            "type": "string",
+            "title": "Version"
+          },
+          "version_iri": {
+            "type": "string",
+            "title": "Version Iri"
+          },
+          "graph": {
+            "type": "string",
+            "title": "Graph",
+            "description": "Grafo con nombre (el versionIRI)"
+          },
+          "triples": {
+            "type": "integer",
+            "title": "Triples"
+          },
+          "created": {
+            "type": "boolean",
+            "title": "Created"
+          },
+          "changed": {
+            "type": "boolean",
+            "title": "Changed"
+          },
+          "metrics_recomputed": {
+            "type": "boolean",
+            "title": "Metrics Recomputed",
+            "description": "false si la versión ya tenía métricas para el mismo contenido"
+          },
+          "metrics": {
+            "$ref": "#/components/schemas/OntologyMetricsRead"
+          },
+          "profile": {
+            "$ref": "#/components/schemas/OwlProfile"
+          },
+          "consistency": {
+            "$ref": "#/components/schemas/ConsistencyRead"
+          },
+          "documentation": {
+            "$ref": "#/components/schemas/DocumentationCoverageRead"
+          }
+        },
+        "type": "object",
+        "required": [
+          "slug",
+          "uri",
+          "version",
+          "version_iri",
+          "graph",
+          "triples",
+          "created",
+          "changed",
+          "metrics_recomputed",
+          "metrics",
+          "profile",
+          "consistency",
+          "documentation"
+        ],
+        "title": "OntologyIngestResult"
+      },
+      "OntologyMetadata": {
+        "properties": {
+          "prefix": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prefix"
+          },
+          "namespace": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Namespace"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "creators": {
+            "items": {
+              "$ref": "#/components/schemas/ResourceRef"
+            },
+            "type": "array",
+            "title": "Creators"
+          },
+          "contributors": {
+            "items": {
+              "$ref": "#/components/schemas/ResourceRef"
+            },
+            "type": "array",
+            "title": "Contributors"
+          },
+          "publisher": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResourceRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "license": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResourceRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rights": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rights"
+          },
+          "issued": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Issued"
+          },
+          "modified": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Modified"
+          },
+          "created": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created"
+          }
+        },
+        "type": "object",
+        "required": [
+          "prefix",
+          "namespace",
+          "title",
+          "description",
+          "creators",
+          "contributors",
+          "publisher",
+          "license",
+          "rights",
+          "issued",
+          "modified",
+          "created"
+        ],
+        "title": "OntologyMetadata",
+        "description": "Metadatos VANN y DCT de la versión."
+      },
+      "OntologyMetricsRead": {
+        "properties": {
+          "classes": {
+            "type": "integer",
+            "title": "Classes"
+          },
+          "object_properties": {
+            "type": "integer",
+            "title": "Object Properties"
+          },
+          "data_properties": {
+            "type": "integer",
+            "title": "Data Properties"
+          },
+          "annotation_properties": {
+            "type": "integer",
+            "title": "Annotation Properties"
+          },
+          "individuals": {
+            "type": "integer",
+            "title": "Individuals"
+          },
+          "logical_axioms": {
+            "type": "integer",
+            "title": "Logical Axioms",
+            "description": "Aproximado (ver backend/README.md)"
+          },
+          "imports": {
+            "type": "integer",
+            "title": "Imports",
+            "description": "owl:imports declarados (no se descargan)"
+          },
+          "dl_expressivity": {
+            "type": "null",
+            "title": "Dl Expressivity",
+            "description": "No se calcula: siempre null"
+          }
+        },
+        "type": "object",
+        "required": [
+          "classes",
+          "object_properties",
+          "data_properties",
+          "annotation_properties",
+          "individuals",
+          "logical_axioms",
+          "imports"
+        ],
+        "title": "OntologyMetricsRead"
+      },
+      "OntologyUse": {
+        "properties": {
+          "slug": {
+            "type": "string",
+            "title": "Slug"
+          },
+          "uri": {
+            "type": "string",
+            "title": "Uri"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "versions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Versions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "slug",
+          "uri",
+          "title",
+          "versions"
+        ],
+        "title": "OntologyUse"
+      },
+      "OntologyVersionRef": {
+        "properties": {
+          "version_iri": {
+            "type": "string",
+            "title": "Version Iri"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          }
+        },
+        "type": "object",
+        "required": [
+          "version_iri",
+          "version"
+        ],
+        "title": "OntologyVersionRef"
+      },
+      "OntologyVersionSummary": {
+        "properties": {
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          },
+          "version_iri": {
+            "type": "string",
+            "title": "Version Iri"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes",
+            "description": "adms:versionNotes"
+          },
+          "issued": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Issued"
+          },
+          "current": {
+            "type": "boolean",
+            "title": "Current"
+          },
+          "described": {
+            "type": "boolean",
+            "title": "Described",
+            "description": "false si la versión solo se conoce por un owl:priorVersion"
+          }
+        },
+        "type": "object",
+        "required": [
+          "version",
+          "version_iri",
+          "notes",
+          "issued",
+          "current",
+          "described"
+        ],
+        "title": "OntologyVersionSummary"
+      },
+      "OntologyVersioning": {
+        "properties": {
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          },
+          "version_iri": {
+            "type": "string",
+            "title": "Version Iri"
+          },
+          "current_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Version"
+          },
+          "prior_version": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OntologyVersionRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "backward_compatible_with": {
+            "items": {
+              "$ref": "#/components/schemas/OntologyVersionRef"
+            },
+            "type": "array",
+            "title": "Backward Compatible With"
+          },
+          "history": {
+            "items": {
+              "$ref": "#/components/schemas/OntologyVersionSummary"
+            },
+            "type": "array",
+            "title": "History"
+          }
+        },
+        "type": "object",
+        "required": [
+          "version",
+          "version_iri",
+          "current_version",
+          "prior_version",
+          "backward_compatible_with",
+          "history"
+        ],
+        "title": "OntologyVersioning"
+      },
+      "OwlProfile": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "enum": [
+              "OWL 2 DL",
+              "OWL 2 Full"
+            ],
+            "title": "Name"
+          },
+          "compatible": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "OWL 2 EL",
+                "OWL 2 QL",
+                "OWL 2 RL"
+              ]
+            },
+            "type": "array",
+            "title": "Compatible",
+            "description": "Perfiles compatibles, aproximados por constructores"
+          },
+          "approximate": {
+            "type": "boolean",
+            "title": "Approximate",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "compatible"
+        ],
+        "title": "OwlProfile"
+      },
       "ProvenanceStep": {
         "properties": {
           "kind": {
@@ -1772,6 +4665,340 @@
         ],
         "title": "Role",
         "description": "Roles con cuenta. ``lector`` (anónimo) no se guarda en la base de datos."
+      },
+      "SchemeDetail": {
+        "properties": {
+          "slug": {
+            "type": "string",
+            "title": "Slug"
+          },
+          "corp": {
+            "type": "boolean",
+            "title": "Corp"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "skos_corp",
+              "skos_domain"
+            ],
+            "title": "Kind"
+          },
+          "uri": {
+            "type": "string",
+            "title": "Uri"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "prefix": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prefix"
+          },
+          "namespace": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Namespace"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "published",
+              "draft",
+              "referenced"
+            ],
+            "title": "Status"
+          },
+          "synthetic": {
+            "type": "boolean",
+            "title": "Synthetic"
+          },
+          "domain": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DomainRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Dominio del esquema (dct:subject)"
+          },
+          "responsible": {
+            "type": "null",
+            "title": "Responsible",
+            "description": "Responsable del esquema: placeholder del prototipo, siempre null hasta que se decida (decisión abierta 11)"
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/SchemeMetadata"
+          },
+          "concept_count": {
+            "type": "integer",
+            "title": "Concept Count"
+          },
+          "tree": {
+            "items": {
+              "$ref": "#/components/schemas/ConceptNode"
+            },
+            "type": "array",
+            "title": "Tree",
+            "description": "Conceptos raíz (los topConcept y los que no tienen broader dentro del esquema) con sus hijos"
+          }
+        },
+        "type": "object",
+        "required": [
+          "slug",
+          "corp",
+          "kind",
+          "uri",
+          "title",
+          "description",
+          "prefix",
+          "namespace",
+          "version",
+          "status",
+          "synthetic",
+          "domain",
+          "metadata",
+          "concept_count",
+          "tree"
+        ],
+        "title": "SchemeDetail"
+      },
+      "SchemeIngestResult": {
+        "properties": {
+          "slug": {
+            "type": "string",
+            "title": "Slug"
+          },
+          "corp": {
+            "type": "boolean",
+            "title": "Corp"
+          },
+          "uri": {
+            "type": "string",
+            "title": "Uri"
+          },
+          "graph": {
+            "type": "string",
+            "title": "Graph"
+          },
+          "concepts": {
+            "type": "integer",
+            "title": "Concepts"
+          },
+          "triples": {
+            "type": "integer",
+            "title": "Triples"
+          },
+          "created": {
+            "type": "boolean",
+            "title": "Created"
+          },
+          "changed": {
+            "type": "boolean",
+            "title": "Changed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "slug",
+          "corp",
+          "uri",
+          "graph",
+          "concepts",
+          "triples",
+          "created",
+          "changed"
+        ],
+        "title": "SchemeIngestResult"
+      },
+      "SchemeMetadata": {
+        "properties": {
+          "creators": {
+            "items": {
+              "$ref": "#/components/schemas/ResourceRef"
+            },
+            "type": "array",
+            "title": "Creators"
+          },
+          "publisher": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResourceRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "license": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResourceRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "issued": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Issued"
+          },
+          "modified": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Modified"
+          }
+        },
+        "type": "object",
+        "required": [
+          "creators",
+          "publisher",
+          "license",
+          "issued",
+          "modified"
+        ],
+        "title": "SchemeMetadata"
+      },
+      "SchemeRef": {
+        "properties": {
+          "uri": {
+            "type": "string",
+            "title": "Uri"
+          },
+          "slug": {
+            "type": "string",
+            "title": "Slug"
+          },
+          "corp": {
+            "type": "boolean",
+            "title": "Corp"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          }
+        },
+        "type": "object",
+        "required": [
+          "uri",
+          "slug",
+          "corp",
+          "label"
+        ],
+        "title": "SchemeRef"
+      },
+      "SubjectRef": {
+        "properties": {
+          "uri": {
+            "type": "string",
+            "title": "Uri"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "scheme",
+              "concept",
+              "unknown"
+            ],
+            "title": "Type"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "scheme": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SchemeRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "uri",
+          "type",
+          "label",
+          "scheme"
+        ],
+        "title": "SubjectRef",
+        "description": "``dct:subject`` de una ontología: un esquema SKOS o un concepto."
       },
       "ThemeRef": {
         "properties": {
@@ -2185,6 +5412,209 @@
         ],
         "title": "VersionSummary",
         "description": "Entrada del historial de versiones (orden: de la más reciente a la más antigua)."
+      },
+      "VocabularyCard": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "own",
+              "external",
+              "skos_corp",
+              "skos_domain"
+            ],
+            "title": "Kind"
+          },
+          "slug": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slug",
+            "description": "Slug de la ontología o del esquema (sin 'corp/'); null en las externas"
+          },
+          "uri": {
+            "type": "string",
+            "title": "Uri"
+          },
+          "rdf_type": {
+            "type": "string",
+            "enum": [
+              "owl:Ontology",
+              "skos:ConceptScheme"
+            ],
+            "title": "Rdf Type"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "prefix": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prefix",
+            "description": "vann:preferredNamespacePrefix"
+          },
+          "namespace": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Namespace",
+            "description": "vann:preferredNamespaceUri o, si falta, {ontología}# / {esquema}/"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "published",
+              "draft",
+              "referenced"
+            ],
+            "title": "Status"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          },
+          "metrics": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MetricsSummary"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Ontologías propias con métricas calculadas; null en el resto"
+          },
+          "concepts": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concepts",
+            "description": "Número de conceptos (solo esquemas)"
+          },
+          "synthetic": {
+            "type": "boolean",
+            "title": "Synthetic"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "slug",
+          "uri",
+          "rdf_type",
+          "title",
+          "prefix",
+          "namespace",
+          "description",
+          "status",
+          "version",
+          "metrics",
+          "concepts",
+          "synthetic"
+        ],
+        "title": "VocabularyCard"
+      },
+      "VocabularyCounts": {
+        "properties": {
+          "own": {
+            "type": "integer",
+            "title": "Own"
+          },
+          "external": {
+            "type": "integer",
+            "title": "External"
+          },
+          "skos_corp": {
+            "type": "integer",
+            "title": "Skos Corp"
+          },
+          "skos_domain": {
+            "type": "integer",
+            "title": "Skos Domain"
+          }
+        },
+        "type": "object",
+        "required": [
+          "own",
+          "external",
+          "skos_corp",
+          "skos_domain"
+        ],
+        "title": "VocabularyCounts"
+      },
+      "VocabularyPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/VocabularyCard"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "description": "Tarjetas que cumplen los filtros"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/VocabularyCounts",
+            "description": "Recuento por tipo de todo el repositorio, sin aplicar q ni kind"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "counts"
+        ],
+        "title": "VocabularyPage"
       }
     },
     "securitySchemes": {
