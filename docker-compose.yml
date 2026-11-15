@@ -1,4 +1,4 @@
-# Entorno local del repositorio semántico IT&OT (fase 1).
+# Entorno local del repositorio semántico IT&OT.
 # Uso: cp .env.example .env && docker compose up -d --build
 # Todos los servicios solo escuchan en 127.0.0.1.
 #

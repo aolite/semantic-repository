@@ -26,7 +26,7 @@ Cargar los datos sintéticos en Fuseki (cuando el backend esté healthy):
 docker compose exec backend python -m app.cli load-semantic
 ```
 
-Carga `semantic/data/vocab-minimo.ttl` y `semantic/data/sintetico/*.ttl`, validando antes con las formas de `semantic/shapes/`. Este comando lo implementa y confirma `backend`; esta documentación se ajustará si cambia su nombre u opciones.
+Carga `semantic/data/vocab-minimo.ttl`, `semantic/data/catalogo.ttl` y `semantic/data/sintetico/*.ttl`, validando antes con las formas de `semantic/shapes/`.
 
 Parar el entorno: `docker compose down`. Para borrar además los datos (PostgreSQL, Fuseki y distribuciones): `docker compose down -v`.
 
