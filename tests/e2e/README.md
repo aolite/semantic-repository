@@ -31,13 +31,9 @@ La prueba crea sus propias cuentas de editor y miembro: las de G1 terminan con e
 
 Lo que esta prueba no cubre: el contenido que pinta el navegador en las pantallas Catálogo y Ficha. Solo comprueba que el frontend sirve la aplicación en esas rutas y que la API le da los datos. Comprobar las pantallas en un navegador real necesitaría una herramienta nueva (por ejemplo, Playwright), que no está decidida en `Plan.md`.
 
-### Defectos conocidos (`xfail` estricto)
+### Defectos conocidos
 
-| Prueba | Hallazgo | Dueño |
-|---|---|---|
-| `test_la_ingesta_rechaza_iris_no_validas_con_422` | QA-G2-01: una IRI con espacio, llaves o salto de línea pasa la validación de la ingesta y acaba en un 500 o un 503 en lugar de un 422. No se escribe nada | `backend` |
-
-Cuando se corrija, la prueba pasará, el `xfail` estricto fallará y habrá que quitar la marca. El resto de hallazgos de la fase 2 están en `backend/tests/test_security_fase2.py`, con el mismo criterio.
+Ninguno: no hay pruebas marcadas como `xfail`. Los hallazgos QA-G2-01 a QA-G2-04 de la revisión de la fase 2 (IRIs no válidas, anidamiento extremo, autenticación antes del cuerpo y lectura limitada a los grafos publicados) están corregidos y sus pruebas pasan, aquí y en `backend/tests/test_security_fase2.py`. Un defecto nuevo se marcaría con `xfail` estricto y su identificador hasta que el agente dueño lo corrija.
 
 ### Requisitos
 
@@ -70,7 +66,7 @@ La primera vez construye las imágenes del backend y del frontend, así que tard
 
 ### Decisiones pendientes que la prueba no cubre
 
-Estos puntos no son defectos (los defectos van como `xfail` estricto, ver arriba): son decisiones que `Plan.md` no fija y que corresponden al responsable. Cuando se decidan, se añade aquí la prueba correspondiente.
+Estos puntos no son defectos ni llevan `xfail`: son decisiones que `Plan.md` no fija y que corresponden al responsable. Cuando se decidan, se añade aquí la prueba correspondiente.
 
 | Punto | Situación actual | Dueño cuando se decida |
 |---|---|---|
@@ -79,4 +75,6 @@ Estos puntos no son defectos (los defectos van como `xfail` estricto, ver arriba
 | Revocación de tokens | Una cuenta reactivada vuelve a aceptar los tokens emitidos antes de la baja, hasta que caducan | `backend` |
 | Estas pruebas en CI | La rama de `infra` de la fase 2 propone un job `e2e`; está pendiente de la decisión del responsable (decisión abierta 25) | `infra` |
 | Pantallas en un navegador real | No hay herramienta decidida; la prueba no ejecuta el JavaScript del frontend | `qa`, `frontend` |
-| El catálogo RDF tras publicar por la API | `POST /datasets` no añade la serie a `dcat:dataset` del grafo del catálogo, que solo cambia con `load-semantic` | `backend`, `semantico` |
+| QA-G2-05 · El catálogo RDF tras publicar por la API | `POST /datasets` no añade la serie a `dcat:dataset` del grafo del catálogo, que solo cambia con `load-semantic` | `backend`, `semantico` |
+| QA-G2-06 · Búsqueda por URI | El campo de búsqueda dice «Título, concepto o URI», pero `q` solo busca en título, descripción y temas | `frontend`, `backend` |
+| QA-G2-07 · Paginación del catálogo | La pantalla pide una sola página de 100 recursos; con más, el contador muestra el total pero faltan tarjetas | `frontend` |

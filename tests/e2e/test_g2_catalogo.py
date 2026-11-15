@@ -808,11 +808,6 @@ def test_la_ingesta_rechaza_cuerpos_por_encima_del_limite(stack: Stack, g2_edito
         connection.close()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="QA-G2-01: la ingesta acepta IRIs con caracteres no válidos; con Fuseki real la "
-    "petición acaba en un error del servidor en lugar de un 422",
-)
 def test_la_ingesta_rechaza_iris_no_validas_con_422(
     stack: Stack, loaded: str, g2_editor: Account
 ) -> None:

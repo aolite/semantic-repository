@@ -11,9 +11,9 @@ Complementan ``test_catalog.py``, ``test_ingest.py``, ``test_linked_data.py``,
 3. **Credenciales de Fuseki**: que no salgan en respuestas, logs, ``repr`` ni OpenAPI.
 4. **Lectura pública**: que solo se lean los grafos de las series publicadas.
 
-Los defectos conocidos van marcados con ``xfail(strict=True)`` y el identificador del
-hallazgo (``QA-G2-nn``) del informe de revisión de la fase 2: cuando el agente dueño lo
-corrija, la prueba pasará, el ``xfail`` estricto fallará y habrá que quitar la marca.
+Los hallazgos QA-G2-01 a QA-G2-04 de la revisión de la fase 2 ya están corregidos y sus
+pruebas pasan sin marca. Un defecto nuevo se marcaría con ``xfail(strict=True)`` y su
+identificador ``QA-G2-nn`` hasta que el agente dueño lo corrija.
 
 Todas las credenciales de este fichero son ficticias. Ninguna prueba sale a la red.
 """
@@ -42,7 +42,7 @@ from app import catalog
 from app.config import Settings, get_settings
 from app.deps import get_triplestore
 from app.models import AuditAction, AuditEvent, Role, User
-from app.sparql import literal, render
+from app.sparql import iri, literal, render
 from app.triplestore import FusekiStore, MemoryStore
 from app.uris import DCAT, DCT, SKOS, Uris
 from tests.conftest import BASE_URI
@@ -172,9 +172,14 @@ def _assert_only_fixed_queries(store: MemoryStore) -> None:
     IRI de un grafo de serie, que sigue el patrón de slug."""
     uris = Uris(BASE_URI)
     fixed = {
-        render(catalog.CATALOG_QUERY, dataset_ns=literal(uris.dataset_ns)),
+        render(
+            catalog.CATALOG_QUERY,
+            dataset_ns=literal(uris.dataset_ns),
+            vocab=iri(uris.vocab_graph),
+        ),
         catalog.SERIES_GRAPH_QUERY,
-        catalog.THEME_LABELS_QUERY,
+        # El grafo del vocabulario es fijo (sale de BASE_URI); el de la serie, variable.
+        catalog.THEME_LABELS_QUERY.replace("$vocab", iri(uris.vocab_graph).text),
         "CONSTRUCT { ?s ?p ?o } WHERE { GRAPH $graph { ?s ?p ?o } }",
     }
     for query in store.queries:
@@ -503,9 +508,9 @@ def test_no_query_is_built_outside_app_sparql() -> None:
 
 def test_query_templates_take_only_escaped_terms() -> None:
     """Las plantillas solo tienen los marcadores previstos y ``render`` exige términos."""
-    assert set(re.findall(r"\$[a-z_]+", catalog.CATALOG_QUERY)) == {"$dataset_ns"}
+    assert set(re.findall(r"\$[a-z_]+", catalog.CATALOG_QUERY)) == {"$dataset_ns", "$vocab"}
     assert set(re.findall(r"\$[a-z_]+", catalog.SERIES_GRAPH_QUERY)) == {"$graph"}
-    assert set(re.findall(r"\$[a-z_]+", catalog.THEME_LABELS_QUERY)) == {"$graph"}
+    assert set(re.findall(r"\$[a-z_]+", catalog.THEME_LABELS_QUERY)) == {"$graph", "$vocab"}
     with pytest.raises(TypeError):
         render(catalog.SERIES_GRAPH_QUERY, graph="<urn:x:g> } UNION { ?s ?p ?o")  # type: ignore[arg-type]
 
@@ -572,10 +577,6 @@ BAD_OBJECT_IRIS = [
 ]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="QA-G2-01: la ingesta acepta IRIs con caracteres no válidos (201) en lugar de 422",
-)
 @pytest.mark.parametrize("bad", BAD_OBJECT_IRIS)
 def test_ingest_rejects_iris_with_forbidden_characters(
     lenient: TestClient, store: MemoryStore, editor_headers: dict[str, str], bad: str
@@ -586,10 +587,6 @@ def test_ingest_rejects_iris_with_forbidden_characters(
     assert store.graph_names() == set()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="QA-G2-01: una IRI no válida ya publicada deja la URI persistente en error 500",
-)
 def test_published_series_can_always_be_read_back(
     lenient: TestClient, store: MemoryStore, editor_headers: dict[str, str]
 ) -> None:
@@ -602,10 +599,6 @@ def test_published_series_can_always_be_read_back(
         assert response.status_code == 200, f"{path}: {response.status_code}"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="QA-G2-01: una IRI con salto de línea llega sin escapar al cuerpo N-Triples del PUT",
-)
 def test_body_sent_to_fuseki_has_one_triple_per_line(
     lenient: TestClient, editor_headers: dict[str, str]
 ) -> None:
@@ -930,10 +923,6 @@ def test_default_ingest_limit_is_ten_megabytes() -> None:
 DEPTH = 100_000
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="QA-G2-02: JSON-LD con anidamiento extremo provoca RecursionError (500), no 422",
-)
 @pytest.mark.parametrize(
     "document",
     [
@@ -1159,11 +1148,6 @@ def test_anonymous_and_bad_tokens_cannot_ingest(
     assert _published_events(session_factory) == []
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="QA-G2-03: POST /datasets lee y valida el cuerpo antes de autenticar (415/413 "
-    "para un anónimo en lugar de 401)",
-)
 def test_authentication_is_checked_before_the_body(small_limit: int, client: TestClient) -> None:
     wrong_type = client.post(
         "/datasets", content=MINIMAL.encode(), headers={"Content-Type": "text/plain"}
@@ -1543,11 +1527,6 @@ def test_series_in_a_non_published_graph_is_not_readable_by_slug(
         assert SECRET_TITLE not in response.text
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="QA-G2-04: GET /datasets lista series de cualquier grafo con nombre, no solo de "
-    "los grafos de series publicadas",
-)
 def test_series_in_a_non_published_graph_is_not_listed(
     api: TestClient, loaded_store: MemoryStore
 ) -> None:
@@ -1557,11 +1536,6 @@ def test_series_in_a_non_published_graph_is_not_listed(
     assert SECRET_TITLE not in _all_public_text(api, PUBLISHED_SLUGS)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="QA-G2-04: las etiquetas de los temas se leen de cualquier grafo con nombre, "
-    "también de uno no publicado",
-)
 def test_theme_labels_are_not_read_from_non_published_graphs(
     api: TestClient, loaded_store: MemoryStore, editor_headers: dict[str, str]
 ) -> None:
