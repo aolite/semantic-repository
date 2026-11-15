@@ -2,7 +2,7 @@
 
 Cliente web en React + TypeScript + Vite + React Router, con pruebas en Vitest y Testing Library.
 
-Estado (fase 1): esqueleto con la navegación lateral del prototipo, páginas provisionales y login con JWT. Las pantallas reales llegan en las fases 2 a 4.
+Estado (fase 2): navegación lateral, login con JWT y las pantallas **Catálogo** (`/`) y **Ficha de dataset** (`/datasets/:slug`, con `?version=` para versiones antiguas). Vocabularios y la consola SPARQL siguen como páginas provisionales (fases 3 y 4).
 
 ## Variables de entorno
 
@@ -41,13 +41,39 @@ docker run --rm -p 5173:5173 \
 
 ```
 src/
-  api/          llamadas a la API (único sitio que usa fetch) y tipos provisionales
+  api/          llamadas a la API (único sitio que usa fetch) y tipos del OpenAPI
   auth/         contexto de sesión (AuthProvider, useAuth) y nombres de rol
-  components/   layout, navegación lateral e iconos
-  pages/        páginas provisionales y login
-  styles/       variables CSS del diseño y estilos globales
-  test/         configuración y utilidades de las pruebas
+  catalog/      textos de presentación: dominios, formatos, acceso y placeholders
+  components/   layout, navegación lateral, etiquetas e iconos
+  hooks/        hooks reutilizables (debounce de la búsqueda)
+  pages/        Catálogo, Ficha de dataset, login y páginas provisionales
+  styles/       variables CSS del diseño y estilos por pantalla
+  test/         configuración, utilidades y respuestas ficticias de las pruebas
 ```
+
+## Pantallas
+
+### Catálogo (`/`)
+
+- Búsqueda con debounce de 300 ms que lanza `GET /datasets?q=`; chips de dominio (`aria-pressed`) que lanzan `domain` (`it`, `ot`, `pqc`, `ia`); se pide `page_size=100` (la interfaz de paginación está pendiente).
+- Selector de tipo: «Todo» y «Datasets» piden datasets; «Vocabularios y ontologías» muestra el estado vacío sin llamar a la API hasta la fase 3.
+- El contador usa `total`. Hay estados de carga (`role="status"`), vacío y error (`role="alert"` con «Reintentar»).
+- No se muestran «Importar SKOS» ni «Publicar recurso» (sin funcionalidad todavía) ni la barra FAIR (fase 4).
+
+### Ficha de dataset (`/datasets/:slug`)
+
+- El backend redirige aquí (303) desde la URI persistente; `?version=X.Y.Z` muestra una versión antigua.
+- Secciones del prototipo: descripción, versionado con historial (cada versión enlazada con `?version=`; la mostrada lleva `aria-current`), distribuciones (sin columna «Acción» hasta la fase 4), procedencia PROV-O, RDF (Turtle o JSON-LD desde `GET /datasets/{slug}/rdf`), Evaluación FAIR («Disponible en la fase 4») y metadatos DCAT-AP.
+- Las secciones sin datos muestran un texto neutro. 404 o 422 de la API: «Dataset no encontrado».
+- No se muestran «Nueva versión» ni «Solicitar acceso» (fase 4).
+
+### Textos que pone el frontend
+
+- Nombres y colores de dominio por slug, como en el prototipo (`src/catalog/labels.ts`).
+- Etiquetas cortas de formato: `application/vnd.tcpdump.pcap` → PCAP, `text/csv` → CSV, `application/vnd.apache.parquet` → Parquet, `application/json` → JSON, `text/turtle` → RDF, `application/ld+json` → JSON-LD, `application/rdf+xml` → RDF/XML. Los demás tipos y los títulos (p. ej. NPZ) se muestran tal cual.
+- Acceso: `RESTRICTED` → «Restringido», `PUBLIC` → «Público»; otros códigos, tal cual.
+- Placeholders cuando el campo llega `null`: `[LICENCIA]`, `[CONTACTO]`, `[FECHA]` y `[PROYECTO]`. Para campos sin placeholder en el prototipo: «Sin indicar».
+- Marca «Dataset sintético» cuando `synthetic` es `true` (decisión de G2, no está en el prototipo).
 
 ## API
 
@@ -56,6 +82,9 @@ El contrato es `backend/openapi.json`. El cliente usa estos endpoints:
 - `POST /auth/token`: formulario OAuth2 password (`application/x-www-form-urlencoded`, campos `username` y `password`). Devuelve el esquema `Token`: `{ access_token, token_type: "bearer", expires_in, role }`. Las credenciales incorrectas devuelven 401.
 - `GET /auth/me` con `Authorization: Bearer <token>`. Devuelve el esquema `UserRead`: `{ id, username, role, is_active, created_at, updated_at }`. La navegación muestra `username` y `role` (`miembro`, `editor` o `admin`).
 - `GET /health`: esquema `HealthStatus`, `{ status: "ok" }`.
+- `GET /datasets?q=&domain=&page=&page_size=`: esquema `DatasetPage` con `DatasetCard`.
+- `GET /datasets/{slug}?version=`: esquema `DatasetDetail` (serie, `VersionDetail` e historial `VersionSummary`).
+- `GET /datasets/{slug}/rdf?format=turtle|jsonld&version=`: RDF en texto.
 
 Los tipos de `src/api/types.ts` están copiados a mano del OpenAPI, sin generador. Si el contrato cambia, hay que actualizarlos ahí. Las respuestas ficticias de las pruebas (`src/test/utils.tsx`) usan esos tipos, así que el build falla si se desalinean.
 

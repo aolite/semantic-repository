@@ -43,7 +43,9 @@ describe('Login', () => {
 
     await fillAndSubmit(user, USERNAME, PASSWORD)
 
-    expect(await screen.findByRole('heading', { level: 1, name: 'Catálogo' })).toBeInTheDocument()
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Datasets y vocabularios controlados' }),
+    ).toBeInTheDocument()
     const nav = screen.getByRole('navigation', { name: 'Principal' })
     expect(within(nav).getByText(USERNAME)).toBeInTheDocument()
     expect(within(nav).getByText('Editor')).toBeInTheDocument()
