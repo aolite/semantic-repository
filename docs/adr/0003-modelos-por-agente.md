@@ -19,10 +19,12 @@ Cada subagente puede usar un modelo distinto, con compromiso entre coste y calid
 | Orquestador (sesión principal) | Claude Opus 5.5, elegido al abrir la sesión |
 | `semantico`, `backend`, `frontend` | Claude Opus 5.5 (`opus`) |
 | `infra`, `docs` | Claude Sonnet 5.5, el último Sonnet (`sonnet`) |
-| `qa` | Claude Fable 5.2 (`fable`), para pruebas y pruebas de seguridad |
+| `qa` | Claude Sonnet 5.5 (`sonnet`); hasta el 2026-11-15, Claude Fable 5.2 (`fable`) |
 
 ## Consecuencias
 
 - Las capas con más carga de diseño (modelo de datos, API, interfaz) usan el modelo más capaz.
 - El modelo se declara en el campo `model:` de cada `.claude/agents/<nombre>.md`.
 - Si cambian los modelos disponibles, se registra un ADR nuevo.
+
+**Nota (2026-11-15):** el responsable cambia el modelo de `qa` de Claude Fable 5.2 a Claude Sonnet 5.5 para consumir menos tokens. El resto de la decisión sigue vigente.

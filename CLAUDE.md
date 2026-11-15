@@ -46,7 +46,7 @@ La sesión principal orquesta y delega en los subagentes de `.claude/agents/`, c
 | `backend` | `backend/` | opus |
 | `frontend` | `frontend/` | opus |
 | `infra` | `infra/`, `docker-compose.yml`, `.github/workflows/` | sonnet |
-| `qa` | `tests/` y pruebas de cada capa | fable |
+| `qa` | `tests/` y pruebas de cada capa | sonnet |
 | `docs` | `docs/` | sonnet |
 
 Cuando una tarea cruza capas, primero se cambia el contrato (OpenAPI, SHACL, patrón de URIs, Docker Compose o datos de ejemplo), en una PR propia, y después las capas que dependen de él.
