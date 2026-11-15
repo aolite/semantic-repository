@@ -63,7 +63,12 @@ F-UJI (evaluador FAIR) se añadirá en la fase 4.
 | `SEMANTIC_DIR` | `/semantic` | Carpeta con formas SHACL y datos de ejemplo. Compose monta `./semantic` en `/semantic` en solo lectura y fija este valor |
 | `REASONER_TIMEOUT_SECONDS` | `120` (comentada, opcional) | Tiempo máximo del razonador Pellet. Llega al backend por `env_file`; no hace falta tocar el Compose |
 | `REASONER_JAVA_MEMORY_MB` | `1024` (comentada, opcional) | Memoria de la JVM del razonador, en MB |
+| `INGEST_MAX_TRIPLES` | `100000` (comentada, opcional) | Tripletas máximas por ingesta |
+| `SHACL_TIMEOUT_SECONDS` | `60` (comentada, opcional) | Tiempo máximo de la validación SHACL, que se ejecuta en un proceso hijo |
+| `SHACL_MEMORY_MB` | `2048` (comentada, opcional) | Memoria máxima del proceso de validación SHACL (`RLIMIT_AS`, solo en Linux) |
 | `FRONTEND_BASE_URL` | `http://localhost:5173` | URL pública del frontend; el backend redirige con 303 a la ficha del dataset. Ajústala si cambias `FRONTEND_HOST_PORT` |
+
+Si una ingesta supera estos límites, la API responde 422 con `kind=limit`. Detalle en el README del backend.
 
 `FUSEKI_PASSWORD`, `FUSEKI_USER` y `SEMANTIC_DIR` se declaran en `environment` del servicio `backend`, que tiene prioridad sobre `env_file`. Fuera de Compose (por ejemplo, el backend en local con `uv`), define `FUSEKI_PASSWORD` a mano.
 
