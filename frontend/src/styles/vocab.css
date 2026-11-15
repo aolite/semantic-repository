@@ -1,0 +1,382 @@
+/* Pantallas Vocabularios y ontologías, Ficha de ontología y Navegador SKOS (valores del prototipo). */
+
+/* Botón con borde de marca (prototipo: «Exportar Turtle»). */
+.button--outline {
+  background: var(--color-surface);
+  border-color: var(--color-brand);
+  color: var(--color-brand);
+}
+
+.button--outline:hover {
+  background: var(--kind-own-bg);
+  color: var(--color-brand);
+}
+
+/* Tarjetas de estadísticas por tipo */
+.vocab-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
+  gap: 12px;
+}
+
+.vocab-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 84px;
+  padding: 14px 16px;
+  border: 2px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.vocab-stat[aria-pressed='true'] {
+  border-color: var(--color-brand);
+}
+
+.vocab-stat__n {
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--color-brand);
+}
+
+.vocab-stat__label {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+/* Cabecera de las fichas */
+.vocab-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.vocab-header__ns {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  word-break: break-all;
+}
+
+.vocab-header__desc {
+  margin: 0;
+  color: var(--color-text-secondary);
+  text-wrap: pretty;
+}
+
+.vocab-header__meta {
+  margin: 0;
+  font-size: 14px;
+  color: var(--color-text-muted);
+}
+
+.vocab-header__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Métricas de la ontología */
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.metric {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 14px 16px;
+  border-radius: 10px;
+  background: var(--color-page-bg);
+}
+
+.metric__n {
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--color-brand);
+}
+
+.metric__label {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.field-note,
+.cell-sub {
+  display: block;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.field-list {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.mappings summary {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--touch-target);
+  color: var(--color-link);
+  cursor: pointer;
+}
+
+/* Filas enlazadas (uso en el catálogo, recursos que usan un concepto) */
+.link-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.link-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 48px;
+  padding: 8px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.link-row:hover {
+  border-color: var(--color-brand);
+  color: var(--color-brand);
+}
+
+.link-row__meta {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.pill--corp {
+  background: var(--kind-corp-bg);
+  color: var(--kind-corp-fg);
+}
+
+.pill--domain {
+  background: var(--kind-domain-bg);
+  color: var(--kind-domain-fg);
+}
+
+/* Navegador SKOS: esquemas, árbol y concepto; se apilan en móvil. */
+.skos {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 20px;
+}
+
+.skos__schemes {
+  flex: 1 1 200px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.skos__scheme-title {
+  margin: 0;
+  padding: 0 4px 6px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.skos__scheme-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.skos__scheme-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: var(--touch-target);
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  font-size: 14px;
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.skos__scheme-link:hover {
+  background: var(--color-surface);
+}
+
+.skos__scheme-link[aria-current='page'] {
+  border-color: var(--color-border);
+  background: var(--color-surface);
+  font-weight: 700;
+}
+
+.skos__tree {
+  flex: 1 1 280px;
+  min-width: 0;
+  gap: 12px;
+  padding: 16px;
+}
+
+.skos__tree-title {
+  font-size: 16px;
+}
+
+.skos__concept {
+  flex: 999 1 420px;
+  min-width: 0;
+  gap: 22px;
+  padding: 28px;
+}
+
+.skos__concept-head {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.skos__concept-title {
+  margin: 0;
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1.15;
+  color: var(--color-brand);
+}
+
+.skos__fields {
+  padding-top: 18px;
+  border-top: 1px solid var(--color-divider);
+}
+
+.skos__uses {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 18px;
+  border-top: 1px solid var(--color-divider);
+}
+
+.skos__uses-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.input {
+  width: 100%;
+  min-height: var(--touch-target);
+  padding: 0 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  font: inherit;
+  font-size: 14px;
+  color: var(--color-text);
+  background: var(--color-surface);
+}
+
+.input::placeholder {
+  color: var(--color-text-muted);
+}
+
+/* Árbol de conceptos (patrón tree de WAI-ARIA) */
+.tree,
+.tree__group {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tree {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tree__item {
+  border-radius: 7px;
+}
+
+.tree__item:focus-visible {
+  outline: 3px solid var(--color-link);
+  outline-offset: 0;
+}
+
+.tree__row {
+  display: flex;
+  align-items: center;
+  min-height: var(--touch-target);
+  border-radius: 7px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.tree__row:hover {
+  background: var(--color-surface-muted);
+}
+
+.tree__row--selected,
+.tree__row--selected:hover {
+  background: var(--kind-corp-bg);
+  color: var(--kind-corp-fg);
+  font-weight: 700;
+}
+
+.tree__toggle,
+.tree__spacer {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  min-height: var(--touch-target);
+}
+
+.tree__toggle svg {
+  transition: transform 0.15s ease;
+}
+
+.tree__toggle--open svg {
+  transform: rotate(90deg);
+}
+
+.tree__label {
+  padding: 4px 10px 4px 0;
+}
+
+.tree__label--group {
+  font-weight: 700;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tree__toggle svg {
+    transition: none;
+  }
+}

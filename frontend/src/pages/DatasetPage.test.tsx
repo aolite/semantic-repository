@@ -154,11 +154,10 @@ describe('Ficha de dataset', () => {
     expect(turtle).toHaveAttribute('aria-pressed', 'false')
     expect(await within(rdf).findByText('{"@id": "prueba-jsonld"}')).toBeInTheDocument()
 
-    const formats = fetchMock.mock.calls
-      .map(([u]) => new URL(String(u)))
-      .filter((u) => u.pathname === `${PATH}/rdf`)
-      .map((u) => u.searchParams.get('format'))
-    expect(formats).toEqual(['turtle', 'jsonld'])
+    const rdfCalls = fetchMock.mock.calls.map(([u]) => new URL(String(u))).filter((u) => u.pathname === `${PATH}/rdf`)
+    expect(rdfCalls.map((u) => u.searchParams.get('format'))).toEqual(['turtle', 'jsonld'])
+    // La pestaña muestra el RDF en la página: sin download=1.
+    expect(rdfCalls.every((u) => !u.searchParams.has('download'))).toBe(true)
   })
 
   it('muestra la Evaluación FAIR como disponible en la fase 4, sin puntuaciones', async () => {
@@ -182,6 +181,56 @@ describe('Ficha de dataset', () => {
     expect(field(meta, 'dct:isReferencedBy')).toHaveTextContent('[PROYECTO]')
     expect(field(meta, 'dcat:theme')).toHaveTextContent('Tema A')
     expect(field(meta, 'dct:conformsTo')).toHaveTextContent('Ontología de prueba')
+  })
+
+  it('enlaza los temas al concepto en el navegador SKOS y conformsTo a la ficha de ontología', async () => {
+    mockDataset(() =>
+      detailFixture({
+        version: versionFixture({
+          metadata: metadataFixture({
+            themes: [
+              { uri: 'http://uri.test/itot/vocab/ot/tema-a', label: 'Tema A', scheme: 'http://uri.test/itot/vocab/ot' },
+              {
+                uri: 'http://uri.test/itot/vocab/corp/trl/trl-1',
+                label: 'Tema corporativo',
+                scheme: 'http://uri.test/itot/vocab/corp/trl',
+              },
+              { uri: 'https://otro.test/concepto', label: 'Tema externo', scheme: null },
+            ],
+            conforms_to: [
+              { uri: 'http://uri.test/itot/onto/prueba/1.0.0', label: 'Ontología de prueba' },
+              { uri: 'http://uri.test/itot/onto/prueba', label: 'Ontología sin versión' },
+              { uri: 'https://estandar.test/x', label: 'Estándar externo' },
+            ],
+          }),
+        }),
+      }),
+    )
+    await renderDataset()
+    const meta = section('Metadatos DCAT-AP')
+
+    const themes = field(meta, 'dcat:theme')
+    expect(within(themes).getByRole('link', { name: 'Tema A' })).toHaveAttribute(
+      'href',
+      '/vocabularios/ot?concepto=tema-a',
+    )
+    expect(within(themes).getByRole('link', { name: 'Tema corporativo' })).toHaveAttribute(
+      'href',
+      '/vocabularios/corp/trl?concepto=trl-1',
+    )
+    expect(within(themes).queryByRole('link', { name: 'Tema externo' })).not.toBeInTheDocument()
+    expect(within(themes).getByText('Tema externo')).toBeInTheDocument()
+
+    const conforms = field(meta, 'dct:conformsTo')
+    expect(within(conforms).getByRole('link', { name: 'Ontología de prueba' })).toHaveAttribute(
+      'href',
+      '/ontologias/prueba?version=1.0.0',
+    )
+    expect(within(conforms).getByRole('link', { name: 'Ontología sin versión' })).toHaveAttribute(
+      'href',
+      '/ontologias/prueba',
+    )
+    expect(within(conforms).queryByRole('link', { name: 'Estándar externo' })).not.toBeInTheDocument()
   })
 
   it('usa los valores de la API cuando existen', async () => {

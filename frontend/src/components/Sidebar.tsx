@@ -3,25 +3,36 @@ import { useAuth } from '../auth/useAuth'
 import { ROLE_LABELS } from '../auth/roles'
 import { DOMAINS, DOMAIN_SLUGS } from '../catalog/labels'
 import { getSparqlEndpointUrl } from '../config'
+import { KIND_ORDER, KINDS } from '../vocab/labels'
+import { schemeRoute } from '../vocab/routes'
 import { CatalogIcon, LogoIcon, SparqlIcon, VocabularyIcon } from './icons'
+
+/** Prefijos de las pantallas de vocabularios (navegador SKOS y ficha de ontología). */
+const VOCAB_SECTION = ['/vocabularios/', '/ontologias/']
 
 const NAV_LINKS: { to: string; label: string; Icon: typeof CatalogIcon; section?: string[] }[] = [
   { to: '/', label: 'Catálogo', Icon: CatalogIcon, section: ['/datasets/'] },
-  { to: '/vocabularios', label: 'Vocabularios', Icon: VocabularyIcon },
+  { to: '/vocabularios', label: 'Vocabularios', Icon: VocabularyIcon, section: VOCAB_SECTION },
   { to: '/sparql', label: 'Consulta SPARQL', Icon: SparqlIcon },
 ]
 
 /**
- * Esquemas de conceptos por dominio, con el color del prototipo.
- * Provisional: en la fase 3 la lista vendrá de la API (los colores siguen
- * siendo del diseño).
+ * Esquemas de conceptos por dominio, con el nombre y el color del prototipo.
+ * Cada uno enlaza al esquema de dominio con su mismo slug (`vocab/it`,
+ * `vocab/ot`, `vocab/pqc`, `vocab/ia`, según `semantic/uris.md`).
  */
-const CONCEPT_SCHEMES = DOMAIN_SLUGS.map((slug) => ({ label: DOMAINS[slug].label, color: DOMAINS[slug].swatch }))
+const CONCEPT_SCHEMES = DOMAIN_SLUGS.map((slug) => ({
+  slug,
+  label: DOMAINS[slug].label,
+  color: DOMAINS[slug].swatch,
+}))
 
 export function Sidebar() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const { pathname } = useLocation()
+  // En las pantallas de vocabularios la navegación muestra «Tipos de vocabulario», como el prototipo.
+  const inVocabSection = pathname === '/vocabularios' || VOCAB_SECTION.some((prefix) => pathname.startsWith(prefix))
 
   function handleLogout() {
     logout()
@@ -61,19 +72,37 @@ export function Sidebar() {
         })}
       </ul>
 
-      <section className="sidebar__section" aria-labelledby="sidebar-schemes">
-        <h2 id="sidebar-schemes" className="sidebar__label">
-          Esquemas de conceptos
-        </h2>
-        <ul className="sidebar__schemes">
-          {CONCEPT_SCHEMES.map(({ label, color }) => (
-            <li key={label}>
-              <span className="sidebar__swatch" style={{ background: color }} aria-hidden="true" />
-              {label}
-            </li>
-          ))}
-        </ul>
-      </section>
+      {inVocabSection ? (
+        <section className="sidebar__section" aria-labelledby="sidebar-kinds">
+          <h2 id="sidebar-kinds" className="sidebar__label">
+            Tipos de vocabulario
+          </h2>
+          <ul className="sidebar__schemes">
+            {KIND_ORDER.map((kind) => (
+              <li key={kind} className="sidebar__scheme-item">
+                <span className="sidebar__swatch" style={{ background: KINDS[kind].swatch }} aria-hidden="true" />
+                {KINDS[kind].short}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : (
+        <section className="sidebar__section" aria-labelledby="sidebar-schemes">
+          <h2 id="sidebar-schemes" className="sidebar__label">
+            Esquemas de conceptos
+          </h2>
+          <ul className="sidebar__schemes">
+            {CONCEPT_SCHEMES.map(({ slug, label, color }) => (
+              <li key={slug}>
+                <Link to={schemeRoute(slug, false)} className="sidebar__scheme-link">
+                  <span className="sidebar__swatch" style={{ background: color }} aria-hidden="true" />
+                  {label}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <section className="sidebar__section" aria-labelledby="sidebar-session">
         <h2 id="sidebar-session" className="sidebar__label">
