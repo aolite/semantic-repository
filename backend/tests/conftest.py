@@ -19,8 +19,13 @@ os.environ["FUSEKI_URL"] = "http://fuseki.test:3030"
 os.environ["FUSEKI_DATASET"] = "itot"
 os.environ["CORS_ORIGINS"] = "http://localhost:5173"
 os.environ.pop("BASE_URI", None)
+os.environ.pop("FUSEKI_USER", None)
+os.environ.pop("FUSEKI_PASSWORD", None)
+os.environ.pop("FRONTEND_BASE_URL", None)
 
+import shutil
 from collections.abc import Callable, Iterator
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -28,15 +33,67 @@ from sqlalchemy import Engine, create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app import ingest
 from app.config import Settings, get_settings
 from app.db import Base, get_db
+from app.deps import get_triplestore
 from app.main import create_app
 from app.models import Role, User
 from app.routers.health import get_fuseki_checker
 from app.schemas import ComponentStatus
 from app.security import hash_password
+from app.triplestore import MemoryStore
+from app.uris import Uris
 
 DEFAULT_PASSWORD = "contrasena-de-prueba-larga"
+BASE_URI = "https://semantic.example.org/itot/"  # valor por defecto del proyecto
+
+TESTS_DIR = Path(__file__).resolve().parent
+REPO_SEMANTIC_DIR = TESTS_DIR.parent.parent / "semantic"
+# Copia de semantic/data/ de la rama de semantico (datos sintéticos de G2). Las formas
+# SHACL no se copian: se usan las de semantic/shapes/ del repositorio.
+FIXTURE_DATA_DIR = TESTS_DIR / "fixtures" / "data"
+
+
+@pytest.fixture(scope="session", autouse=True)
+def semantic_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """``SEMANTIC_DIR`` de pruebas: formas reales del repositorio + datos de fixtures."""
+    root = tmp_path_factory.mktemp("semantic")
+    shutil.copytree(REPO_SEMANTIC_DIR / "shapes", root / "shapes")
+    shutil.copytree(FIXTURE_DATA_DIR, root / "data")
+    os.environ["SEMANTIC_DIR"] = str(root)
+    ingest.clear_caches()
+    return root
+
+
+@pytest.fixture
+def uris() -> Uris:
+    return Uris(BASE_URI)
+
+
+@pytest.fixture
+def store() -> MemoryStore:
+    """Doble en memoria de Fuseki (rdflib ``Dataset``), vacío en cada prueba."""
+    return MemoryStore()
+
+
+def load_fixture_data(store: MemoryStore, semantic_dir: Path, uris: Uris) -> None:
+    """Carga vocabulario, catálogo y series como lo haría ``load-semantic``."""
+    data = semantic_dir / "data"
+    vocab = ingest.parse_file(data / "vocab-minimo.ttl", uris.base)
+    ingest.store_graph(store, uris.vocab_graph, vocab)
+    catalog = ingest.parse_file(data / "catalogo.ttl", uris.base)
+    ingest.store_graph(store, uris.catalog, catalog)
+    for path in sorted((data / "sintetico").glob("*.ttl")):
+        graph = ingest.parse_file(path, uris.base)
+        ingest.publish(store, ingest.prepare_series(graph, uris, semantic_dir))
+
+
+@pytest.fixture
+def loaded_store(store: MemoryStore, semantic_dir: Path, uris: Uris) -> MemoryStore:
+    load_fixture_data(store, semantic_dir, uris)
+    store.queries.clear()
+    return store
 
 
 def _make_engine() -> Engine:
@@ -95,6 +152,7 @@ def client(
     settings: Settings,
     session_factory: sessionmaker[Session],
     fuseki_status: dict[str, ComponentStatus],
+    store: MemoryStore,
 ) -> Iterator[TestClient]:
     app = create_app(settings)
 
@@ -107,6 +165,7 @@ def client(
 
     app.dependency_overrides[get_db] = _get_db
     app.dependency_overrides[get_fuseki_checker] = lambda: lambda _settings: fuseki_status["value"]
+    app.dependency_overrides[get_triplestore] = lambda: store
     with TestClient(app) as test_client:
         yield test_client
 

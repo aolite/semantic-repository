@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Repositorio semántico IT&OT · API",
-    "description": "API del catálogo DCAT-AP del repositorio semántico IT&OT. Fase 1: health checks, autenticación JWT y gestión de cuentas.",
+    "description": "API del catálogo DCAT-AP del repositorio semántico IT&OT. Fase 1: health checks, autenticación JWT y gestión de cuentas. Fase 2: lectura del catálogo, ingesta validada con SHACL y negociación de contenido en las URIs persistentes.",
     "version": "0.1.0"
   },
   "paths": {
@@ -286,10 +286,634 @@
           }
         }
       }
+    },
+    "/datasets": {
+      "post": {
+        "tags": [
+          "datasets"
+        ],
+        "summary": "Publica una serie de dataset (con sus versiones) validada con SHACL",
+        "description": "Recibe la serie completa (dcat:DatasetSeries con sus dcat:Dataset y dcat:Distribution) en Turtle o JSON-LD; las IRIs relativas se resuelven contra BASE_URI. Sustituye por completo el grafo con nombre `{BASE_URI}dataset/{slug}`. 201 si la serie es nueva; 200 si ya existía (con `changed=false` si el contenido era idéntico). Requiere rol editor (admin hereda los permisos de editor).",
+        "operationId": "create_dataset_datasets_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestResult"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Serie sustituida",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No autenticado"
+          },
+          "403": {
+            "description": "Requiere rol editor o admin"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
+          },
+          "422": {
+            "description": "RDF no válido: sintaxis, estructura, URIs o informe SHACL",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Triplestore no disponible o sin credenciales de escritura",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "text/turtle": {
+              "schema": {
+                "type": "string",
+                "description": "RDF serializado"
+              }
+            },
+            "application/ld+json": {
+              "schema": {
+                "type": "string",
+                "description": "RDF serializado"
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "datasets"
+        ],
+        "summary": "Tarjetas del catálogo (lector anónimo)",
+        "operationId": "list_datasets_datasets_get",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Texto en título, descripción y temas (sin distinguir mayúsculas ni acentos)",
+              "title": "Q"
+            },
+            "description": "Texto en título, descripción y temas (sin distinguir mayúsculas ni acentos)"
+          },
+          {
+            "name": "domain",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "it",
+                    "ot",
+                    "pqc",
+                    "ia"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Slug del dominio",
+              "title": "Domain"
+            },
+            "description": "Slug del dominio"
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 10000,
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Page Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetPage"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/datasets/{slug}": {
+      "get": {
+        "tags": [
+          "datasets"
+        ],
+        "summary": "Ficha de dataset: serie, versión actual (o ?version=) e historial",
+        "operationId": "get_dataset_datasets__slug__get",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+              "description": "Slug de la serie (semantic/uris.md)",
+              "title": "Slug"
+            },
+            "description": "Slug de la serie (semantic/uris.md)"
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 50,
+                  "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Versión MAYOR.MENOR.PARCHE",
+              "title": "Version"
+            },
+            "description": "Versión MAYOR.MENOR.PARCHE"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "La serie o la versión no existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/datasets/{slug}/rdf": {
+      "get": {
+        "tags": [
+          "datasets"
+        ],
+        "summary": "RDF de la versión (pestaña «Descripción RDF»): Turtle o JSON-LD",
+        "description": "Formato por `?format=` o, si no se indica, por la cabecera `Accept`.",
+        "operationId": "get_dataset_rdf_datasets__slug__rdf_get",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+              "description": "Slug de la serie (semantic/uris.md)",
+              "title": "Slug"
+            },
+            "description": "Slug de la serie (semantic/uris.md)"
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 50,
+                  "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Versión MAYOR.MENOR.PARCHE",
+              "title": "Version"
+            },
+            "description": "Versión MAYOR.MENOR.PARCHE"
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "turtle",
+                    "jsonld"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Format"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "RDF de la versión",
+            "content": {
+              "text/turtle": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              },
+              "application/ld+json": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "La serie o la versión no existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "406": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Acceptable"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dataset/{slug}": {
+      "get": {
+        "tags": [
+          "linked-data"
+        ],
+        "summary": "URI persistente de una serie de dataset",
+        "operationId": "resolve_series_dataset__slug__get",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+              "title": "Slug"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "RDF del recurso",
+            "content": {
+              "text/turtle": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              },
+              "application/ld+json": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              }
+            }
+          },
+          "303": {
+            "description": "Accept: text/html. Redirige a la ficha del frontend"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "406": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Acceptable"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dataset/{slug}/{version}": {
+      "get": {
+        "tags": [
+          "linked-data"
+        ],
+        "summary": "URI persistente de una versión de dataset",
+        "operationId": "resolve_version_dataset__slug___version__get",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+              "title": "Slug"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 50,
+              "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+              "title": "Version"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "RDF del recurso",
+            "content": {
+              "text/turtle": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              },
+              "application/ld+json": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              }
+            }
+          },
+          "303": {
+            "description": "Accept: text/html. Redirige a la ficha del frontend"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "406": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Acceptable"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
+      "AccessRights": {
+        "properties": {
+          "uri": {
+            "type": "string",
+            "title": "Uri"
+          },
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code",
+            "description": "Último segmento de la IRI de la tabla europea (PUBLIC, RESTRICTED, NON_PUBLIC…); null si la IRI no es de esa tabla"
+          }
+        },
+        "type": "object",
+        "required": [
+          "uri",
+          "code"
+        ],
+        "title": "AccessRights",
+        "description": "``dct:accessRights``. ``code`` es la entrada de la tabla de autoridad de la UE."
+      },
       "Body_login_auth_token_post": {
         "properties": {
           "grant_type": {
@@ -377,6 +1001,470 @@
         ],
         "title": "ComponentStatus"
       },
+      "DatasetCard": {
+        "properties": {
+          "slug": {
+            "type": "string",
+            "title": "Slug"
+          },
+          "uri": {
+            "type": "string",
+            "title": "Uri"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "domain": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DomainRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Dominio principal (el primero de domains)"
+          },
+          "domains": {
+            "items": {
+              "$ref": "#/components/schemas/DomainRef"
+            },
+            "type": "array",
+            "title": "Domains"
+          },
+          "themes": {
+            "items": {
+              "$ref": "#/components/schemas/ThemeRef"
+            },
+            "type": "array",
+            "title": "Themes"
+          },
+          "access_rights": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AccessRights"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "formats": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Formats",
+            "description": "Tipos de medio IANA (p. ej. text/csv) de las distribuciones de la versión actual; si una distribución no tiene dcat:mediaType, su dct:title"
+          },
+          "current_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Version"
+          },
+          "synthetic": {
+            "type": "boolean",
+            "title": "Synthetic"
+          }
+        },
+        "type": "object",
+        "required": [
+          "slug",
+          "uri",
+          "title",
+          "description",
+          "domain",
+          "domains",
+          "themes",
+          "access_rights",
+          "formats",
+          "current_version",
+          "synthetic"
+        ],
+        "title": "DatasetCard",
+        "description": "Tarjeta de la pantalla Catálogo. Datos de la serie y de su versión actual."
+      },
+      "DatasetDetail": {
+        "properties": {
+          "slug": {
+            "type": "string",
+            "title": "Slug"
+          },
+          "uri": {
+            "type": "string",
+            "title": "Uri"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "synthetic": {
+            "type": "boolean",
+            "title": "Synthetic"
+          },
+          "domain": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DomainRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Dominio de la serie (temas de dcat:last)"
+          },
+          "domains": {
+            "items": {
+              "$ref": "#/components/schemas/DomainRef"
+            },
+            "type": "array",
+            "title": "Domains"
+          },
+          "current_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Version"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VersionDetail"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "null si la serie no tiene versiones"
+          },
+          "versions": {
+            "items": {
+              "$ref": "#/components/schemas/VersionSummary"
+            },
+            "type": "array",
+            "title": "Versions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "slug",
+          "uri",
+          "title",
+          "description",
+          "synthetic",
+          "domain",
+          "domains",
+          "current_version",
+          "version",
+          "versions"
+        ],
+        "title": "DatasetDetail",
+        "description": "Ficha de dataset: la serie, la versión pedida (o la actual) y el historial."
+      },
+      "DatasetPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/DatasetCard"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "page_size": {
+            "type": "integer",
+            "title": "Page Size"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "page",
+          "page_size"
+        ],
+        "title": "DatasetPage"
+      },
+      "DcatMetadata": {
+        "properties": {
+          "publisher": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResourceRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "contact_point": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResourceRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "license": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResourceRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "access_rights": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AccessRights"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "issued": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Issued"
+          },
+          "modified": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Modified"
+          },
+          "is_referenced_by": {
+            "items": {
+              "$ref": "#/components/schemas/ResourceRef"
+            },
+            "type": "array",
+            "title": "Is Referenced By"
+          },
+          "themes": {
+            "items": {
+              "$ref": "#/components/schemas/ThemeRef"
+            },
+            "type": "array",
+            "title": "Themes"
+          },
+          "conforms_to": {
+            "items": {
+              "$ref": "#/components/schemas/ResourceRef"
+            },
+            "type": "array",
+            "title": "Conforms To"
+          }
+        },
+        "type": "object",
+        "required": [
+          "publisher",
+          "contact_point",
+          "license",
+          "access_rights",
+          "issued",
+          "modified",
+          "is_referenced_by",
+          "themes",
+          "conforms_to"
+        ],
+        "title": "DcatMetadata"
+      },
+      "DistributionRead": {
+        "properties": {
+          "uri": {
+            "type": "string",
+            "title": "Uri"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "media_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Media Type",
+            "description": "Tipo de medio IANA, p. ej. text/csv"
+          },
+          "media_type_uri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Media Type Uri"
+          },
+          "access_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Access Url"
+          },
+          "access_rights": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AccessRights"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "De la distribución o, si no tiene, de la versión"
+          }
+        },
+        "type": "object",
+        "required": [
+          "uri",
+          "title",
+          "media_type",
+          "media_type_uri",
+          "access_url",
+          "access_rights"
+        ],
+        "title": "DistributionRead"
+      },
+      "DomainRef": {
+        "properties": {
+          "slug": {
+            "type": "string",
+            "enum": [
+              "it",
+              "ot",
+              "pqc",
+              "ia"
+            ],
+            "title": "Slug"
+          },
+          "uri": {
+            "type": "string",
+            "title": "Uri"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label",
+            "description": "skos:prefLabel del esquema (es), si está cargado"
+          }
+        },
+        "type": "object",
+        "required": [
+          "slug",
+          "uri",
+          "label"
+        ],
+        "title": "DomainRef",
+        "description": "Dominio del dataset: esquema SKOS ``{BASE_URI}vocab/{slug}`` de sus temas."
+      },
+      "ErrorResponse": {
+        "properties": {
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "detail"
+        ],
+        "title": "ErrorResponse"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -404,6 +1492,219 @@
         ],
         "title": "HealthStatus"
       },
+      "IngestErrorResponse": {
+        "properties": {
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "syntax",
+              "structure",
+              "uri",
+              "shacl"
+            ],
+            "title": "Kind"
+          },
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/IngestIssue"
+            },
+            "type": "array",
+            "title": "Issues"
+          },
+          "report": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Report",
+            "description": "Informe SHACL en texto (solo kind=shacl)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "detail",
+          "kind",
+          "issues",
+          "report"
+        ],
+        "title": "IngestErrorResponse"
+      },
+      "IngestIssue": {
+        "properties": {
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "focus_node": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Focus Node"
+          },
+          "path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "severity": {
+            "type": "string",
+            "title": "Severity"
+          },
+          "source_shape": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Shape"
+          }
+        },
+        "type": "object",
+        "required": [
+          "message",
+          "focus_node",
+          "path",
+          "value",
+          "severity",
+          "source_shape"
+        ],
+        "title": "IngestIssue"
+      },
+      "IngestResult": {
+        "properties": {
+          "slug": {
+            "type": "string",
+            "title": "Slug"
+          },
+          "uri": {
+            "type": "string",
+            "title": "Uri",
+            "description": "URI de la serie"
+          },
+          "graph": {
+            "type": "string",
+            "title": "Graph",
+            "description": "Grafo con nombre donde se ha guardado"
+          },
+          "versions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Versions"
+          },
+          "triples": {
+            "type": "integer",
+            "title": "Triples"
+          },
+          "created": {
+            "type": "boolean",
+            "title": "Created",
+            "description": "El grafo no existía"
+          },
+          "changed": {
+            "type": "boolean",
+            "title": "Changed",
+            "description": "false si el contenido era idéntico al guardado"
+          }
+        },
+        "type": "object",
+        "required": [
+          "slug",
+          "uri",
+          "graph",
+          "versions",
+          "triples",
+          "created",
+          "changed"
+        ],
+        "title": "IngestResult"
+      },
+      "ProvenanceStep": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "activity",
+              "entity"
+            ],
+            "title": "Kind"
+          },
+          "uri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uri",
+            "description": "null si es un nodo en blanco"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "agents": {
+            "items": {
+              "$ref": "#/components/schemas/ResourceRef"
+            },
+            "type": "array",
+            "title": "Agents",
+            "description": "prov:wasAssociatedWith (actividades)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "uri",
+          "label",
+          "agents"
+        ],
+        "title": "ProvenanceStep",
+        "description": "Paso de la cadena PROV-O, ordenada del origen a la actividad que generó la versión."
+      },
       "ReadinessStatus": {
         "properties": {
           "status": {
@@ -429,6 +1730,39 @@
         ],
         "title": "ReadinessStatus"
       },
+      "ResourceRef": {
+        "properties": {
+          "uri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uri"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          }
+        },
+        "type": "object",
+        "required": [
+          "uri",
+          "label"
+        ],
+        "title": "ResourceRef",
+        "description": "Recurso enlazado: IRI (null si es un nodo en blanco) y etiqueta legible."
+      },
       "Role": {
         "type": "string",
         "enum": [
@@ -438,6 +1772,45 @@
         ],
         "title": "Role",
         "description": "Roles con cuenta. ``lector`` (anónimo) no se guarda en la base de datos."
+      },
+      "ThemeRef": {
+        "properties": {
+          "uri": {
+            "type": "string",
+            "title": "Uri"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label",
+            "description": "skos:prefLabel del concepto (es), si está cargado"
+          },
+          "scheme": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scheme",
+            "description": "IRI del esquema (skos:inScheme)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "uri",
+          "label",
+          "scheme"
+        ],
+        "title": "ThemeRef"
       },
       "Token": {
         "properties": {
@@ -602,6 +1975,216 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "VersionDetail": {
+        "properties": {
+          "uri": {
+            "type": "string",
+            "title": "Uri"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "keywords": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Keywords"
+          },
+          "version_notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version Notes"
+          },
+          "previous_version": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VersionRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "in_series": {
+            "type": "string",
+            "title": "In Series"
+          },
+          "synthetic": {
+            "type": "boolean",
+            "title": "Synthetic"
+          },
+          "distributions": {
+            "items": {
+              "$ref": "#/components/schemas/DistributionRead"
+            },
+            "type": "array",
+            "title": "Distributions"
+          },
+          "provenance": {
+            "items": {
+              "$ref": "#/components/schemas/ProvenanceStep"
+            },
+            "type": "array",
+            "title": "Provenance"
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/DcatMetadata"
+          }
+        },
+        "type": "object",
+        "required": [
+          "uri",
+          "version",
+          "title",
+          "description",
+          "keywords",
+          "version_notes",
+          "previous_version",
+          "in_series",
+          "synthetic",
+          "distributions",
+          "provenance",
+          "metadata"
+        ],
+        "title": "VersionDetail"
+      },
+      "VersionRef": {
+        "properties": {
+          "uri": {
+            "type": "string",
+            "title": "Uri"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          }
+        },
+        "type": "object",
+        "required": [
+          "uri",
+          "version"
+        ],
+        "title": "VersionRef"
+      },
+      "VersionSummary": {
+        "properties": {
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          },
+          "uri": {
+            "type": "string",
+            "title": "Uri"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes",
+            "description": "adms:versionNotes"
+          },
+          "issued": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Issued"
+          },
+          "modified": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Modified"
+          },
+          "current": {
+            "type": "boolean",
+            "title": "Current",
+            "description": "Es la versión actual (dcat:last)"
+          },
+          "described": {
+            "type": "boolean",
+            "title": "Described",
+            "description": "La versión está descrita en el triplestore (false si solo se conoce por un dcat:previousVersion)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "version",
+          "uri",
+          "notes",
+          "issued",
+          "modified",
+          "current",
+          "described"
+        ],
+        "title": "VersionSummary",
+        "description": "Entrada del historial de versiones (orden: de la más reciente a la más antigua)."
       }
     },
     "securitySchemes": {

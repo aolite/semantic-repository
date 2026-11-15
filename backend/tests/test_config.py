@@ -133,3 +133,49 @@ def test_app_does_not_start_without_jwt_secret(
 def test_secret_is_not_in_repr(monkeypatch: pytest.MonkeyPatch) -> None:
     settings = _settings(monkeypatch, JWT_SECRET=VALID_SECRET)
     assert VALID_SECRET not in repr(settings)
+
+
+# --- Fase 2: Fuseki, SEMANTIC_DIR y FRONTEND_BASE_URL ---------------------------------
+
+
+def test_fuseki_credentials_are_optional(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("FUSEKI_USER", raising=False)
+    monkeypatch.delenv("FUSEKI_PASSWORD", raising=False)
+    settings = _settings(monkeypatch, JWT_SECRET=VALID_SECRET)
+    assert settings.fuseki_write_credentials is None
+    # Vacías equivalen a no definidas; con solo una tampoco hay credenciales.
+    settings = _settings(monkeypatch, JWT_SECRET=VALID_SECRET, FUSEKI_USER="u", FUSEKI_PASSWORD="")
+    assert settings.fuseki_write_credentials is None
+
+
+def test_fuseki_password_is_not_in_repr(monkeypatch: pytest.MonkeyPatch) -> None:
+    settings = _settings(
+        monkeypatch,
+        JWT_SECRET=VALID_SECRET,
+        FUSEKI_USER="backend",
+        FUSEKI_PASSWORD="clave-ficticia-de-fuseki",
+    )
+    assert settings.fuseki_write_credentials == ("backend", "clave-ficticia-de-fuseki")
+    assert "clave-ficticia-de-fuseki" not in repr(settings)
+
+
+def test_semantic_dir_default_and_relative(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("SEMANTIC_DIR", raising=False)
+    backend_dir = Path(__file__).resolve().parent.parent
+    settings = _settings(monkeypatch, JWT_SECRET=VALID_SECRET)
+    assert settings.semantic_dir == backend_dir.parent / "semantic"
+    settings = _settings(monkeypatch, JWT_SECRET=VALID_SECRET, SEMANTIC_DIR="../semantic")
+    assert settings.semantic_dir == (backend_dir / ".." / "semantic").resolve()
+    settings = _settings(monkeypatch, JWT_SECRET=VALID_SECRET, SEMANTIC_DIR="/semantic")
+    assert settings.semantic_dir == Path("/semantic")
+
+
+def test_frontend_base_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("FRONTEND_BASE_URL", raising=False)
+    assert _settings(monkeypatch, JWT_SECRET=VALID_SECRET).frontend_base_url == (
+        "http://localhost:5173"
+    )
+    settings = _settings(
+        monkeypatch, JWT_SECRET=VALID_SECRET, FRONTEND_BASE_URL="https://web.example.org/"
+    )
+    assert settings.frontend_base_url == "https://web.example.org"
