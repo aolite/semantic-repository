@@ -3768,9 +3768,11 @@
               "syntax",
               "structure",
               "uri",
-              "shacl"
+              "shacl",
+              "limit"
             ],
-            "title": "Kind"
+            "title": "Kind",
+            "description": "limit: se ha superado un límite de la ingesta (tripletas, tamaño expandido, IRI, profundidad o tiempo o memoria de la validación SHACL)"
           },
           "issues": {
             "items": {
@@ -4761,9 +4763,11 @@
             "type": "string",
             "enum": [
               "skos_corp",
-              "skos_domain"
+              "skos_domain",
+              "auxiliary"
             ],
-            "title": "Kind"
+            "title": "Kind",
+            "description": "skos_corp, skos_domain (con dct:subject hacia un dominio) o auxiliary (vocab/dominio y vocab/tipo-dataset, sin tarjeta en /vocabularies)"
           },
           "uri": {
             "type": "string",
