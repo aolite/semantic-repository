@@ -33,10 +33,15 @@ Los patrones marcados con *(prototipo)* aparecen literalmente en la pantalla «F
 | Versión de dataset | `{BASE_URI}dataset/{slug}/{version}` | `dcat:Dataset` | `{BASE_URI}dataset/modbus-tcp-testbed/2.1.0` | prototipo |
 | Distribución | `{BASE_URI}dataset/{slug}/{version}/{dist}` | `dcat:Distribution` | `{BASE_URI}dataset/modbus-tcp-testbed/2.1.0/pcap` | prototipo |
 | Actividad PROV | `{BASE_URI}actividad/{slug}` | `prov:Activity` | `{BASE_URI}actividad/extraccion-caracteristicas` | prototipo |
-| Esquema SKOS | `{BASE_URI}vocab/{esquema}` | `skos:ConceptScheme` | `{BASE_URI}vocab/ot` | derivado |
-| Concepto SKOS | `{BASE_URI}vocab/{esquema}/{slug}` | `skos:Concept` | `{BASE_URI}vocab/ot/modbus-tcp` | prototipo |
+| Esquema SKOS de dominio | `{BASE_URI}vocab/{esquema}` | `skos:ConceptScheme` | `{BASE_URI}vocab/ot` | derivado |
+| Esquema SKOS corporativo | `{BASE_URI}vocab/corp/{esquema}` | `skos:ConceptScheme` | `{BASE_URI}vocab/corp/financiacion` | **decisión del responsable (2026-11-15)** |
+| Concepto SKOS | `{URI del esquema}/{slug}` | `skos:Concept` | `{BASE_URI}vocab/ot/modbus-tcp`, `{BASE_URI}vocab/corp/trl/trl-1` | prototipo |
 | Ontología propia | `{BASE_URI}onto/{slug}` | `owl:Ontology` | `{BASE_URI}onto/itot` | derivado |
 | Versión de ontología (`owl:versionIRI`) | `{BASE_URI}onto/{slug}/{version}` | — | `{BASE_URI}onto/itot/1.2.0` | prototipo |
+| Término de ontología propia (clase, propiedad) | `{BASE_URI}onto/{slug}#{Nombre}` | `owl:Class`, `owl:ObjectProperty`… | `{BASE_URI}onto/itot#Controlador` | prototipo (`https://[DOMINIO]/itot/onto/itot#`) |
+| Ontología externa | Su IRI oficial | `owl:Ontology` | `https://saref.etsi.org/core/` | prototipo |
+| Esquema de dominios del catálogo | `{BASE_URI}vocab/dominio` | `skos:ConceptScheme` | `{BASE_URI}vocab/dominio` | **[PROPUESTA del orquestador, fase 3]** |
+| Dominio del catálogo | `{BASE_URI}vocab/dominio/{it\|ot\|pqc\|ia}` | `skos:Concept` | `{BASE_URI}vocab/dominio/ot` | **[PROPUESTA del orquestador, fase 3]** |
 | Endpoint SPARQL | `{BASE_URI}sparql` | — | `{BASE_URI}sparql` | prototipo |
 | Catálogo | `{BASE_URI}catalogo` | `dcat:Catalog` | `{BASE_URI}catalogo` (`dct:identifier "itot-catalogo"`) | **[PROPUESTA]** |
 | Esquema de tipos de dataset | `{BASE_URI}vocab/tipo-dataset` | `skos:ConceptScheme` | `{BASE_URI}vocab/tipo-dataset` | **[PROPUESTA del orquestador]** |
@@ -46,7 +51,8 @@ Los patrones marcados con *(prototipo)* aparecen literalmente en la pantalla «F
 Detalles:
 
 - `{dist}` es un slug único dentro de la versión. En el prototipo coincide con el formato (`pcap`, `csv`, `parquet`); es una convención recomendada, no una obligación.
-- `{esquema}` es un slug. Los esquemas de dominio del prototipo usan nombres cortos (`ot`); los nombres del resto de esquemas los fija `semantico` en la fase 3.
+- `{esquema}` es un slug. Los de dominio salen del prefijo del prototipo (`it`, `ot`, `pqc`, `did`, `ia`) y los corporativos, del final de su espacio de nombres en el prototipo (`organizacion`, `financiacion`, `trl`, `sectores`). `corp`, `dominio` y `tipo-dataset` están reservados: no pueden ser el slug de un esquema de dominio.
+- La versión de una ontología sigue `{version}` (semver). La de un esquema SKOS no forma parte de su URI y admite dos o tres números (`1.0`, `2026.1`), porque así la da el prototipo (ver «Vocabularios y ontologías»).
 - Una serie y sus versiones comparten `{slug}`: la URI de una versión es siempre la de su serie seguida de `/{version}`. Así, `dcat:inSeries` de una versión apunta a la URI que resulta de quitar el último segmento.
 - La versión de dataset y la de ontología siguen la misma regla `{version}`, y `dcat:version` u `owl:versionInfo` llevan exactamente esa cadena.
 - El catálogo es único, así que su URI no lleva slug. El identificador del prototipo, «itot-catalogo», va en `dct:identifier`.
@@ -55,33 +61,105 @@ Detalles:
 
 `dcat:accessURL` de cada distribución es **la URI de la propia distribución** (decisión del responsable, 2026-11-14): `{BASE_URI}dataset/{slug}/{version}/{dist}`. El prototipo no da URL de acceso. Al resolverla, el backend aplica el control de acceso por rol (lector, miembro…) según el `dct:accessRights` de la versión. `semantic/scripts/validate.py` comprueba que los datos de `semantic/data/` cumplen esta regla.
 
-## Esquemas de dominio
+## Dominios y esquemas de dominio
 
-Cada dominio del filtro de la pantalla Catálogo es un `skos:ConceptScheme`. Los temas de los datasets (`dcat:theme`) son conceptos de esos esquemas, y **el dominio de un dataset se deduce del esquema (`skos:inScheme`) de sus temas**. Los temas de una versión pertenecen a un solo dominio.
+Los cuatro dominios del filtro de la pantalla Catálogo son conceptos del esquema auxiliar `{BASE_URI}vocab/dominio`, en `semantic/data/vocab-minimo.ttl` **[PROPUESTA del orquestador, fase 3]**:
 
-| Dominio (prototipo) | Slug | Esquema |
+| Dominio (prototipo) | Concepto | Esquemas de dominio |
 |---|---|---|
-| Seguridad IT | `it` | `{BASE_URI}vocab/it` |
-| OT / ICS | `ot` | `{BASE_URI}vocab/ot` |
-| PQC e identidad | `pqc` | `{BASE_URI}vocab/pqc` |
-| IA adversaria | `ia` | `{BASE_URI}vocab/ia` |
+| Seguridad IT | `{BASE_URI}vocab/dominio/it` | `{BASE_URI}vocab/it` |
+| OT / ICS | `{BASE_URI}vocab/dominio/ot` | `{BASE_URI}vocab/ot` |
+| PQC e identidad | `{BASE_URI}vocab/dominio/pqc` | `{BASE_URI}vocab/pqc` y `{BASE_URI}vocab/did` |
+| IA adversaria | `{BASE_URI}vocab/dominio/ia` | `{BASE_URI}vocab/ia` |
 
-Conceptos usados por los datos sintéticos (fase 2, en `semantic/data/vocab-minimo.ttl`, solo con `skos:inScheme` y `skos:prefLabel` en español):
+- Cada esquema de dominio declara **un** `dct:subject` hacia su dominio. Los corporativos no llevan dominio.
+- Los temas de los datasets (`dcat:theme`) son conceptos de esquemas de dominio, y **el dominio de un dataset es el `dct:subject` del esquema (`skos:inScheme`) de sus temas**. Los temas de una versión son de un solo dominio, aunque vengan de dos esquemas (`pqc` y `did`).
+- **Cambio respecto a la fase 2:** el dominio ya no es el esquema. Su etiqueta es el `skos:prefLabel` del concepto de `vocab/dominio`, no la del esquema: `vocab/ot` se titula ahora «Protocolos y arquitectura OT», no «OT / ICS».
 
-| Concepto | `skos:prefLabel` |
+Las URIs de los conceptos de tema que ya usan los datasets no cambian:
+
+| Concepto | `skos:prefLabel` @es | Esquema |
+|---|---|---|
+| `{BASE_URI}vocab/it/cwe` | CWE | `it` |
+| `{BASE_URI}vocab/it/control-iso-27001` | Control ISO/IEC 27001 | `it` |
+| `{BASE_URI}vocab/ot/modbus-tcp` | Modbus/TCP | `ot` |
+| `{BASE_URI}vocab/ot/purdue-nivel-1` | Nivel 1 · Control básico | `ot` |
+| `{BASE_URI}vocab/ia/evasion` | Evasión | `ia` |
+| `{BASE_URI}vocab/ia/caja-blanca` | Caja blanca | `ia` |
+
+Los slugs `it/cwe`, `it/control-iso-27001`, `ia/evasion` e `ia/caja-blanca` fueron **[PROPUESTA]** de `semantico` en la fase 2; los de `ot` salen del prototipo.
+
+## Vocabularios y ontologías (fase 3)
+
+### Ficheros, grafos con nombre y etiquetas Git
+
+| Recurso | Fichero | Grafo con nombre | Etiqueta Git |
+|---|---|---|---|
+| Versión de ontología propia | `semantic/ontologias/{slug}/{version}.ttl` | su `owl:versionIRI`, `{BASE_URI}onto/{slug}/{version}` | `onto/{slug}/v{version}` |
+| Ontologías externas (todas) | `semantic/ontologias/externas.ttl` | `{BASE_URI}onto/externas` | — |
+| Esquema de dominio | `semantic/vocabularios/{slug}.ttl` | `{BASE_URI}vocab/{slug}` | `vocab/{slug}/v{version}` |
+| Esquema corporativo | `semantic/vocabularios/corp/{slug}.ttl` | `{BASE_URI}vocab/corp/{slug}` | `vocab/corp/{slug}/v{version}` |
+| Esquemas auxiliares (`dominio`, `tipo-dataset`) | `semantic/data/vocab-minimo.ttl` | `{BASE_URI}vocab/`, sin cambios desde la fase 2 **[PROPUESTA]** | — |
+
+Un fichero describe un solo esquema (con todos sus conceptos) o una sola versión de ontología. En la etiqueta Git, `{version}` es el `owl:versionInfo` del fichero (`onto/itot/v1.2.0`, `vocab/ot/v1.0`, `vocab/corp/financiacion/v2026.1`). Cada esquema tiene un fichero, el de su última versión, y las anteriores quedan en el historial de Git. Las ontologías tienen un fichero por versión porque la ficha muestra el historial con `owl:priorVersion`.
+
+### Ontologías propias
+
+- URI `{BASE_URI}onto/{slug}`, `owl:versionIRI {BASE_URI}onto/{slug}/{version}`, `owl:versionInfo "{version}"`, `owl:priorVersion` hacia la versión anterior (la primera no lleva) y, si procede, `owl:backwardCompatibleWith`.
+- VANN: `vann:preferredNamespacePrefix "{slug}"` y `vann:preferredNamespaceUri <{BASE_URI}onto/{slug}#>`. El espacio de nombres es una **IRI**, no un literal: los ficheros usan IRIs relativas a `BASE_URI` y un literal no se resolvería. Que el prefijo sea el slug es **[PROPUESTA]**; así lo hace el prototipo (`itot`, `pqcm`, `didx`).
+- Términos en `{BASE_URI}onto/{slug}#{Nombre}`. Las clases externas que se usan como destino de un alineamiento se declaran `owl:Class` en el propio fichero, para que sea OWL 2 DL sin cargar los imports. **Al contar clases, el backend debe contar solo las del espacio de nombres propio.**
+- `dct:subject` hacia los conceptos SKOS que usa la ontología (el navegador SKOS los muestra en «Recursos que usan este concepto»).
+- Notas de versión en `adms:versionNotes`, como en los datasets.
+- Las propiedades de metadatos (Dublin Core, ADMS, VANN, FOAF) se declaran `owl:AnnotationProperty`, y el publicador es un nodo en blanco solo con `foaf:name`.
+
+### Ontologías externas
+
+Solo por referencia, con su IRI oficial, en `semantic/ontologias/externas.ttl`: `dct:title`, `dct:description`, `owl:versionInfo` (la versión que muestra el prototipo), VANN y `dct:publisher`. **No llevan `owl:versionIRI` ni `adms:status`.**
+
+### Tipo: cómo se deduce
+
+| Tipo (prototipo) | En el RDF | Ubicación |
+|---|---|---|
+| Ontología propia | `owl:Ontology` con `owl:versionIRI` y URI bajo `{BASE_URI}onto/` | `ontologias/{slug}/{version}.ttl`; grafo `{BASE_URI}onto/{slug}/{version}` |
+| Ontología externa | `owl:Ontology` sin `owl:versionIRI`, con IRI fuera de `BASE_URI` | `ontologias/externas.ttl`; grafo `{BASE_URI}onto/externas` |
+| SKOS de dominio | `skos:ConceptScheme` con `dct:subject` hacia `{BASE_URI}vocab/dominio/…` | `vocabularios/{slug}.ttl`; grafo `{BASE_URI}vocab/{slug}` |
+| SKOS corporativo | `skos:ConceptScheme` con URI bajo `{BASE_URI}vocab/corp/` y sin `dct:subject` | `vocabularios/corp/{slug}.ttl`; grafo `{BASE_URI}vocab/corp/{slug}` |
+
+Los esquemas auxiliares `vocab/dominio` y `vocab/tipo-dataset` no tienen dominio ni cuelgan de `vocab/corp/`: no son de ningún tipo y **no se listan** en «Vocabularios y ontologías».
+
+### Estado **[PROPUESTA]**
+
+`adms:status` con el vocabulario de estados de ADMS (`http://purl.org/adms/status/`), limitado a los dos valores que el prototipo muestra para recursos propios:
+
+| Estado (prototipo) | Valor |
 |---|---|
-| `{BASE_URI}vocab/it/cwe` | CWE |
-| `{BASE_URI}vocab/it/control-iso-27001` | Control ISO/IEC 27001 |
-| `{BASE_URI}vocab/ot/modbus-tcp` | Modbus/TCP |
-| `{BASE_URI}vocab/ot/purdue-nivel-1` | Nivel 1 · Control básico |
-| `{BASE_URI}vocab/ia/evasion` | Evasión |
-| `{BASE_URI}vocab/ia/caja-blanca` | Caja blanca |
+| Publicada | `adms:status <http://purl.org/adms/status/Completed>` |
+| Borrador | `adms:status <http://purl.org/adms/status/UnderDevelopment>` |
+| Referenciada | Sin `adms:status`: es el estado de toda ontología externa |
 
-Los slugs `it/cwe`, `it/control-iso-27001`, `ia/evasion` e `ia/caja-blanca` son **[PROPUESTA]** de `semantico`; los de `ot` salen del prototipo. El SKOS completo (definiciones, etiquetas en ca y en, jerarquía y mapeos) llega en la fase 3.
+Lo llevan las ontologías propias (cada versión) y todos los esquemas. Las formas SHACL no admiten otros valores (`Deprecated`, `Withdrawn`) hasta que la interfaz los contemple. En la ficha de ontología, «Actual» o «Sustituida» no es un estado: una versión está sustituida si otra la cita como `owl:priorVersion`.
 
-## Marca de dataset sintético **[PROPUESTA del orquestador]**
+### Versión de los esquemas SKOS **[PROPUESTA]**
+
+`owl:versionInfo` con la versión del prototipo sin la «v» (`1.0`, `1.1`, `2026.1`, `0.3`). No es semver y no forma parte de la URI del esquema.
+
+### Responsable de un esquema corporativo **[PROPUESTA]**
+
+El valor es `[RESPONSABLE]` (decisión abierta 11), así que se **omite** y queda comentado en cada fichero corporativo con el patrón de atribución cualificada de DCAT 3:
+
+```turtle
+prov:qualifiedAttribution [
+    a prov:Attribution ;
+    prov:agent [RESPONSABLE] ;
+    dcat:hadRole <http://inspire.ec.europa.eu/metadata-codelist/ResponsiblePartyRole/custodian>
+] ;
+```
+
+## Marca de sintético **[PROPUESTA del orquestador]**
 
 Los datasets de demostración de la puerta G2 llevan `dct:type <{BASE_URI}vocab/tipo-dataset/sintetico>` en la serie y en **cada** versión. El concepto tiene `skos:prefLabel "Dataset sintético"@es` y está en el esquema `{BASE_URI}vocab/tipo-dataset`. Los datos reales, que llegan en el piloto, no llevan esta marca.
+
+Desde la fase 3, las ontologías propias (en la cabecera de cada versión) y los esquemas SKOS sintéticos llevan el **mismo** `dct:type`. Se reutiliza en lugar de crear un concepto hermano porque en DCAT un vocabulario también se cataloga como dataset y porque así el backend comprueba una sola IRI en todo el catálogo **[PROPUESTA]**. Las ontologías externas no la llevan: son reales.
 
 ## Datasets sintéticos (fase 2)
 
@@ -101,7 +179,12 @@ En `semantic/data/sintetico/`, un fichero por dataset con la serie, todas sus ve
 | `itota:` | `{BASE_URI}actividad/` |
 | `ot:` | `{BASE_URI}vocab/ot/` |
 
-Los datos sintéticos usan además `it:` (`{BASE_URI}vocab/it/`) e `ia:` (`{BASE_URI}vocab/ia/`), por analogía con `ot:`.
+| `itot:`, `pqcm:`, `didx:` | `{BASE_URI}onto/{itot\|pqcm\|didx}#` |
+| `it:`, `pqc:`, `did:`, `ia:` | `{BASE_URI}vocab/{it\|pqc\|did\|ia}/` |
+| `ecorg:`, `ecfund:`, `ectrl:`, `ecsec:` | `{BASE_URI}vocab/corp/{organizacion\|financiacion\|trl\|sectores}/` (en el prototipo, `https://[DOMINIO]/eurecat/vocab/…`; ver «Patrones») |
+| `saref:`, `sosa:`, `d3f:` | Los oficiales: `https://saref.etsi.org/core/`, `http://www.w3.org/ns/sosa/`, `http://d3fend.mitre.org/ontologies/d3fend.owl#` |
+
+Cada esquema y cada ontología declara su prefijo en `vann:preferredNamespacePrefix`, y `semantic/scripts/validate.py` comprueba que no se repitan.
 
 Atención: en Turtle un nombre con prefijo no puede contener `/` sin escapar, así que `itotd:modbus-tcp-testbed/2.1.0` (tal como aparece en el prototipo) **no es Turtle válido**. Hay que escribir `itotd:modbus-tcp-testbed\/2.1.0` o la IRI completa (o relativa, ver abajo).
 
@@ -117,7 +200,8 @@ Con Apache Jena: `riot --base="$BASE_URI" fichero.ttl`. Las IRIs absolutas (voca
 
 ## Pendiente
 
-- URI de agentes (`dct:publisher`, `prov:wasAssociatedWith`): el prototipo muestra «Eurecat · Unidad IT&OT Security» pero no da su URI. Por ahora, los ejemplos usan un nodo en blanco, uno por fichero; al cargar varios ficheros en el triplestore quedan como agentes distintos con el mismo `foaf:name`.- URIs de entidades PROV intermedias (p. ej. «Capturas PCAP en bruto») y de actividades sin URI en el prototipo («Captura en banco de pruebas»): nodos en blanco por ahora.
-- Espacio de nombres de los términos de la ontología `itot` (`{BASE_URI}onto/itot#Clase` o `{BASE_URI}onto/itot/Clase`): se decide en la fase 3.
+- URI de agentes (`dct:publisher`, `prov:wasAssociatedWith`): el prototipo muestra «Eurecat · Unidad IT&OT Security» pero no da su URI. Por ahora, los ejemplos usan un nodo en blanco, uno por fichero; al cargar varios ficheros en el triplestore quedan como agentes distintos con el mismo `foaf:name`. Lo mismo pasa con el publicador de las ontologías y los esquemas.
+- URIs de entidades PROV intermedias (p. ej. «Capturas PCAP en bruto») y de actividades sin URI en el prototipo («Captura en banco de pruebas»): nodos en blanco por ahora.
+- Si la versión de los esquemas SKOS debe ser semver, como la de las ontologías.
 - Si se admiten versiones preliminares de SemVer.
 - Qué devuelve cada URI al resolverla (negociación de contenido HTML / Turtle / JSON-LD) y cómo se sirve la descarga de una distribución restringida: lo decide `backend`.

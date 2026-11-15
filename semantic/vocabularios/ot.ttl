@@ -1,0 +1,215 @@
+# Esquema SKOS de dominio SINTÉTICO «Protocolos y arquitectura OT» (ot).
+#
+# Fuente: pantallas «Vocabularios y ontologías» (metadatos) y «Navegador
+# SKOS» (los 13 conceptos, sus grupos, etiquetas, definiciones y related)
+# del prototipo. Contenido de demostración: marcado con
+# dct:type <vocab/tipo-dataset/sintetico> (ver semantic/uris.md).
+#
+# Qué sale del prototipo y qué no:
+# - Etiquetas: prefLabel @es y @en y un altLabel por concepto, tal cual. El
+#   prototipo no da el idioma del altLabel; se etiqueta @es porque es la
+#   lengua de la pantalla. No hay etiquetas en catalán: el prototipo no las
+#   da (pendiente).
+# - Grupos «Protocolos industriales», «Modelo Purdue» e «IEC 62443»: son los
+#   nodos del árbol y el skos:broader de cada concepto. Se modelan como
+#   conceptos de nivel superior (skos:topConceptOf). Sus slugs son
+#   [PROPUESTA] de semantico y solo tienen prefLabel @es.
+# - skos:related: exactamente los pares que muestra el prototipo para cada
+#   concepto. skos:related es simétrica en SKOS; no se añaden las inversas
+#   que el prototipo no muestra (un razonador las deduce).
+# - Mapeos externos: el prototipo solo da placeholders («Wikidata · [QID]»,
+#   «MITRE ATT&CK for ICS · [ID de activo]», «IEC 62443-1-1 · [término]»).
+#   Se OMITEN y quedan comentados en cada concepto.
+# - Slugs: modbus-tcp, purdue-nivel-1… salen del prototipo; modbus-tcp y
+#   purdue-nivel-1 ya los usan los datasets y no cambian.
+#
+# BASE_URI: el fichero no declara @base; las URIs son relativas.
+# Grafo con nombre: {BASE_URI}vocab/ot. Etiqueta Git: vocab/ot/v1.0.
+
+@prefix ot:   <vocab/ot/> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix dct:  <http://purl.org/dc/terms/> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix adms: <http://www.w3.org/ns/adms#> .
+@prefix vann: <http://purl.org/vocab/vann/> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+
+# --- Esquema ----------------------------------------------------------------
+<vocab/ot>
+    a skos:ConceptScheme ;
+    dct:type <vocab/tipo-dataset/sintetico> ;
+    dct:title "Protocolos y arquitectura OT"@es ;
+    skos:prefLabel "Protocolos y arquitectura OT"@es ;
+    dct:description "Protocolos industriales, niveles del modelo Purdue y zonas y conductos de IEC 62443."@es ;
+    dct:subject <vocab/dominio/ot> ;
+    owl:versionInfo "1.0" ;
+    adms:status <http://purl.org/adms/status/Completed> ;
+    vann:preferredNamespacePrefix "ot" ;
+    vann:preferredNamespaceUri <vocab/ot/> ;
+    dct:publisher _:unidad-itot ;
+    # dct:license [LICENCIA] ;
+    # dct:issued [FECHA] ;
+    # dct:modified [FECHA] ;
+    skos:hasTopConcept ot:protocolos-industriales , ot:modelo-purdue , ot:iec-62443 .
+
+_:unidad-itot
+    a foaf:Agent , prov:Agent ;
+    foaf:name "Eurecat · Unidad IT&OT Security" .
+
+# --- Grupos (conceptos de nivel superior) -----------------------------------
+ot:protocolos-industriales
+    a skos:Concept ;
+    skos:inScheme <vocab/ot> ;
+    skos:topConceptOf <vocab/ot> ;
+    skos:prefLabel "Protocolos industriales"@es .
+
+ot:modelo-purdue
+    a skos:Concept ;
+    skos:inScheme <vocab/ot> ;
+    skos:topConceptOf <vocab/ot> ;
+    skos:prefLabel "Modelo Purdue"@es .
+
+ot:iec-62443
+    a skos:Concept ;
+    skos:inScheme <vocab/ot> ;
+    skos:topConceptOf <vocab/ot> ;
+    skos:prefLabel "IEC 62443"@es .
+
+# --- Protocolos industriales ------------------------------------------------
+# Mapeo de los cinco protocolos (prototipo): skos:closeMatch «Wikidata · [QID]».
+ot:modbus-tcp
+    a skos:Concept ;
+    skos:inScheme <vocab/ot> ;
+    skos:broader ot:protocolos-industriales ;
+    skos:prefLabel "Modbus/TCP"@es , "Modbus TCP"@en ;
+    skos:altLabel "Modbus TCP/IP"@es ;
+    skos:definition "Variante de Modbus que encapsula las tramas sobre TCP/IP, habitualmente en el puerto 502. No incorpora autenticación ni cifrado de forma nativa."@es ;
+    skos:related ot:purdue-nivel-1 , ot:purdue-nivel-2 .
+    # skos:closeMatch <http://www.wikidata.org/entity/[QID]> .
+
+ot:dnp3
+    a skos:Concept ;
+    skos:inScheme <vocab/ot> ;
+    skos:broader ot:protocolos-industriales ;
+    skos:prefLabel "DNP3"@es , "Distributed Network Protocol 3"@en ;
+    skos:altLabel "IEEE 1815"@es ;
+    skos:definition "Protocolo de telecontrol entre estaciones maestras y remotas (RTU), extendido en distribución eléctrica y agua. Su extensión Secure Authentication añade autenticación de mensajes."@es ;
+    skos:related ot:purdue-nivel-1 .
+    # skos:closeMatch <http://www.wikidata.org/entity/[QID]> .
+
+ot:opc-ua
+    a skos:Concept ;
+    skos:inScheme <vocab/ot> ;
+    skos:broader ot:protocolos-industriales ;
+    skos:prefLabel "OPC UA"@es , "OPC Unified Architecture"@en ;
+    skos:altLabel "IEC 62541"@es ;
+    skos:definition "Arquitectura de comunicación orientada a servicios para el intercambio de datos industriales, con modelo de información propio y seguridad integrada de firma y cifrado."@es ;
+    skos:related ot:purdue-nivel-2 , ot:purdue-nivel-3 .
+    # skos:closeMatch <http://www.wikidata.org/entity/[QID]> .
+
+ot:iec-61850
+    a skos:Concept ;
+    skos:inScheme <vocab/ot> ;
+    skos:broader ot:protocolos-industriales ;
+    skos:prefLabel "IEC 61850"@es , "IEC 61850"@en ;
+    skos:altLabel "Comunicación en subestaciones"@es ;
+    skos:definition "Norma de comunicación para la automatización de subestaciones eléctricas, con mensajería GOOSE y MMS."@es ;
+    skos:related ot:purdue-nivel-1 .
+    # skos:closeMatch <http://www.wikidata.org/entity/[QID]> .
+
+ot:profinet
+    a skos:Concept ;
+    skos:inScheme <vocab/ot> ;
+    skos:broader ot:protocolos-industriales ;
+    skos:prefLabel "PROFINET"@es , "PROFINET"@en ;
+    skos:altLabel "PROFINET IO"@es ;
+    skos:definition "Estándar de Ethernet industrial para la comunicación en tiempo real entre controladores y dispositivos de campo."@es ;
+    skos:related ot:purdue-nivel-0 , ot:purdue-nivel-1 .
+    # skos:closeMatch <http://www.wikidata.org/entity/[QID]> .
+
+# --- Modelo Purdue ----------------------------------------------------------
+# Mapeo de los cinco niveles (prototipo): skos:closeMatch
+# «MITRE ATT&CK for ICS · [ID de activo]».
+ot:purdue-nivel-0
+    a skos:Concept ;
+    skos:inScheme <vocab/ot> ;
+    skos:broader ot:modelo-purdue ;
+    skos:prefLabel "Nivel 0 · Proceso"@es , "Level 0 · Physical process"@en ;
+    skos:altLabel "Proceso físico"@es ;
+    skos:definition "Sensores y actuadores que interactúan directamente con el proceso físico."@es ;
+    skos:related ot:profinet .
+    # skos:closeMatch <[ID de activo de MITRE ATT&CK for ICS]> .
+
+ot:purdue-nivel-1
+    a skos:Concept ;
+    skos:inScheme <vocab/ot> ;
+    skos:broader ot:modelo-purdue ;
+    skos:prefLabel "Nivel 1 · Control básico"@es , "Level 1 · Basic control"@en ;
+    skos:altLabel "Control básico"@es ;
+    skos:definition "Controladores (PLC, RTU, DCS) que leen los sensores y gobiernan los actuadores del proceso."@es ;
+    skos:related ot:modbus-tcp , ot:dnp3 .
+    # skos:closeMatch <[ID de activo de MITRE ATT&CK for ICS]> .
+
+ot:purdue-nivel-2
+    a skos:Concept ;
+    skos:inScheme <vocab/ot> ;
+    skos:broader ot:modelo-purdue ;
+    skos:prefLabel "Nivel 2 · Supervisión"@es , "Level 2 · Area supervisory control"@en ;
+    skos:altLabel "Supervisión de área"@es ;
+    skos:definition "Sistemas de supervisión y control (SCADA, HMI) de un área de proceso."@es ;
+    skos:related ot:opc-ua , ot:modbus-tcp .
+    # skos:closeMatch <[ID de activo de MITRE ATT&CK for ICS]> .
+
+ot:purdue-nivel-3
+    a skos:Concept ;
+    skos:inScheme <vocab/ot> ;
+    skos:broader ot:modelo-purdue ;
+    skos:prefLabel "Nivel 3 · Operaciones"@es , "Level 3 · Site operations"@en ;
+    skos:altLabel "Operaciones de planta"@es ;
+    skos:definition "Gestión de operaciones de planta, con historiadores, MES y servicios del dominio industrial."@es ;
+    skos:related ot:opc-ua .
+    # skos:closeMatch <[ID de activo de MITRE ATT&CK for ICS]> .
+
+ot:dmz-industrial
+    a skos:Concept ;
+    skos:inScheme <vocab/ot> ;
+    skos:broader ot:modelo-purdue ;
+    skos:prefLabel "DMZ industrial"@es , "Industrial DMZ"@en ;
+    skos:altLabel "Nivel 3.5"@es ;
+    skos:definition "Zona de separación entre la red corporativa (IT) y la red de operaciones (OT) donde se ubican los servicios compartidos."@es ;
+    skos:related ot:conducto .
+    # skos:closeMatch <[ID de activo de MITRE ATT&CK for ICS]> .
+
+# --- IEC 62443 --------------------------------------------------------------
+# Mapeo de los tres conceptos (prototipo): skos:exactMatch
+# «IEC 62443-1-1 · [término]».
+ot:zona
+    a skos:Concept ;
+    skos:inScheme <vocab/ot> ;
+    skos:broader ot:iec-62443 ;
+    skos:prefLabel "Zona"@es , "Zone"@en ;
+    skos:altLabel "Zona de seguridad"@es ;
+    skos:definition "Agrupación lógica o física de activos que comparten requisitos de seguridad."@es ;
+    skos:related ot:conducto , ot:nivel-seguridad .
+    # skos:exactMatch <[término de IEC 62443-1-1]> .
+
+ot:conducto
+    a skos:Concept ;
+    skos:inScheme <vocab/ot> ;
+    skos:broader ot:iec-62443 ;
+    skos:prefLabel "Conducto"@es , "Conduit"@en ;
+    skos:altLabel "Conducto de comunicación"@es ;
+    skos:definition "Agrupación de canales de comunicación entre zonas que comparten requisitos de seguridad."@es ;
+    skos:related ot:zona .
+    # skos:exactMatch <[término de IEC 62443-1-1]> .
+
+ot:nivel-seguridad
+    a skos:Concept ;
+    skos:inScheme <vocab/ot> ;
+    skos:broader ot:iec-62443 ;
+    skos:prefLabel "Nivel de seguridad (SL)"@es , "Security Level"@en ;
+    skos:altLabel "SL 1–4"@es ;
+    skos:definition "Medida de la capacidad de una zona o conducto para resistir amenazas de capacidad creciente, de SL 1 a SL 4."@es ;
+    skos:related ot:zona , ot:conducto .
+    # skos:exactMatch <[término de IEC 62443-1-1]> .
