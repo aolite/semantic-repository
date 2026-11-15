@@ -4,7 +4,7 @@ import { CatalogPage } from './pages/CatalogPage'
 import { DatasetPage } from './pages/DatasetPage'
 import { LoginPage } from './pages/LoginPage'
 import { OntologyPage } from './pages/OntologyPage'
-import { PlaceholderPage } from './pages/PlaceholderPage'
+import { SparqlPage } from './pages/SparqlPage'
 import { SkosPage } from './pages/SkosPage'
 import { VocabulariesPage } from './pages/VocabulariesPage'
 
@@ -22,7 +22,7 @@ export function AppRoutes() {
         <Route path="vocabularios/:slug" element={<SkosPage corp={false} />} />
         {/* Ficha de ontología (303 desde `onto/…`), con `?version=`. */}
         <Route path="ontologias/:slug" element={<OntologyPage />} />
-        <Route path="sparql" element={<PlaceholderPage title="Consulta SPARQL" phase={4} />} />
+        <Route path="sparql" element={<SparqlPage />} />
         <Route path="login" element={<LoginPage />} />
       </Route>
     </Routes>
