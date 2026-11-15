@@ -564,8 +564,12 @@ def test_la_ficha_de_itot_trae_metricas_y_consistencia_de_pellet(stack: Stack, l
 
     metrics = detail["metrics"]
     assert metrics["classes"] == 13
-    assert metrics["object_properties"] == 4
-    assert metrics["logical_axioms"] == 17
+    # Decisión 38: la ontología solo lleva la jerarquía que cita el prototipo, sin
+    # propiedades, comentarios ni alineamientos propuestos.
+    assert metrics["object_properties"] == 0 and metrics["data_properties"] == 0
+    assert metrics["logical_axioms"] == 8
+    assert detail["documentation"]["percent"] == 0
+    assert detail["alignments"] == []
     assert metrics["imports"] == 2
     assert metrics["dl_expressivity"] is None  # no se calcula: no se inventa
     assert detail["profile"]["name"] in ("OWL 2 DL", "OWL 2 Full")
@@ -1209,10 +1213,11 @@ def test_la_ingesta_no_escribe_fuera_de_su_grafo(
         _ontology_ttl(slug, "2.0.0", prior="3.0.0"),
     ):
         assert _post(stack, "/ontologies", body, g3_editor.token).status == 422
-    assert (
-        _post(stack, "/schemes", _scheme_ttl("vocab/corp", prefix=slug), g3_editor.token).status
-        == 422
-    )
+    # 'corp' no es un slug, y los esquemas auxiliares solo los carga load-semantic.
+    for uri in ("vocab/corp", "vocab/dominio", "vocab/tipo-dataset"):
+        rejected = _post(stack, "/schemes", _scheme_ttl(uri, prefix=slug), g3_editor.token)
+        assert rejected.status == 422, uri
+        assert rejected.json()["kind"] == "uri", uri
     assert _graphs(stack) == before
     for path in (
         "/ontologies/itot",
@@ -1260,6 +1265,44 @@ def test_la_ingesta_rechaza_sintaxis_tipos_y_xml(
         assert response.status == 422
         assert not fuseki_logged(stack, probe)
     assert _graphs(stack) == before
+
+
+def test_la_ingesta_tiene_limites_de_expansion_y_profundidad(
+    stack: Stack, baseline: dict, g3_editor: Account
+) -> None:
+    """Un prefijo muy largo repetido (bomba de expansión) y una jerarquía desmesurada se
+    rechazan con 422 sin tumbar el servicio."""
+    before = _graphs(stack)
+    slug = f"e2elimite{secrets.token_hex(3)}"
+    prefix = "http://x.example/" + "a" * 100_000 + "/"
+    bomb = f"@prefix p: <{prefix}> .\n" + "\n".join(f"p:s{i} p:p p:o{i} ." for i in range(200))
+    for path in ("/ontologies", "/schemes", "/datasets"):
+        response = _post(stack, path, bomb, g3_editor.token)
+        assert response.status == 422, f"{path}: {response.status}"
+        assert response.json()["kind"] == "limit", path
+    chain = "\n".join(
+        f"<vocab/{slug}/c{i}> a skos:Concept ; skos:inScheme <vocab/{slug}> ; "
+        f'skos:broader <vocab/{slug}/c{i - 1}> ; skos:prefLabel "c{i}"@es .'
+        for i in range(1, 300)
+    )
+    deep = _scheme_ttl(f"vocab/{slug}", prefix=slug, body=chain.replace("/c0>", "/raiz>"))
+    assert _post(stack, "/schemes", deep, g3_editor.token).status == 422
+    assert _graphs(stack) == before
+    assert http("GET", f"{stack.api}/health/ready").status == 200
+
+
+def test_los_esquemas_auxiliares_se_sirven_como_tales(stack: Stack, loaded: str) -> None:
+    base = _base(stack)
+    for slug in ("dominio", "tipo-dataset"):
+        scheme = _json(stack, f"/schemes/{slug}")
+        assert scheme["kind"] == "auxiliary" and scheme["domain"] is None
+        assert scheme["uri"] == f"{base}vocab/{slug}"
+    assert sorted(n["slug"] for n in _walk(_json(stack, "/schemes/dominio")["tree"])) == [
+        "ia",
+        "it",
+        "ot",
+        "pqc",
+    ]
 
 
 # --- 9. Dominio de los datasets ---------------------------------------------------------

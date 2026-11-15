@@ -16,20 +16,23 @@ Complementan ``test_security_fase3.py``, ``test_vocab_ingest.py``, ``test_vocab_
 5. **``Content-Disposition``** con nombres de fichero seguros.
 6. **Contenido guardado** que no debe romper la lectura.
 
-Defectos abiertos: van con ``xfail(strict=True)`` y su identificador ``QA-G3-nn``. Cuando
-el agente dueño los corrija, la prueba pasará y habrá que quitar la marca.
+Los hallazgos QA-G3-01 a QA-G3-07 de la revisión de la fase 3 están corregidos y sus
+pruebas pasan sin marca. Un defecto nuevo se marcaría con ``xfail(strict=True)`` y su
+identificador ``QA-G3-nn`` hasta que el agente dueño lo corrija.
 
 Todas las credenciales son ficticias. Ninguna prueba sale a la red.
 """
 
+import contextlib
 import json
 import shutil
 import socket
 import subprocess
 import tempfile
+import threading
 import time
 import tracemalloc
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -389,11 +392,6 @@ def test_corp_is_a_reserved_scheme_slug(
     assert store.graph_names() == set()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="QA-G3-06: semantic/uris.md reserva los slugs 'dominio' y 'tipo-dataset', pero "
-    "POST /schemes los admite y un editor sustituye los esquemas auxiliares del catálogo",
-)
 @pytest.mark.parametrize("slug", ["dominio", "tipo-dataset"])
 def test_auxiliary_scheme_slugs_are_reserved(
     client: TestClient, editor: dict[str, str], loaded_store: MemoryStore, slug: str
@@ -463,18 +461,131 @@ def test_incoherent_versions_are_rejected(
 
 @pytest.fixture
 def no_network(monkeypatch: pytest.MonkeyPatch) -> list[object]:
-    """Cualquier conexión de red desde Python falla y queda registrada."""
+    """Cualquier conexión de red desde Python falla y queda registrada.
+
+    Los sockets Unix locales no son red: los usa el proceso de validación SHACL
+    (forkserver de multiprocessing). Se bloquea cualquier otra familia (``AF_INET``,
+    ``AF_INET6``…), la resolución de nombres y ``create_connection``. Lo que hagan los
+    procesos hijos (SHACL, Pellet) lo vigila ``canary``, con un servidor TCP de verdad.
+    """
     attempts: list[object] = []
 
     def refuse(*args: object, **_kwargs: object) -> None:
         attempts.append(args)
         raise OSError("red prohibida en esta prueba")
 
-    monkeypatch.setattr(socket.socket, "connect", refuse)
-    monkeypatch.setattr(socket.socket, "connect_ex", refuse)
+    def network_only(name: str) -> Callable[..., object]:
+        original = getattr(socket.socket, name)
+
+        def connect(self: socket.socket, *args: object, **kwargs: object) -> object:
+            if self.family == getattr(socket, "AF_UNIX", None):
+                return original(self, *args, **kwargs)
+            return refuse(self, *args, **kwargs)
+
+        return connect
+
+    monkeypatch.setattr(socket.socket, "connect", network_only("connect"))
+    monkeypatch.setattr(socket.socket, "connect_ex", network_only("connect_ex"))
     monkeypatch.setattr(socket, "create_connection", refuse)
     monkeypatch.setattr(socket, "getaddrinfo", refuse)
     return attempts
+
+
+class Canary:
+    """Servidor TCP en 127.0.0.1 que cuenta las conexiones que recibe, vengan del proceso
+    que vengan (el backend, el hijo de SHACL o el Java de Pellet)."""
+
+    def __init__(self) -> None:
+        self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.server.bind(("127.0.0.1", 0))
+        self.server.listen(16)
+        self.server.settimeout(0.2)
+        self.port = self.server.getsockname()[1]
+        self.hits: list[bytes] = []
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._serve, daemon=True)
+        self._thread.start()
+
+    def _serve(self) -> None:
+        while not self._stop.is_set():
+            try:
+                conn, _addr = self.server.accept()
+            except OSError:
+                continue
+            with conn:
+                conn.settimeout(0.5)
+                try:
+                    self.hits.append(conn.recv(200))
+                except OSError:
+                    self.hits.append(b"")
+                with contextlib.suppress(OSError):
+                    conn.sendall(b"HTTP/1.0 404 Not Found\r\nContent-Length: 0\r\n\r\n")
+
+    def url(self, path: str) -> str:
+        return f"http://127.0.0.1:{self.port}/{path}"
+
+    def close(self) -> None:
+        self._stop.set()
+        self._thread.join(timeout=2)
+        self.server.close()
+
+
+@pytest.fixture
+def canary() -> Iterator[Canary]:
+    server = Canary()
+    yield server
+    server.close()
+
+
+def test_canary_counts_real_connections(canary: Canary) -> None:
+    """Control: una petición de verdad sí queda registrada."""
+    with socket.create_connection(("127.0.0.1", canary.port), timeout=2) as client:
+        client.sendall(b"GET /control HTTP/1.0\r\n\r\n")
+        client.recv(100)
+    deadline = time.monotonic() + 2
+    while not canary.hits and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert len(canary.hits) == 1 and canary.hits[0].startswith(b"GET /control")
+
+
+@requires_java
+def test_no_process_fetches_urls_found_in_the_rdf(
+    client: TestClient, editor: dict[str, str], store: MemoryStore, canary: Canary
+) -> None:
+    """Ni el backend, ni el proceso hijo de SHACL, ni Pellet piden una URL que viene en el
+    RDF: ``owl:imports``, ``rdfs:seeAlso``, mapeos SKOS, ``dct:subject`` o un tipo de dato."""
+    onto = _onto(
+        f"<onto/prueba> owl:imports <{canary.url('import.owl')}> ; "
+        f"rdfs:seeAlso <{canary.url('see-also')}> ; dct:subject <{canary.url('subject')}> .\n"
+        f":A a owl:Class ; rdfs:subClassOf <{canary.url('onto#Clase')}> ; "
+        f"rdfs:isDefinedBy <{canary.url('defined-by')}> .\n"
+        f":p a owl:DatatypeProperty ; rdfs:range <{canary.url('datatype')}> ."
+    )
+    response = client.post("/ontologies", content=onto, headers=editor | TTL)
+    assert response.status_code == 201, response.text
+    assert response.json()["consistency"]["reasoner"] == "Pellet"
+    scheme = _scheme(
+        CONCEPT
+        + f"; skos:exactMatch <{canary.url('exact')}> ; skos:closeMatch <{canary.url('close')}> ; "
+        f"skos:related <{canary.url('related')}> .\n"
+        f"<vocab/prueba> dct:creator <{canary.url('creator')}> ."
+    )
+    response = client.post("/schemes", content=scheme, headers=editor | TTL)
+    assert response.status_code == 201, response.text
+    remote = json.dumps({"@context": canary.url("context.jsonld"), "@id": "onto/prueba"}).encode()
+    assert client.post("/ontologies", content=remote, headers=editor | LD).status_code == 422
+    for path in (
+        "/ontologies/prueba",
+        "/ontologies/prueba/rdf?format=jsonld",
+        "/ontologies/prueba/rdf?format=rdfxml",
+        "/schemes/prueba",
+        "/schemes/prueba/concepts/c",
+        "/schemes/prueba/rdf?format=jsonld",
+        "/vocabularies",
+    ):
+        assert client.get(path).status_code == 200, path
+    time.sleep(0.5)
+    assert canary.hits == [], f"alguien ha pedido una URL del RDF: {canary.hits}"
 
 
 REMOTE_IMPORTS = [
@@ -645,23 +756,49 @@ BOMB_JSONLD = json.dumps(
 ).encode()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="QA-G3-03: un prefijo largo repetido expande ~100 KB de RDF a ~60 MB en memoria "
-    "(x590); con el límite de 10 MB de la ingesta son varios órdenes de magnitud más",
-)
 @pytest.mark.parametrize(
     ("data", "rdf_format"), [(BOMB_TURTLE, "turtle"), (BOMB_JSONLD, "json-ld")]
 )
 def test_prefix_expansion_is_bounded(data: bytes, rdf_format: ingest.RdfFormat) -> None:
-    """Un documento pequeño no puede ocupar cientos de veces su tamaño al analizarlo: o
-    se rechaza (IRIs desmesuradas) o la memoria se mantiene proporcional a la entrada."""
+    """QA-G3-03 (corregido): un documento pequeño no puede ocupar cientos de veces su
+    tamaño al analizarlo: o se rechaza o la memoria se mantiene proporcional a la entrada."""
     assert len(data) < 120_000
     try:
         peak = _peak_bytes(data, rdf_format)
-    except ingest.IngestError:
+    except ingest.IngestError as exc:
+        assert exc.kind == "limit"
         return
     assert peak < 50 * len(data), f"{len(data)} bytes de entrada, {peak} bytes de pico"
+
+
+@pytest.mark.parametrize("path", ["/ontologies", "/schemes", "/datasets"])
+@pytest.mark.parametrize(
+    ("data", "headers"), [(BOMB_TURTLE, TTL), (BOMB_JSONLD, LD)], ids=["turtle", "json-ld"]
+)
+def test_expansion_bomb_is_rejected_by_every_ingest_endpoint(
+    client: TestClient,
+    editor: dict[str, str],
+    store: MemoryStore,
+    session_factory: sessionmaker[Session],
+    path: str,
+    data: bytes,
+    headers: dict[str, str],
+) -> None:
+    start = time.monotonic()
+    response = client.post(path, content=data, headers=editor | headers)
+    assert response.status_code == 422, response.text[:300]
+    assert response.json()["kind"] == "limit"
+    assert len(response.text) < 5_000, "la respuesta no debe devolver la IRI desmesurada"
+    assert time.monotonic() - start < 20
+    assert store.graph_names() == set()
+    assert _events(session_factory, *PUBLISH_ACTIONS, AuditAction.DATASET_PUBLISHED) == []
+
+
+def test_ingest_limits_are_bounded_settings() -> None:
+    fields = Settings.model_fields
+    assert fields["ingest_max_triples"].default == 100_000
+    assert fields["shacl_timeout_seconds"].default == 60
+    assert fields["shacl_memory_mb"].default == 2048
 
 
 def test_body_over_the_limit_is_rejected_before_parsing(
@@ -919,12 +1056,6 @@ def test_reasoner_leaves_no_temporary_file_when_it_succeeds(
 
 
 @requires_java
-@pytest.mark.xfail(
-    strict=True,
-    reason="QA-G3-07: owlready2 solo borra el fichero temporal que pasa a Pellet cuando el "
-    "razonamiento termina bien. Si la ontología es inconsistente, Pellet falla o se agota el "
-    "tiempo, queda en /tmp una copia en N-Triples de la ontología en cada ingesta",
-)
 @pytest.mark.parametrize("name", ["inconsistente", "fallo de Pellet", "tiempo agotado"])
 def test_reasoner_leaves_no_temporary_file_when_it_fails(
     name: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -987,12 +1118,6 @@ def _leaks(detail: str | None) -> list[str]:
 
 
 @requires_java
-@pytest.mark.xfail(
-    strict=True,
-    reason="QA-G3-02: cuando Pellet falla, consistency.detail publica una línea de la traza "
-    "de Java ('\\tat org.mindswap.pellet…(DefaultGraphLoader.java:339)') en la respuesta y "
-    "en la ficha pública de la ontología",
-)
 @pytest.mark.parametrize("name", ["lista cíclica", "restricción sobre un literal"])
 def test_reasoner_failure_detail_has_no_stack_trace(
     quiet: TestClient, editor: dict[str, str], name: str
@@ -1036,11 +1161,6 @@ def test_reasoner_error_message_is_reduced_to_one_short_line(
     "error",
     [RuntimeError("fallo inesperado en /opt/venv/lib/owlready2"), ValueError("salida ilegible")],
 )
-@pytest.mark.xfail(
-    strict=True,
-    reason="QA-G3-01: check_consistency solo captura OwlReadyJavaError, OSError y el timeout; "
-    "cualquier otra excepción de owlready2 al razonar acaba en un 500",
-)
 def test_unexpected_reasoner_exception_is_not_a_500(
     quiet: TestClient,
     editor: dict[str, str],
@@ -1070,12 +1190,6 @@ UNLOADABLE = {
 
 
 @pytest.mark.usefixtures("fake_reasoner")
-@pytest.mark.xfail(
-    strict=True,
-    reason='QA-G3-01: un literal mal tipado (p. ej. "abc"^^xsd:integer) pasa la validación y '
-    "owlready2 lanza OwlReadyOntologyParsingError al calcular las métricas: POST /ontologies "
-    "responde 500 en lugar de 422 o de publicar sin métricas",
-)
 @pytest.mark.parametrize("name", list(UNLOADABLE))
 def test_ontology_that_owlready2_cannot_load_is_not_a_500(
     quiet: TestClient,
@@ -1439,21 +1553,25 @@ def _chain(depth: int) -> bytes:
     return _scheme("\n".join(lines))
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="QA-G3-04: un esquema con una jerarquía skos:broader de unos 300 niveles se admite "
-    "y después GET /schemes/{slug} responde 500 (profundidad de serialización del árbol)",
-)
 def test_deep_concept_hierarchy_does_not_break_the_scheme(
     quiet: TestClient, editor: dict[str, str], store: MemoryStore
 ) -> None:
-    response = quiet.post("/schemes", content=_chain(300), headers=editor | TTL)
-    if response.status_code == 422:  # rechazarla también es una corrección válida
+    """QA-G3-04 (corregido): la ingesta limita la profundidad de la jerarquía y el árbol
+    se construye sin recursión."""
+    for depth in (300, 1500):
+        response = quiet.post("/schemes", content=_chain(depth), headers=editor | TTL)
+        assert response.status_code == 422, f"{depth}: {response.status_code}"
         assert store.graph_names() == set()
-        return
+    # En el límite se admite y se sirve entero.
+    response = quiet.post("/schemes", content=_chain(64), headers=editor | TTL)
     assert response.status_code == 201, response.text
-    assert quiet.get("/schemes/prueba").status_code == 200
-    assert quiet.get("/schemes/prueba/concepts/c299").status_code == 200
+    scheme = quiet.get("/schemes/prueba")
+    assert scheme.status_code == 200
+    depth, node = 1, scheme.json()["tree"][0]
+    while node["children"]:
+        depth, node = depth + 1, node["children"][0]
+    assert depth == 64
+    assert quiet.get("/schemes/prueba/concepts/c63").status_code == 200
 
 
 def test_moderate_concept_hierarchy_is_served(
@@ -1500,29 +1618,42 @@ def test_cyclic_hierarchies_do_not_hang_or_break_reads(
 UNSPLITTABLE = ["http://x.example/p/1", "http://x.example/p/", "http://x.example/2024", "urn:x:1"]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="QA-G3-05: una ontología o un esquema con un predicado que RDF/XML no puede "
-    "abreviar (p. ej. <http://x.example/p/1>) se admite, y su descarga en RDF/XML y su URI "
-    "persistente con Accept: application/rdf+xml responden 500",
-)
 @pytest.mark.usefixtures("fake_reasoner")
 @pytest.mark.parametrize("predicate", UNSPLITTABLE)
-def test_rdfxml_download_works_for_any_accepted_content(
+def test_rdfxml_is_not_acceptable_when_a_predicate_cannot_be_abbreviated(
     quiet: TestClient, editor: dict[str, str], store: MemoryStore, predicate: str
 ) -> None:
+    """QA-G3-05 (corregido): RDF/XML no puede escribir un predicado sin nombre local. La
+    ingesta lo admite (es RDF válido) y pedirlo en RDF/XML da 406, no 500; Turtle y
+    JSON-LD siguen disponibles."""
     onto = quiet.post(
         "/ontologies", content=_onto(f':A a owl:Class ; <{predicate}> "v" .'), headers=editor | TTL
     )
     scheme = quiet.post(
         "/schemes", content=_scheme(CONCEPT + f'; <{predicate}> "v" .'), headers=editor | TTL
     )
-    if onto.status_code == 422 and scheme.status_code == 422:
-        return  # rechazarlo en la ingesta también es una corrección válida
-    for path in ("/ontologies/prueba/rdf?format=rdfxml", "/schemes/prueba/rdf?format=rdfxml"):
-        assert quiet.get(path).status_code == 200, path
+    assert (onto.status_code, scheme.status_code) == (201, 201), onto.text + scheme.text
+    for path in ("/ontologies/prueba/rdf", "/schemes/prueba/rdf"):
+        response = quiet.get(path, params={"format": "rdfxml"})
+        assert response.status_code == 406, f"{path}: {response.status_code}"
+        assert "Traceback" not in response.text and predicate not in response.headers.get(
+            "content-disposition", ""
+        )
+        download = quiet.get(path, params={"format": "rdfxml", "download": "1"})
+        assert download.status_code == 406
+        assert "content-disposition" not in download.headers
+        for fmt in ("turtle", "jsonld"):
+            assert quiet.get(path, params={"format": fmt}).status_code == 200, path
     for path in ("/onto/prueba", "/vocab/prueba", "/vocab/prueba/c"):
-        assert quiet.get(path, headers={"Accept": RDFXML}).status_code == 200, path
+        assert quiet.get(path, headers={"Accept": RDFXML}).status_code == 406, path
+        assert quiet.get(path, headers={"Accept": TURTLE}).status_code == 200, path
+        # Con varios formatos aceptables se sirve uno que sí se puede escribir, o 406.
+        both = quiet.get(path, headers={"Accept": f"{RDFXML}, {TURTLE};q=0.5"})
+        assert both.status_code in (200, 406), path
+    # Lo que sí se puede abreviar se sigue sirviendo en RDF/XML.
+    ok = _onto(":A a owl:Class .", slug="otra")
+    assert quiet.post("/ontologies", content=ok, headers=editor | TTL).status_code == 201
+    assert quiet.get("/ontologies/otra/rdf", params={"format": "rdfxml"}).status_code == 200
 
 
 @pytest.mark.usefixtures("fake_reasoner")

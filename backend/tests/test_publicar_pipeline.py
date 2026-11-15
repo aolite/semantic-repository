@@ -302,12 +302,6 @@ def test_hostile_or_wrong_tags_fail_without_writing_anything(tag: str, tmp_path:
     assert not (work / "pwned").exists() and not (REPO_ROOT / "pwned").exists()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="QA-G3-08: publicar.py valida la etiqueta con re.match y '$', que admite un salto "
-    "de línea final ('onto/itot/v1.2.0\\n'); debería usar fullmatch. Git no permite crear esa "
-    "etiqueta y los nombres de salida no cambian, así que es solo defensa en profundidad",
-)
 def test_tag_with_trailing_newline_is_rejected(tmp_path: Path) -> None:
     result, github_output = _run("onto/itot/v1.2.0\n", tmp_path / "build")
     assert result.returncode != 0
@@ -493,3 +487,67 @@ def test_symlinked_source_outside_the_repository_is_not_followed_silently(tmp_pa
     assert "root:x:0:0" not in result.stdout
     assert not github_output.exists()
     assert not out.exists() or list(out.rglob("*")) == []
+
+
+# --- Correcciones de la revisión y job de análisis de la imagen (PROPUESTA) ---------------
+
+CI_YML = REPO_ROOT / ".github" / "workflows" / "ci.yml"
+
+
+def test_publish_checkout_does_not_keep_credentials(workflow: str) -> None:
+    """El job que ejecuta código del repositorio y el JAR de WIDOCO no deja el token de
+    GitHub en ``.git/config``."""
+    build = _jobs(workflow)["construir"]
+    checkout = build[build.index("actions/checkout") :].split("\n      - ", 1)[0]
+    assert "persist-credentials: false" in checkout
+    assert "fetch-depth: 0" in checkout
+
+
+def test_publish_script_dependencies_are_pinned() -> None:
+    """Las dependencias de los scripts que ejecuta el pipeline van a una versión exacta."""
+    for script in (PUBLICAR_PY, REPO_SEMANTIC_DIR / "scripts" / "validate.py"):
+        header = _require(script).read_text(encoding="utf-8").split('"""', 1)[0]
+        dependencies = re.findall(r'^#\s+"([^"]+)",$', header, re.MULTILINE)
+        assert dependencies, script.name
+        for dependency in dependencies:
+            assert re.fullmatch(r"[a-z0-9-]+==\d+(\.\d+)+", dependency), (
+                f"{script.name}: {dependency}"
+            )
+
+
+def test_image_scan_job_is_pinned_and_has_no_extra_permissions() -> None:
+    """Job ``imagen-backend`` (PROPUESTA de ``infra``, pendiente del responsable): si
+    está, la acción va fijada por commit, no pide permisos, no recibe secretos y no sube
+    resultados a ningún servicio."""
+    ci = _require(CI_YML).read_text(encoding="utf-8")
+    if "\n  imagen-backend:\n" not in ci:
+        pytest.skip("el job imagen-backend no está en ci.yml (propuesta no aceptada)")
+    assert re.search(r"^permissions:\n  contents: read\n", ci, re.MULTILINE)
+    job = _jobs(ci)["imagen-backend"]
+    assert "permissions:" not in job, "hereda contents: read del workflow"
+    assert "secrets." not in job and "${{ github.token }}" not in job
+    uses = re.findall(r"uses:\s*(\S+)(.*)", job)
+    assert [action.split("@")[0] for action, _ in uses] == [
+        "actions/checkout",
+        "aquasecurity/trivy-action",
+    ]
+    for action, comment in uses:
+        assert re.fullmatch(r"[\w.-]+/[\w./-]+@[0-9a-f]{40}", action), action
+        assert re.search(r"#\s*v\d+\.\d+\.\d+", comment), action
+    assert "persist-credentials: false" in job
+    assert re.search(r"^\s+version: v\d+\.\d+\.\d+$", job, re.MULTILINE), (
+        "versión de Trivy sin fijar"
+    )
+    assert "format: table" in job
+    for upload in (
+        "sarif",
+        "upload-sarif",
+        "upload-artifact",
+        "github-pat",
+        "output:",
+        "TRIVY_USERNAME",
+    ):
+        assert upload not in job, upload
+    for block in _run_blocks(job):
+        assert "${{" not in block
+    assert re.search(r"timeout-minutes: \d+", job)

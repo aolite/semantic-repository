@@ -38,11 +38,11 @@ Lo que esta prueba no cubre: el contenido que pinta el navegador en las pantalla
 1. La imagen del backend lleva Java 25 o superior para Pellet y el backend no se ejecuta como root; las variables del razonador son opcionales (`REASONER_TIMEOUT_SECONDS`, `REASONER_JAVA_MEMORY_MB`) y la migración `0002` ha creado la tabla `ontology_metrics`.
 2. `load-semantic` carga los 20 ficheros de `semantic/` en 21 grafos: 5 esquemas de dominio, 4 corporativos, los 2 auxiliares de `vocab-minimo.ttl`, 5 versiones de ontología, las externas, el catálogo y las 3 series. Calcula las métricas de cada versión de ontología con owlready2 y la consistencia con Pellet (el de verdad, dentro del contenedor), es idempotente sin recalcular métricas y queda en la auditoría como `ontology_published` y `scheme_published` con actor `cli`.
 3. `/vocabularies` da los recuentos 3/3/4/5 (propias, externas, corporativos y de dominio) y filtra por `kind`, `domain` y `q`; `domain=pqc` devuelve `pqc` y `did`; los esquemas auxiliares no tienen tarjeta; todo lo propio lleva la marca de sintético y las externas no.
-4. La ficha de `itot` trae las métricas (13 clases, 4 propiedades de objeto, 17 axiomas lógicos, 2 imports), la consistencia de Pellet, el versionado con su historial, los imports enlazados con las externas, su uso en el catálogo y los conceptos SKOS que usa. Las versiones antiguas tienen ficha y métricas; lo que no existe da 404; el RDF sale en Turtle, JSON-LD y RDF/XML. Los placeholders del prototipo llegan vacíos.
+4. La ficha de `itot` trae las métricas (13 clases, ninguna propiedad, 8 axiomas lógicos, 2 imports y 0 % de documentación, tras la decisión 38), la consistencia de Pellet, el versionado con su historial, los imports enlazados con las externas, su uso en el catálogo y los conceptos SKOS que usa. Las versiones antiguas tienen ficha y métricas; lo que no existe da 404; el RDF sale en Turtle, JSON-LD y RDF/XML. Los placeholders del prototipo llegan vacíos.
 5. El árbol del esquema `ot` (con `alt_labels`) y el detalle de cada concepto; el concepto `modbus-tcp` con sus usos en datasets y ontologías; los esquemas corporativos.
 6. Las URIs persistentes `/onto/…` y `/vocab/…` redirigen con 303 a las rutas del frontend (`/ontologias/{slug}?version=`, `/vocabularios/[corp/]{slug}?concepto=`), que responden; con `Accept` de RDF devuelven el RDF; lo que no existe da 404 también en HTML.
 7. Un editor publica una ontología (con métricas y consistencia de Pellet) y un esquema SKOS, y aparecen en el listado, en Fuseki, en PostgreSQL y en la auditoría; republicar el mismo contenido no recalcula nada; el admin publica por herencia una versión nueva; una ontología inconsistente se publica con el aviso; también en JSON-LD. Un miembro recibe 403 y un anónimo 401. El `owl:imports` de la ontología publicada apunta al Fuseki del entorno y nadie lo descarga (ni owlready2 ni Pellet).
-8. Lo que no cumple las formas SHACL se rechaza con 422 y su informe (todos los ejemplos de `semantic/examples/invalid/ontologias-vocabularios/`), igual que lo que intenta describir otro recurso (otra ontología o versión, un esquema, el catálogo, `vocab/dominio`, una serie), los slugs reservados `externas` y `corp`, las versiones incoherentes, el XML (415) y los contextos JSON-LD remotos. Ningún rechazo escribe en Fuseki, en `ontology_metrics` ni en la auditoría.
+8. Lo que no cumple las formas SHACL se rechaza con 422 y su informe (todos los ejemplos de `semantic/examples/invalid/ontologias-vocabularios/`), igual que lo que intenta describir otro recurso (otra ontología o versión, un esquema, el catálogo, `vocab/dominio`, una serie), los slugs reservados `externas`, `corp`, `dominio` y `tipo-dataset`, las versiones incoherentes, el XML (415), los contextos JSON-LD remotos y lo que supera los límites de expansión o de profundidad (422 `limit`). Ningún rechazo escribe en Fuseki, en `ontology_metrics` ni en la auditoría.
 9. El dominio de los datasets es el `dct:subject` del esquema de sus temas, con la etiqueta del concepto de `vocab/dominio` (la ficha de Modbus muestra «OT / ICS»); un tema del esquema `did` da el dominio `pqc`, y un tema de un esquema publicado por la API, el dominio que declara ese esquema.
 10. Las descargas (`?download=1`) de ontologías, esquemas y datasets llevan `Content-Disposition` con un nombre seguro `{slug}-{versión}.{ttl|jsonld|rdf}`; sin el parámetro, no.
 11. Ni la auditoría, ni `ontology_metrics`, ni los logs, ni la API contienen secretos, rutas del contenedor o trazas; Fuseki sigue rechazando escrituras anónimas; no quedan procesos de Pellet y el entorno sigue sano.
@@ -61,19 +61,26 @@ Para comprobar que el backend no sale a buscar una URL que viene en el RDF (un `
 
 En estas pruebas de extremo a extremo no hay ninguna marcada como `xfail`. Los hallazgos QA-G2-01 a QA-G2-04 de la revisión de la fase 2 (IRIs no válidas, anidamiento extremo, autenticación antes del cuerpo y lectura limitada a los grafos publicados) están corregidos y sus pruebas pasan, aquí y en `backend/tests/test_security_fase2.py`.
 
-Los defectos abiertos de la revisión de la fase 3 están marcados con `xfail` estricto y su identificador en las pruebas del backend, hasta que el agente dueño los corrija (entonces la prueba pasa y hay que quitar la marca):
+Los hallazgos QA-G3-01 a QA-G3-10 de la revisión de la fase 3 están corregidos y sus pruebas pasan sin marca, en `backend/tests/test_security_g3.py`, `test_contracts_fase3.py` y `test_publicar_pipeline.py`:
+
+| Id | Defecto | Cómo quedó |
+|---|---|---|
+| QA-G3-01 | Un literal mal tipado hacía fallar a owlready2 y `POST /ontologies` respondía 500 | 422 `syntax`; el análisis va antes de escribir, también en `load-semantic`; cualquier excepción del razonador deja `consistent: null` |
+| QA-G3-02 | El detalle de un fallo de Pellet publicaba una línea de la traza de Java | Detalle genérico |
+| QA-G3-03 | Un prefijo largo repetido expandía el RDF unas 590 veces en memoria | Límites durante el análisis; 422 `limit` en las tres ingestas |
+| QA-G3-04 | Una jerarquía `skos:broader` de 300 niveles rompía `GET /schemes/{slug}` | Profundidad máxima de 64 en la ingesta y árbol sin recursión |
+| QA-G3-05 | Un predicado que RDF/XML no puede abreviar daba 500 al descargar en RDF/XML | 406 en RDF/XML; Turtle y JSON-LD siguen disponibles |
+| QA-G3-06 | `POST /schemes` admitía los slugs `dominio` y `tipo-dataset` | 422 `uri`; solo los carga `load-semantic` |
+| QA-G3-07 | Quedaba en `/tmp` una copia de la ontología si el razonamiento no terminaba bien | Directorio temporal propio que se borra siempre |
+| QA-G3-08 | `publicar.py` admitía una etiqueta con salto de línea final | `fullmatch` |
+| QA-G3-09 | `semantic/uris.md` documentaba otro grafo para los esquemas auxiliares | Documento corregido |
+| QA-G3-10 | La validación SHACL no tenía límite de tiempo | Proceso hijo con `SHACL_TIMEOUT_SECONDS` y `SHACL_MEMORY_MB`; 422 `limit` |
+
+Defecto abierto, marcado hasta que el agente dueño lo corrija (entonces la prueba pasa y hay que quitar la marca):
 
 | Id | Defecto | Prueba | Dueño |
 |---|---|---|---|
-| QA-G3-01 | Un literal mal tipado (`"abc"^^xsd:integer`) hace que owlready2 falle al calcular las métricas y `POST /ontologies` responde 500; tampoco se captura una excepción inesperada del razonador | `test_security_g3.py` | `backend` |
-| QA-G3-02 | Cuando Pellet falla, `consistency.detail` publica una línea de la traza de Java | `test_security_g3.py` | `backend` |
-| QA-G3-03 | Un prefijo largo repetido expande el RDF unas 590 veces en memoria al analizarlo (Turtle y JSON-LD; afecta también a `POST /datasets`) | `test_security_g3.py` | `backend` |
-| QA-G3-04 | Una jerarquía `skos:broader` de unos 300 niveles se admite y después `GET /schemes/{slug}` responde 500 | `test_security_g3.py` | `backend` |
-| QA-G3-05 | Un predicado que RDF/XML no puede abreviar se admite y la descarga en RDF/XML responde 500 | `test_security_g3.py` | `backend` |
-| QA-G3-06 | `semantic/uris.md` reserva los slugs `dominio` y `tipo-dataset`, pero `POST /schemes` los admite y un editor sustituye los esquemas auxiliares del catálogo | `test_security_g3.py`, `test_contracts_fase3.py` | `backend` |
-| QA-G3-07 | Si la ontología es inconsistente, Pellet falla o se agota el tiempo, queda en `/tmp` una copia de la ontología en cada ingesta | `test_security_g3.py` | `backend` |
-| QA-G3-08 | `publicar.py` admite una etiqueta con un salto de línea final (defensa en profundidad: Git no permite crearla) | `test_publicar_pipeline.py` | `infra` |
-| QA-G3-09 | `semantic/uris.md` dice que los esquemas auxiliares van en el grafo `{BASE_URI}vocab/`; `load-semantic` los carga en `vocab/dominio` y `vocab/tipo-dataset` | `test_contracts_fase3.py` | `semantico` |
+| QA-G3-13 | El contrato añade `auxiliary` a `SchemeDetail.kind` (esquemas `vocab/dominio` y `vocab/tipo-dataset`) y el frontend no lo contempla: `KindTag` lanza un error y el Navegador SKOS se queda en blanco en `/vocabularios/dominio`, que es adonde redirige (303) la URI persistente de un dominio | `backend/tests/test_contracts_fase3.py` (`xfail` estricto) y `frontend/src/pages/SkosPage.auxiliary.test.tsx` (`it.fails`) | `frontend` |
 
 ### Requisitos
 
@@ -115,9 +122,9 @@ Estos puntos no son defectos ni llevan `xfail`: son decisiones que `Plan.md` no 
 | Revocación de tokens | Una cuenta reactivada vuelve a aceptar los tokens emitidos antes de la baja, hasta que caducan | `backend` |
 | Pantallas en un navegador real | No hay herramienta decidida (decisión abierta 34); la prueba no ejecuta el JavaScript del frontend | `qa`, `frontend` |
 | Versiones de ontología inmutables | Republicar una versión ya publicada con otro contenido la sustituye y recalcula sus métricas (para los datasets es la decisión abierta 28) | `backend` |
-| QA-G3-10 · Tiempo de la validación SHACL | No tiene límite: un esquema de 6.000 conceptos (1,1 MB) tarda unos 97 s en validarse y el máximo de la ingesta son 10 MB. No hay prueba automática por su duración | `backend`, `semantico` |
 | QA-G3-11 · Búsqueda `q` de vocabularios | Busca también en el espacio de nombres, que contiene `BASE_URI`: con el valor por defecto, `q=itot` devuelve todo lo propio | `backend`, `frontend` |
-| QA-G3-12 · Dependencias Java de Pellet | Los JAR que incluye owlready2 (Jena 2.10, OWL API 3.4, Xerces…) no los cubre pip-audit; haría falta decidir una herramienta | `qa`, `backend` |
+| QA-G3-12 · Dependencias Java de Pellet | pip-audit no cubre los JAR que incluye owlready2. `infra` propone un job `imagen-backend` con Trivy en `ci.yml` (falla con hallazgos críticos, sin subir resultados); está pendiente de que el responsable lo acepte. Si se queda, `test_publicar_pipeline.py` comprueba que va fijado por commit y sin permisos de más | `infra`, `qa` |
+| Jerarquía de `itot` · `IED ⊑ ActivoIndustrial` | Tras la decisión 38 la ontología solo lleva la jerarquía que cita el prototipo; esta relación la decide el responsable | `semantico` |
 | QA-G2-05 · El catálogo RDF tras publicar por la API | `POST /datasets` no añade la serie a `dcat:dataset` del grafo del catálogo, que solo cambia con `load-semantic` | `backend`, `semantico` |
 | QA-G2-06 · Búsqueda por URI | El campo de búsqueda dice «Título, concepto o URI», pero `q` solo busca en título, descripción y temas | `frontend`, `backend` |
 | QA-G2-07 · Paginación del catálogo | La pantalla pide una sola página de 100 recursos; con más, el contador muestra el total pero faltan tarjetas | `frontend` |

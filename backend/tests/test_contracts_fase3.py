@@ -12,7 +12,8 @@
 
 Las pruebas de la fase 2 (``test_contracts_fase2.py``) siguen vigentes. Cada prueba se
 salta si la carpeta de la otra capa no está (p. ej. dentro de la imagen Docker del
-backend). Los defectos abiertos van con ``xfail(strict=True)`` y su identificador.
+backend). Los defectos abiertos van con ``xfail(strict=True)`` y su identificador (hoy,
+QA-G3-13).
 """
 
 import importlib.util
@@ -25,6 +26,7 @@ from typing import Any
 import pytest
 from rdflib import Graph, URIRef
 from rdflib.namespace import OWL, RDF
+from sqlalchemy.orm import Session
 
 from app import cli, ingest, owl_metrics, uris, vocab_ingest
 from app.config import Settings, get_settings
@@ -98,6 +100,10 @@ def test_frontend_declares_every_phase_3_read_schema() -> None:
     assert interfaces >= PHASE_3_INTERFACES, PHASE_3_INTERFACES - interfaces
 
 
+# Propiedades cuyo enumerado no coincide todavía con el contrato (defectos abiertos).
+KNOWN_ENUM_GAPS = {("SchemeDetail", "kind")}
+
+
 def _aliases() -> dict[str, list[str]]:
     """``export type X = 'a' | 'b'`` -> ``{X: [a, b]}``."""
     return {
@@ -149,9 +155,23 @@ def test_frontend_literal_types_match_the_contract_enums() -> None:
                 alias = re.match(r"\(?(\w+)", ts_type)
                 assert alias and alias.group(1) in aliases, f"{ts_name}.{prop}: {ts_type}"
                 literals = aliases[alias.group(1)]
+            if (ts_name, prop) in KNOWN_ENUM_GAPS:
+                continue  # defecto abierto, con su propia prueba
             assert sorted(literals) == sorted(expected), f"{ts_name}.{prop}"
             checked += 1
     assert checked >= 12
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="QA-G3-13: el contrato añade 'auxiliary' a SchemeDetail.kind (esquemas vocab/dominio y "
+    "vocab/tipo-dataset) y el tipo del frontend sigue con 'skos_corp' | 'skos_domain'; KindTag "
+    "no tiene estilo para ese valor y el Navegador SKOS se rompe al pintarlo",
+)
+def test_frontend_scheme_kind_matches_the_contract() -> None:
+    ts_type, _optional = _typescript_properties()["SchemeDetail"]["kind"]
+    expected = _contract()["components"]["schemas"]["SchemeDetail"]["properties"]["kind"]["enum"]
+    assert sorted(re.findall(r"'([^']+)'", ts_type)) == sorted(expected)
 
 
 def _query_enum(path: str, parameter: str) -> list[str]:
@@ -335,16 +355,18 @@ def test_semantic_has_the_twenty_files_load_semantic_reads() -> None:
     assert others == set()
 
 
-def test_load_semantic_plan_covers_every_file_and_graph(real_settings: Settings) -> None:
+def test_load_semantic_plan_covers_every_file_and_graph(
+    real_settings: Settings, db: Session
+) -> None:
     """``load-semantic`` valida los 20 ficheros reales y los reparte en 21 grafos: cada
     esquema en su URI, cada versión de ontología en su ``owl:versionIRI``, las externas en
     ``onto/externas``, el catálogo y las tres series."""
     base = Uris(real_settings.base_uri)
-    plan, failed = cli._validate_all(real_settings, base)
+    plan, failed = cli._validate_all(real_settings, base, db)
     assert failed is False
     graphs = {
         **{prepared.uri: name for name, prepared in plan.schemes},
-        **{prepared.version_iri: name for name, prepared in plan.ontologies},
+        **{prepared.version_iri: name for name, prepared, _analysis in plan.ontologies},
         **{graph_uri: name for name, graph_uri, _graph in plan.plain},
         **{prepared.uri: name for name, prepared in plan.series},
     }
@@ -374,11 +396,13 @@ def test_load_semantic_plan_covers_every_file_and_graph(real_settings: Settings)
     assert len(files) == 20
 
 
-def test_every_domain_scheme_declares_one_catalog_domain(real_settings: Settings) -> None:
+def test_every_domain_scheme_declares_one_catalog_domain(
+    real_settings: Settings, db: Session
+) -> None:
     """Contrato de dominios de la fase 3: el dominio es el ``dct:subject`` del esquema, un
     concepto de ``vocab/dominio``; los corporativos y los auxiliares no llevan."""
     base = Uris(real_settings.base_uri)
-    plan, _failed = cli._validate_all(real_settings, base)
+    plan, _failed = cli._validate_all(real_settings, base, db)
     domains: dict[str, list[str | None]] = {}
     for _name, prepared in plan.schemes:
         subjects = [
@@ -423,11 +447,6 @@ def test_uris_md_patterns_match_the_backend() -> None:
         assert f"`{documented}`" in text, documented
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="QA-G3-06: semantic/uris.md dice que 'corp', 'dominio' y 'tipo-dataset' están "
-    "reservados como slug de esquema; el backend solo reserva 'corp'",
-)
 def test_reserved_scheme_slugs_match_uris_md() -> None:
     text = _require(URIS_MD).read_text(encoding="utf-8")
     line = next(line for line in text.splitlines() if "están reservados" in line)
@@ -435,15 +454,11 @@ def test_reserved_scheme_slugs_match_uris_md() -> None:
         re.findall(r"`([a-z-]+)`", line.split("están reservados")[0].rsplit(". ", 1)[-1])
     )
     assert documented == {"corp", "dominio", "tipo-dataset"}
-    assert documented == set(uris.RESERVED_SCHEME_SLUGS)
+    # 'corp' no puede ser un slug; 'dominio' y 'tipo-dataset' son los esquemas auxiliares,
+    # que solo carga load-semantic.
+    assert documented == set(uris.RESERVED_SCHEME_SLUGS) | set(uris.AUXILIARY_SCHEME_SLUGS)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="QA-G3-09: semantic/uris.md dice que los esquemas auxiliares van en el grafo "
-    "{BASE_URI}vocab/ ('sin cambios desde la fase 2'); load-semantic los carga cada uno en el "
-    "grafo de su URI (vocab/dominio y vocab/tipo-dataset)",
-)
 def test_auxiliary_scheme_graphs_match_uris_md(real_settings: Settings) -> None:
     text = _require(URIS_MD).read_text(encoding="utf-8")
     row = next(line for line in text.splitlines() if line.startswith("| Esquemas auxiliares"))
@@ -539,6 +554,10 @@ def test_reasoner_variables_are_documented_with_the_backend_defaults() -> None:
     fields = Settings.model_fields
     assert optional["REASONER_TIMEOUT_SECONDS"] == f"{fields['reasoner_timeout_seconds'].default:g}"
     assert optional["REASONER_JAVA_MEMORY_MB"] == str(fields["reasoner_java_memory_mb"].default)
+    # Límites de la ingesta (QA-G3-03 y QA-G3-10).
+    assert optional["INGEST_MAX_TRIPLES"] == str(fields["ingest_max_triples"].default)
+    assert optional["SHACL_TIMEOUT_SECONDS"] == f"{fields['shacl_timeout_seconds'].default:g}"
+    assert optional["SHACL_MEMORY_MB"] == str(fields["shacl_memory_mb"].default)
     # Toda variable opcional documentada es un puerto del host o la lee el backend.
     for name in optional:
         assert name.endswith("_HOST_PORT") or name in _settings_env_names(), name
