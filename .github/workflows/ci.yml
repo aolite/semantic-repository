@@ -27,6 +27,13 @@ jobs:
           if [ -f backend/pyproject.toml ]; then echo "present=true" >> "$GITHUB_OUTPUT"; else echo "backend/pyproject.toml no existe: se salta el job"; fi
       - if: steps.layer.outputs.present == 'true'
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      # Java 25 para owlready2 + Pellet: el Jena de owlready2 0.51 está compilado para Java 25
+      # (class file 69); con una versión anterior las pruebas de Pellet se saltan.
+      - if: steps.layer.outputs.present == 'true'
+        uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        with:
+          distribution: temurin
+          java-version: "25"
       - name: Lint y pruebas
         if: steps.layer.outputs.present == 'true'
         working-directory: backend
@@ -98,3 +105,28 @@ jobs:
         env:
           E2E_REQUIRE_DOCKER: "1"
         run: uv run --frozen --project backend pytest tests/e2e -v
+
+  # PROPUESTA pendiente de decisión del responsable (QA-G3-12): pip-audit no cubre los JAR
+  # que trae owlready2 (Jena, OWL API, log4j...). Se puede quitar este job sin más.
+  # Corre en PR y en push a main (como el resto del workflow). No sube resultados a ningún
+  # servicio externo; Trivy solo descarga su base de vulnerabilidades de ghcr.io (GitHub).
+  imagen-backend:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Construir la imagen del backend
+        run: |
+          if [ -f backend/Dockerfile ]; then docker build -t backend-scan:ci backend; else echo "sin Dockerfile: se salta"; fi
+      - name: Analizar la imagen con Trivy (falla con hallazgos críticos)
+        if: hashFiles('backend/Dockerfile') != ''
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: backend-scan:ci
+          version: v0.76.2
+          severity: CRITICAL
+          exit-code: "1"
+          format: table
+          vuln-type: os,library
