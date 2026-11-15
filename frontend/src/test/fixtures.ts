@@ -8,6 +8,8 @@ import type {
   DatasetDetail,
   DatasetPage,
   DcatMetadata,
+  DistributionRead,
+  FairSummary,
   VersionDetail,
   VersionSummary,
 } from '../api'
@@ -35,6 +37,7 @@ export function cardFixture(overrides: Partial<DatasetCard> = {}): DatasetCard {
     formats: ['application/vnd.tcpdump.pcap', 'text/csv', 'application/vnd.apache.parquet'],
     current_version: '2.1.0',
     synthetic: false,
+    fair_total: null,
     ...overrides,
   }
 }
@@ -71,22 +74,49 @@ export function versionFixture(overrides: Partial<VersionDetail> = {}): VersionD
     previous_version: { uri: `${SERIES}/2.0.0`, version: '2.0.0' },
     in_series: SERIES,
     synthetic: false,
-    distributions: [
-      {
-        uri: `${SERIES}/2.1.0/a`,
-        title: 'Distribución A',
-        media_type: 'text/csv',
-        media_type_uri: 'http://www.iana.org/assignments/media-types/text/csv',
-        access_url: `${SERIES}/2.1.0/a`,
-        access_rights: accessRestricted,
-      },
-    ],
+    distributions: [distributionFixture()],
     provenance: [
       { kind: 'activity', uri: null, label: 'Actividad origen', agents: [] },
       { kind: 'entity', uri: null, label: 'Entidad intermedia', agents: [] },
       { kind: 'activity', uri: `${BASE}actividad/final`, label: 'Actividad final', agents: [{ uri: null, label: 'Agente de prueba' }] },
     ],
     metadata: metadataFixture(),
+    fair: null,
+    ...overrides,
+  }
+}
+
+/** Distribución restringida con fichero (`authenticated`) de la versión 2.1.0. */
+export function distributionFixture(dist = 'a', overrides: Partial<DistributionRead> = {}): DistributionRead {
+  const uri = `${SERIES}/2.1.0/${dist}`
+  return {
+    uri,
+    title: 'Distribución A',
+    media_type: 'text/csv',
+    media_type_uri: 'http://www.iana.org/assignments/media-types/text/csv',
+    access_url: uri,
+    access_rights: accessRestricted,
+    download: 'authenticated',
+    download_url: `${uri}/fichero`,
+    byte_size: 1024,
+    sha256: '0'.repeat(64),
+    ...overrides,
+  }
+}
+
+/** Evaluación FAIR terminada con puntuaciones de prueba (no son las del prototipo). */
+export function fairFixture(overrides: Partial<FairSummary> = {}): FairSummary {
+  return {
+    status: 'done',
+    total: 41,
+    findable: 11,
+    accessible: 22,
+    interoperable: 33,
+    reusable: 44,
+    maturity: 'nivel-de-prueba',
+    evaluator: 'evaluador-de-prueba 0.0.0',
+    evaluated_at: '2000-01-02T03:04:05Z',
+    report_url: '/datasets/dataset-prueba/versions/2.1.0/fair/report',
     ...overrides,
   }
 }
