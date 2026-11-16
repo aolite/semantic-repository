@@ -157,9 +157,9 @@ export interface DistributionRead {
   /** Cómo se descarga (fase 4, decisión 40). */
   download: DistributionDownload
   /** Ruta del fichero (`{BASE_URI}dataset/{slug}/{version}/{dist}/fichero`) si `download` es `open` o `authenticated`. */
-  download_url: string | null
-  byte_size: number | null
-  sha256: string | null
+  download_url?: string | null
+  byte_size?: number | null
+  sha256?: string | null
 }
 
 /**
@@ -242,7 +242,7 @@ export interface VersionDetail {
   provenance: ProvenanceStep[]
   metadata: DcatMetadata
   /** Evaluación FAIR (fase 4); null si no aplica. */
-  fair: FairSummary | null
+  fair?: FairSummary | null
 }
 
 /** Esquema `VersionSummary`: entrada del historial (de la más reciente a la más antigua). */
@@ -650,19 +650,4 @@ export interface SavedQueryCreate {
   hint?: string | null
   /** 1 byte a 20 KB. */
   query: string
-}
-
-/** Término RDF de un resultado SPARQL (formato `application/sparql-results+json` del W3C). */
-export interface SparqlTerm {
-  type: 'uri' | 'literal' | 'typed-literal' | 'bnode' | 'triple'
-  value: string
-  'xml:lang'?: string
-  datatype?: string
-}
-
-/** Respuesta `application/sparql-results+json` de `/sparql` (SELECT o ASK). */
-export interface SparqlJsonResults {
-  head: { vars?: string[]; link?: string[] }
-  results?: { bindings: Record<string, SparqlTerm>[] }
-  boolean?: boolean
 }

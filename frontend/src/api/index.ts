@@ -62,8 +62,6 @@ export type {
   SchemeKind,
   SchemeMetadata,
   SchemeRef,
-  SparqlJsonResults,
-  SparqlTerm,
   SubjectRef,
   ThemeRef,
   TokenResponse,
@@ -77,3 +75,4 @@ export type {
   VocabularyPage,
   VocabularyStatus,
 } from './types'
+export type { SparqlJsonResults, SparqlTerm } from '../sparql/w3c'

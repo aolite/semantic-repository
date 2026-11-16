@@ -1,5 +1,6 @@
 import { apiRequest, apiRequestRaw } from './client'
-import type { SavedQuery, SavedQueryCreate, SparqlJsonResults } from './types'
+import type { SavedQuery, SavedQueryCreate } from './types'
+import type { SparqlJsonResults } from '../sparql/w3c'
 
 /** Tipo de medio de los resultados SELECT y ASK. */
 export const SPARQL_RESULTS_JSON = 'application/sparql-results+json'
