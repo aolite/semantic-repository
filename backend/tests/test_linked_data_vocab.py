@@ -29,7 +29,9 @@ def _get(api: TestClient, path: str, accept: str | None) -> object:
     return api.get(path, headers=headers, follow_redirects=False)
 
 
-@pytest.mark.parametrize("accept", [*FORMATS, None, "*/*"])
+# Fase 4 (decisión 31): sin Accept o con */* la URI redirige al HTML (303); el RDF solo
+# sale con un Accept de RDF. Ver test_fase4_versiones.py.
+@pytest.mark.parametrize("accept", [*FORMATS])
 def test_ontology_uri_serves_current_version(api: TestClient, accept: str | None) -> None:
     response = _get(api, "/onto/itot", accept)
     assert response.status_code == 200

@@ -22,7 +22,10 @@ Misma estrategia que la de series de dataset (``app.ingest``), compartida por
    o el esquema se validan solos).
 4. Guardado: la versión de ontología en el grafo de su ``versionIRI``; el esquema, en el de
    su URI; las externas, en ``{BASE_URI}onto/externas``. Se sustituye el grafo completo y,
-   si el contenido es isomorfo al guardado, no se reescribe.
+   si el contenido es isomorfo al guardado, no se reescribe. Las versiones de ontología
+   son inmutables (decisión 28): una ``versionIRI`` ya publicada con otro contenido da 409
+   ``version_immutable``. Los esquemas SKOS no cambian en la fase 4 (su versión no forma
+   parte de la URI).
 
 En las ontologías, antes de escribir se calculan las métricas OWL y la consistencia
 (``app.owl_metrics``), que se guardan en PostgreSQL junto con la auditoría.
@@ -34,7 +37,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from rdflib import BNode, Graph, URIRef
-from rdflib.compare import to_canonical_graph
+from rdflib.compare import isomorphic, to_canonical_graph
 from rdflib.namespace import OWL, RDF
 from sqlalchemy.orm import Session
 
@@ -157,6 +160,22 @@ def check_ontology_structure(graph: Graph, uris: Uris) -> PreparedOntology:
     )
 
 
+def check_ontology_immutable(store: TripleStore, prepared: PreparedOntology) -> None:
+    """Decisión 28: una ``owl:versionIRI`` ya publicada no cambia de contenido.
+
+    Con el mismo contenido (isomorfo) la ingesta es idempotente; con otro, 409
+    ``version_immutable``. Se comprueba antes de calcular métricas y de escribir.
+    """
+    current = store.get_graph(prepared.version_iri)
+    if len(current) and not isomorphic(current, prepared.graph):
+        raise IngestError(
+            "version_immutable",
+            "La versión de la ontología ya está publicada con otro contenido: las versiones "
+            "son inmutables; publica los cambios con un owl:versionIRI nuevo",
+            [Issue("Versión publicada con contenido distinto", focus_node=prepared.version_iri)],
+        )
+
+
 def prepare_ontology(graph: Graph, uris: Uris, settings: Settings) -> PreparedOntology:
     ingest.check_terms(graph)
     prepared = check_ontology_structure(graph, uris)
@@ -248,6 +267,8 @@ def publish_ontology_and_audit(
     metrics, consistency = analysis.metrics, analysis.consistency
     record = session.get(OntologyMetricsRecord, prepared.version_iri)
 
+    store.ensure_writable()
+    check_ontology_immutable(store, prepared)
     created, changed = ingest.store_graph(store, prepared.version_iri, prepared.graph)
 
     if recompute:

@@ -66,5 +66,19 @@ def test_openapi_exposes_phase_2_catalog() -> None:
         for node in _walk(components[name]):
             if node.get("type") == "object":
                 assert "properties" in node, name
-    # Sin puntuaciones FAIR hasta la fase 4.
-    assert "fair" not in json.dumps(components).lower()
+    # Fase 4: la evaluación FAIR solo aparece en FairSummary, VersionDetail.fair y
+    # DatasetCard.fair_total.
+    assert set(components["FairSummary"]["properties"]) == {
+        "status",
+        "total",
+        "findable",
+        "accessible",
+        "interoperable",
+        "reusable",
+        "maturity",
+        "evaluator",
+        "evaluated_at",
+        "report_url",
+    }
+    assert "fair" in components["VersionDetail"]["properties"]
+    assert "fair_total" in components["DatasetCard"]["properties"]

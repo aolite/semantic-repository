@@ -64,6 +64,12 @@ class Uris:
     def __init__(self, base_uri: str) -> None:
         self.base = base_uri
 
+    def searchable_uri(self, uri: str) -> str:
+        """Parte de la URI en la que busca ``q`` (decisión 30): sin ``BASE_URI`` si el
+        recurso es propio (todas las URIs propias lo comparten y con el valor por defecto
+        ``…/itot/`` ``q=itot`` lo devolvería todo); entera si es externo."""
+        return uri[len(self.base) :] if uri.startswith(self.base) else uri
+
     @property
     def dataset_ns(self) -> str:
         return f"{self.base}dataset/"

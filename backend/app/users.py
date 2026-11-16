@@ -1,5 +1,7 @@
 """Operaciones sobre cuentas compartidas por la API y la CLI. Todas dejan rastro en auditoría."""
 
+from datetime import UTC, datetime
+
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -61,6 +63,7 @@ def update_user(
     if role is not None and role != user.role:
         previous = user.role
         user.role = role
+        user.tokens_valid_after = datetime.now(UTC)  # decisión 18
         audit.record(
             session,
             AuditAction.ROLE_CHANGED,
@@ -70,6 +73,10 @@ def update_user(
         )
     if is_active is not None and is_active != user.is_active:
         user.is_active = is_active
+        if not is_active:
+            # Decisión 18: la baja invalida los tokens emitidos antes. Reactivar no los
+            # revive (no se toca la marca).
+            user.tokens_valid_after = datetime.now(UTC)
         audit.record(
             session,
             AuditAction.USER_REACTIVATED if is_active else AuditAction.USER_DEACTIVATED,

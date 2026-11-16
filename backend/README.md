@@ -2,7 +2,7 @@
 
 API del repositorio semántico IT&OT. Es el único componente que escribe en el triplestore y en el almacenamiento de distribuciones (ver `Plan.md`, sección 3.2).
 
-**Estado (fase 3):** health checks, autenticación JWT, cuentas de usuario y auditoría en PostgreSQL (fase 1); cliente de Fuseki, ingesta DCAT-AP validada con SHACL, comando de carga de los datos sintéticos, lectura pública del catálogo y negociación de contenido en las URIs persistentes (fase 2); ingesta y lectura de ontologías (con métricas OWL de owlready2 y consistencia con Pellet) y de esquemas SKOS, y negociación en `/onto/…` y `/vocab/…` (fase 3). F-UJI, el acceso a distribuciones y la interfaz de almacenamiento llegan en la fase 4.
+**Estado (fase 4):** health checks, autenticación JWT, cuentas de usuario y auditoría en PostgreSQL (fase 1); cliente de Fuseki, ingesta DCAT-AP validada con SHACL, comando de carga de los datos sintéticos, lectura pública del catálogo y negociación de contenido en las URIs persistentes (fase 2); ingesta y lectura de ontologías (con métricas OWL de owlready2 y consistencia con Pellet) y de esquemas SKOS, y negociación en `/onto/…` y `/vocab/…` (fase 3); versiones inmutables, ficheros de distribución con acceso por rol (interfaz de almacenamiento), evaluación FAIR con F-UJI, SPARQL público con límites, consultas guardadas, bloqueo de login y revocación de tokens (fase 4, ver «Fase 4» más abajo).
 
 ## Requisitos
 
@@ -39,7 +39,7 @@ Se leen del entorno o de un fichero `backend/.env` (que no se versiona). Los val
 | `DATABASE_URL` | **sí** | — | PostgreSQL de usuarios y auditoría, p. ej. `postgresql+psycopg://itot:changeme@postgres:5432/itot` |
 | `FUSEKI_URL` | no | `http://fuseki:3030` | Fuseki |
 | `FUSEKI_DATASET` | no | `itot` | Dataset de Fuseki. Consultas en `/{dataset}/query` (sin credenciales); escrituras en `/{dataset}/data` (Graph Store Protocol) |
-| `FUSEKI_USER` | no al arrancar | — | Usuario de escritura en Fuseki (autenticación Basic). Sin él, la lectura funciona y la ingesta responde 503 con un mensaje que nombra la variable |
+| `FUSEKI_USER` | no al arrancar | — | Usuario de escritura en Fuseki (autenticación Basic). En Compose, `backend` (decisión 32; su contraseña llega como `FUSEKI_PASSWORD` desde `FUSEKI_BACKEND_PASSWORD`). El backend no usa los endpoints de administración `/$/…`. Sin él, la lectura funciona y la ingesta responde 503 con un mensaje que nombra la variable |
 | `FUSEKI_PASSWORD` | no al arrancar | — | Contraseña de escritura en Fuseki. Nunca aparece en logs ni en errores |
 | `FUSEKI_TIMEOUT_SECONDS` | no | `10` | Timeout de lectura de cada petición a Fuseki (la conexión tiene 3 s) |
 | `SEMANTIC_DIR` | no | `../semantic` relativo a `backend/` | Carpeta `semantic/` (formas SHACL y datos). En el contenedor, `/semantic` (montada por infra, solo lectura). Una ruta relativa se resuelve contra `backend/` |
@@ -54,8 +54,23 @@ Se leen del entorno o de un fichero `backend/.env` (que no se versiona). Los val
 | `JWT_ALGORITHM` | no | `HS256` | `HS256`, `HS384` o `HS512` |
 | `JWT_EXPIRE_MINUTES` | no | `60` | Validez del token |
 | `CORS_ORIGINS` | no | vacío (sin CORS) | Orígenes permitidos separados por comas; en local, `http://localhost:5173` |
-| `STORAGE_BACKEND` | no | `disk` | `disk` o `r2`. Declarada; la interfaz de almacenamiento llega en la fase 4 |
-| `STORAGE_DISK_PATH` | no | `/data/distributions` | Carpeta de las distribuciones en disco (fase 4) |
+| `STORAGE_BACKEND` | no | `disk` | `disk` o `r2`. **`r2` aún no está implementado**: cada operación con ficheros responde 503 con un mensaje claro (ver «Almacenamiento») |
+| `STORAGE_DISK_PATH` | no | `/data/distributions` | Carpeta de las distribuciones en disco |
+| `MAX_UPLOAD_MB` | no | `512` | Tamaño máximo de un fichero de distribución (413 si se supera) |
+| `DOWNLOAD_LINK_TTL_SECONDS` | no | `60` | Validez de un enlace de descarga firmado (de 1 a 3600) |
+| `FUJI_URL` | no | `http://fuji:1071/fuji/api/v1` | API de F-UJI (se llama a `{FUJI_URL}/evaluate`) |
+| `FUJI_USERNAME`, `FUJI_PASSWORD` | no al arrancar | — | Autenticación Basic de F-UJI. Sin ellas las evaluaciones quedan `failed` con un motivo que nombra las variables; la API funciona igual |
+| `FUJI_TIMEOUT_SECONDS` | no | `300` | Tiempo máximo de una evaluación |
+| `FAIR_TARGET_BASE_URL` | no | vacío (= `BASE_URI`) | URL base que se pasa a F-UJI en lugar de `BASE_URI`. En local, `http://backend:8000/` |
+| `FAIR_WORKER_POLL_SECONDS` | no | `10` | Cada cuánto mira el trabajador FAIR si hay evaluaciones pendientes (además de despertarse al publicar). `0` lo desactiva (pruebas) |
+| `SPARQL_TIMEOUT_SECONDS` | no | `10` | Tiempo máximo de una consulta del SPARQL público (504 al superarlo) |
+| `SPARQL_MAX_ROWS` | no | `10000` | Filas (SELECT) o triples (CONSTRUCT/DESCRIBE) máximos; si se recorta, `X-Result-Truncated: true` |
+| `SPARQL_RATE_ANON_PER_MIN` | no | `30` | Consultas por minuto y por IP (anónimos) |
+| `SPARQL_RATE_AUTH_PER_MIN` | no | `60` | Consultas por minuto y por usuario (con JWT) |
+| `SAVED_QUERIES_MAX_PER_USER` | no | `50` | Consultas personales por usuario (409 al superarlo) |
+| `LOGIN_MAX_FAILURES` | no | `5` | Fallos de login por (usuario, IP) que bloquean ese par |
+| `LOGIN_WINDOW_MINUTES` | no | `15` | Ventana en la que se cuentan los fallos |
+| `LOGIN_LOCKOUT_MINUTES` | no | `15` | Duración del bloqueo (429 con `Retry-After`) |
 
 Si falta una variable obligatoria o tiene un valor no válido, el arranque falla con un mensaje que nombra la variable, sin mostrar su valor.
 
@@ -79,14 +94,14 @@ Si falta una variable obligatoria o tiene un valor no válido, el arranque falla
 | `GET /datasets` | público | Tarjetas del catálogo. Filtros `q`, `domain` (`it`, `ot`, `pqc`, `ia`), `page` y `page_size` (máx. 100) |
 | `GET /datasets/{slug}` | público | Ficha: serie, versión actual (o `?version=MAYOR.MENOR.PARCHE`), historial, distribuciones, cadena PROV y metadatos DCAT-AP |
 | `GET /datasets/{slug}/rdf` | público | RDF de la versión (actual o `?version=`) en Turtle o JSON-LD, según `?format=turtle\|jsonld` o la cabecera `Accept` |
-| `GET /dataset/{slug}` | público | URI persistente de la serie: Turtle o JSON-LD según `Accept`; con `text/html`, 303 a `{FRONTEND_BASE_URL}/datasets/{slug}` |
+| `GET /dataset/{slug}` | público | URI persistente de la serie: Turtle, JSON-LD o RDF/XML según `Accept`; sin `Accept`, con `*/*` o con `text/html` (fase 4), 303 a `{FRONTEND_BASE_URL}/datasets/{slug}` |
 | `GET /dataset/{slug}/{version}` | público | URI persistente de la versión: igual, con 303 a `{FRONTEND_BASE_URL}/datasets/{slug}?version={version}` |
 
 El contrato completo está en [`openapi.json`](openapi.json). Los campos siguen la convención del resto de la API (`snake_case`: `version_notes`, `previous_version`, `in_series`…).
 
 ### Lectura
 
-- **Campos sin valor en el RDF** se devuelven como `null` o lista vacía. Licencia, contacto, fechas (`issued`, `modified`) y proyecto (`is_referenced_by`) son placeholders del prototipo que aún no están en los datos: el frontend muestra el placeholder. No se expone ninguna puntuación FAIR (llega en la fase 4).
+- **Campos sin valor en el RDF** se devuelven como `null` o lista vacía. Licencia, contacto, fechas (`issued`, `modified`) y proyecto (`is_referenced_by`) son placeholders del prototipo que aún no están en los datos: el frontend muestra el placeholder. La puntuación FAIR (fase 4) sale solo de F-UJI.
 - **Versión actual:** `dcat:last` de la serie; si falta, la versión de mayor número.
 - **Dominio (fase 3):** el `dct:subject` del esquema (`skos:inScheme`) de los temas de la versión actual, un concepto `{BASE_URI}vocab/dominio/{it|ot|pqc|ia}`. `uri` es ese concepto y `label`, su `skos:prefLabel` (del grafo `{BASE_URI}vocab/dominio`). «PQC e identidad» tiene dos esquemas (`pqc` y `did`) con el mismo dominio. Respaldos: si el esquema no declara `dct:subject` y es `{BASE_URI}vocab/{it|ot|pqc|ia}`, ese slug con la etiqueta del esquema; si el vocabulario no está cargado, el patrón de la URI del concepto (`{BASE_URI}vocab/{esquema}/{slug}`), con la etiqueta a `null`. `domain` es el primero de `domains`. La ficha de una versión antigua muestra el dominio de la serie.
 - **Sintético:** `synthetic` es `true` si la serie (o la versión) tiene `dct:type <{BASE_URI}vocab/tipo-dataset/sintetico>`.
@@ -95,7 +110,7 @@ El contrato completo está en [`openapi.json`](openapi.json). Los campos siguen 
 - **Historial:** de la versión más reciente a la más antigua. Incluye las versiones solo referenciadas por `dcat:previousVersion` (`described=false`), con el número sacado de la URI.
 - **Procedencia:** cadena lineal desde el origen hasta la actividad que generó la versión (`prov:wasGeneratedBy` → `prov:used` → `prov:wasGeneratedBy`…), sin la versión misma. Los nodos en blanco tienen `uri=null`. Si una actividad usa varias entidades, se sigue la primera en orden de IRI.
 - **Publisher:** se toma del grafo de cada serie (nodo en blanco con `foaf:name`); los agentes no se deduplican por nombre.
-- **Búsqueda `q`:** en título y descripción (de la serie y de la versión actual) y en `skos:prefLabel`/`skos:altLabel` de los temas, sin distinguir mayúsculas ni acentos. **No llega a SPARQL**: se filtra en Python.
+- **Búsqueda `q`:** en título y descripción (de la serie y de la versión actual) en `skos:prefLabel`/`skos:altLabel` de los temas y, desde la fase 4, en la URI de la serie sin `BASE_URI` (`dataset/{slug}`), sin distinguir mayúsculas ni acentos. **No llega a SPARQL**: se filtra en Python.
 - **RDF de una versión:** sus triples y los de lo que cuelga de ella en el grafo de la serie (distribuciones, actividades, nodos en blanco y agentes), sin la serie ni las demás versiones. La URI de la serie devuelve el grafo completo de la serie.
 
 ### Ingesta (`POST /datasets` y `load-semantic`)
@@ -110,7 +125,7 @@ El contrato completo está en [`openapi.json`](openapi.json). Los campos siguen 
 
 Si falla un paso, la respuesta es 422 con `kind` (`syntax`, `structure`, `uri`, `shacl` o `limit`), `detail`, `issues` (nodo, propiedad, valor, severidad, forma y mensaje) y, para SHACL, `report` con el informe de pyshacl en texto. No se escribe nada.
 
-**Estrategia de sustitución:** cada ingesta sustituye **por completo** el grafo con nombre de la serie (`PUT` del Graph Store Protocol, atómico en Fuseki). Por eso se envía siempre la serie entera con todas sus versiones: una versión que no venga en el RDF desaparece. Si el contenido es isomorfo al guardado, no se reescribe (`changed=false`). Las credenciales de escritura se exigen siempre, también cuando no hay cambios.
+**Estrategia de sustitución:** cada ingesta sustituye **por completo** el grafo con nombre de la serie (`PUT` del Graph Store Protocol, atómico en Fuseki). Por eso se envía siempre la serie entera con todas sus versiones. Desde la fase 4 las versiones publicadas son **inmutables** (decisión 28): si falta una, 409 `version_removed`; si cambia, 409 `version_immutable` (ver «Fase 4»). Si el contenido es isomorfo al guardado, no se reescribe (`changed=false`). Las credenciales de escritura se exigen siempre, también cuando no hay cambios.
 
 **Auditoría:** cada ingesta registra `dataset_published` con quién (`actor_*`, o `cli` desde el comando) y `details` con `series`, `slug`, `graph`, `versions`, `triples`, `created`, `changed` y `via` (`api` o `cli`). Se escribe primero en Fuseki y después se confirma la auditoría, para no registrar publicaciones que no han ocurrido.
 
@@ -169,7 +184,7 @@ Lo mismo vale para `{BASE_URI}onto/*` y `{BASE_URI}vocab/*` (fase 3). El resto d
 |---|---|---|
 | `POST /ontologies` | editor (y admin) | Ingesta de **una versión** de ontología en Turtle o JSON-LD. Calcula métricas y consistencia antes de escribir. 201 si la versión es nueva, 200 si se sustituye (`changed=false` si era idéntica), 422 con el informe si no es válida |
 | `POST /schemes` | editor (y admin) | Ingesta de un esquema SKOS con sus conceptos. Mismos códigos |
-| `GET /vocabularies` | público | Tarjetas de ontologías propias (versión actual), externas y esquemas SKOS. Filtros `q` (nombre, prefijo o espacio de nombres), `kind` (`own`, `external`, `skos_corp`, `skos_domain`) y `domain` (`it`, `ot`, `pqc`, `ia`); `counts` por tipo, sin filtros |
+| `GET /vocabularies` | público | Tarjetas de ontologías propias (versión actual), externas y esquemas SKOS. Filtros `q` (nombre, descripción, prefijo o URI del recurso sin `BASE_URI`; desde la fase 4 ya no el espacio de nombres), `kind` (`own`, `external`, `skos_corp`, `skos_domain`) y `domain` (`it`, `ot`, `pqc`, `ia`); `counts` por tipo, sin filtros |
 | `GET /ontologies/{slug}` | público | Ficha: metadatos VANN y DCT, versionado e historial, métricas, perfil, consistencia, cobertura de documentación, imports, alineamientos, uso en el catálogo y esquemas SKOS usados. `?version=` para otra versión |
 | `GET /ontologies/{slug}/rdf` | público | RDF de la versión (actual o `?version=`): `?format=turtle\|rdfxml\|jsonld` o `Accept` |
 | `GET /schemes/{slug}` y `GET /schemes/corp/{slug}` | público | Metadatos, dominio y árbol de conceptos |
@@ -180,7 +195,7 @@ Lo mismo vale para `{BASE_URI}onto/*` y `{BASE_URI}vocab/*` (fase 3). El resto d
 
 **Descarga del RDF:** `GET /datasets/{slug}/rdf`, `GET /ontologies/{slug}/rdf` y `GET /schemes/…/rdf` aceptan `?download=true` (o `1`). Con él, la respuesta lleva `Content-Disposition: attachment; filename="…"`, con un nombre hecho solo de slugs y versiones validados: `{slug}-{versión}.ttl` para datasets y ontologías (la versión pedida o la actual), `{slug}-{versión}` o `corp-{slug}-{versión}` (`owl:versionInfo`) para esquemas, con extensión `.ttl`, `.jsonld` o `.rdf` según el formato. Sin el parámetro (o con `false`) el RDF se sirve en línea, como hasta ahora.
 
-**Rutas de los esquemas:** igual que sus URIs. Los de dominio en `/schemes/{slug}` (`{BASE_URI}vocab/{slug}`) y los corporativos en `/schemes/corp/{slug}` (`{BASE_URI}vocab/corp/{slug}`). `corp` es un slug reservado (no puede haber un esquema de dominio con ese nombre) y `externas` lo es en las ontologías. Todas las URIs persistentes ofrecen Turtle (por defecto), JSON-LD, RDF/XML y HTML (303); un recurso inexistente da 404 en cualquier formato. RDF/XML no puede representar predicados cuyo nombre local no es un nombre XML (p. ej. `<http://x.example/p/1>` o `<urn:x:1>`): si el recurso tiene alguno, RDF/XML responde **406** con un mensaje que remite a Turtle o JSON-LD, en lugar de 500 (QA-G3-05). La ingesta los admite porque Turtle y JSON-LD sí los representan.
+**Rutas de los esquemas:** igual que sus URIs. Los de dominio en `/schemes/{slug}` (`{BASE_URI}vocab/{slug}`) y los corporativos en `/schemes/corp/{slug}` (`{BASE_URI}vocab/corp/{slug}`). `corp` es un slug reservado (no puede haber un esquema de dominio con ese nombre) y `externas` lo es en las ontologías. Todas las URIs persistentes ofrecen Turtle, JSON-LD, RDF/XML y HTML (303); desde la fase 4, sin `Accept` o con `*/*` responden el 303 (decisión 31); un recurso inexistente da 404 en cualquier formato. RDF/XML no puede representar predicados cuyo nombre local no es un nombre XML (p. ej. `<http://x.example/p/1>` o `<urn:x:1>`): si el recurso tiene alguno, RDF/XML responde **406** con un mensaje que remite a Turtle o JSON-LD, en lugar de 500 (QA-G3-05). La ingesta los admite porque Turtle y JSON-LD sí los representan.
 
 ### Tipos y estados (contrato con `semantico`)
 
@@ -240,7 +255,7 @@ Misma estrategia que `POST /datasets` (autenticación antes de leer el cuerpo, s
 - **SHACL:** todas las formas de `SEMANTIC_DIR/shapes` (entre ellas `ontologias-vocabularios.ttl` de `semantico`), sin mezclar el grafo de soporte: una versión o un esquema se validan solos.
 - **Métricas antes de escribir:** en la API y en `load-semantic` las métricas y la consistencia se calculan antes de tocar Fuseki. Si owlready2 no puede leer la ontología (p. ej. un literal que no cumple su tipo, `"abc"^^xsd:integer`), la respuesta es 422 `syntax` con los literales culpables y no se escribe nada; en `load-semantic`, no se carga ningún fichero (QA-G3-01).
 - **Auditoría:** `ontology_published` (`ontology`, `slug`, `version`, `version_iri`, `graph`, `triples`, `created`, `changed`, `metrics_recomputed`, `consistent`, `via`) y `scheme_published` (`scheme`, `slug`, `corp`, `graph`, `concepts`, `triples`, `created`, `changed`, `via`).
-- **Versiones publicadas:** hoy una versión ya publicada se puede volver a ingestar y se sustituye (como las series). Si las versiones publicadas deben ser inmutables está pendiente de decidir.
+- **Versiones publicadas (fase 4, decisión 28):** una `owl:versionIRI` ya publicada con otro contenido da 409 `version_immutable` (antes de calcular métricas); con el mismo contenido, la ingesta es idempotente y no recalcula métricas. Los esquemas SKOS no cambian: su versión no forma parte de la URI.
 
 ### Métricas OWL y consistencia
 
@@ -262,12 +277,83 @@ Decisión del responsable (2026-11-15): owlready2 para las métricas y Pellet (i
 
 Cada ejecución de Pellet usa un directorio temporal propio que se borra siempre, también si Pellet falla o se agota el tiempo (owlready2 solo borra su fichero temporal cuando todo va bien; QA-G3-07). Las ingestas se serializan al usar owlready2 (tiene estado global). Pellet tarda alrededor de un segundo por versión en las ontologías de demostración.
 
+## Fase 4: FAIR, versiones, ficheros y SPARQL público
+
+| Método y ruta | Acceso | Qué hace |
+|---|---|---|
+| `PUT /datasets/{slug}/versions/{version}/distributions/{dist}/file` | editor (y admin) | Sube el fichero de una distribución (`multipart/form-data`, campo `file`). 201, o 200 si ya estaba con el mismo SHA-256; 409 `file_exists` / `non_public`; 413 si supera `MAX_UPLOAD_MB` |
+| `POST /datasets/{slug}/versions/{version}/distributions/{dist}/download-link` | con cuenta | Enlace firmado `{url, expires_at}` de un solo uso para descargar sin poner el JWT en la URL |
+| `GET /dataset/{slug}/{version}/{dist}/fichero` | según `dct:accessRights` | El fichero, en streaming |
+| `GET /dataset/{slug}/{version}/{dist}` | público | URI persistente de la distribución (RDF; HTML: 303 a la ficha `#distribuciones`) |
+| `GET /datasets/{slug}/versions/{version}/fair/report` | público | Informe completo de F-UJI de la última evaluación `done` (404 si no hay) |
+| `POST /datasets/{slug}/versions/{version}/fair` | editor (y admin) | Pide otra evaluación (202 con `FairSummary` en `pending`) |
+| `GET /sparql`, `POST /sparql` | público (con JWT, límite de usuario) | SPARQL de solo lectura con límites |
+| `GET /sparql/queries` | público (con JWT, también las personales) | Consultas de referencia y personales (lista `SavedQuery[]`) |
+| `POST /sparql/queries`, `PUT`/`DELETE /sparql/queries/{id}` | con cuenta (solo el dueño) | Consultas personales |
+
+### Versiones inmutables (decisión 28)
+
+- `POST /datasets` y `load-semantic`: antes de escribir, cada versión del grafo publicado tiene que venir en la petición y su subgrafo (sus triples, los de sus distribuciones y su procedencia PROV, `catalog.version_subgraph`) debe ser **isomorfo** al publicado (`rdflib.compare.isomorphic`, que trata los nodos en blanco por estructura y no por etiqueta). Si falta, 409 `version_removed`; si cambia, 409 `version_immutable`. Las versiones afectadas van en `issues[].focus_node` de `IngestErrorResponse`. Los metadatos de la serie (título, `dcat:last`…) sí cambian.
+- Un nodo compartido por varias versiones (el `publisher` en blanco, una actividad PROV con IRI) forma parte del subgrafo de cada versión que lo usa: cambiarlo cambia esas versiones (409).
+- `POST /ontologies`: una `owl:versionIRI` ya publicada con otro contenido da 409 antes de calcular métricas.
+- `load-semantic` valida la inmutabilidad (leyendo Fuseki) antes de escribir nada: si una versión cambia, no carga ningún fichero.
+- `fichero` es un segmento reservado: no puede ser el slug de una distribución (422 `uri`). El último segmento de una distribución tiene que ser un slug.
+
+### Catálogo (decisión 29)
+
+Cada publicación de una serie (API o CLI) asegura `<{BASE_URI}catalogo> dcat:dataset <serie>` en el grafo del catálogo. `load-semantic` fusiona `data/catalogo.ttl` con los `dcat:dataset` del catálogo publicado que apuntan a series (`ingest.merge_catalog`), así que no borra las series publicadas por la API.
+
+### Ficheros de distribución (decisiones 40 y 41)
+
+- **Dónde:** el contenido, en la interfaz de almacenamiento (`app/storage.py`); tamaño, SHA-256, tipo de medio y quién lo subió, en la tabla `distribution_files`. El RDF publicado **no cambia**.
+- **Clave:** `{slug}/{version}/{dist}`, sin extensión, igual en disco y en R2. Se construye solo con segmentos validados por su patrón, y el disco comprueba además que la ruta resuelta queda dentro de `STORAGE_DISK_PATH` (sin *path traversal*).
+- **Escritura:** la subida se lee en streaming del `multipart` a un temporal (en memoria hasta 1 MiB) y se corta en cuanto pasa de `MAX_UPLOAD_MB`, aunque no haya `Content-Length`. En disco se escribe a un temporal de la misma carpeta, con `fsync`, y se renombra (`os.replace`): un fichero a medias nunca se ve.
+- **Inmutables:** otro contenido para la misma clave da 409 `file_exists`; el mismo, 200.
+- **Tipo de medio:** el `dcat:mediaType` del RDF, nunca el del cliente. Sin él (NPZ), `application/octet-stream`.
+- **Estado en la ficha** (`DistributionRead`): `download` es `open` (PUBLIC con fichero), `authenticated` (RESTRICTED con fichero), `metadata_only` (NON_PUBLIC, nunca tiene fichero) o `unavailable` (sin fichero, u otro `accessRights`). El `accessRights` efectivo es el de la distribución o, si no tiene, el de su versión. `download_url` es la URI del fichero, `{BASE_URI}dataset/{slug}/{version}/{dist}/fichero`, solo con `open` o `authenticated`; `byte_size` y `sha256`, si hay fichero.
+- **Descarga** (`GET /dataset/{slug}/{version}/{dist}/fichero`): `open`, cualquiera; `authenticated`, con `Authorization: Bearer` o con `?token=` de `download-link` (sin ellos 401); `metadata_only` y `unavailable`, 404. Respuesta en streaming con el `Content-Type` del RDF, `Content-Length` y `Content-Disposition: attachment; filename="{slug}-{version}-{dist}.{ext}"` (extensión por el tipo de medio y, si no se conoce, el slug de la distribución: `npz`). Las descargas `authenticated` se auditan (`distribution_downloaded`); las `open`, no.
+- **Enlace firmado:** un JWT HMAC con `JWT_SECRET` y `aud` propio (el token de acceso no vale como enlace ni el enlace como token de acceso), ligado a `storage_key` y al usuario, válido `DOWNLOAD_LINK_TTL_SECONDS` y **de un solo uso** (su `jti` queda en `used_download_tokens`; vale con varios workers). Si la cuenta se da de baja o se revocan sus tokens, el enlace deja de valer. `url` es una ruta relativa a la API (`/dataset/…/fichero?token=…`).
+- **`load-semantic`** sube `data/sintetico/ficheros/{slug}/{version}/{dist}.{ext}` con las mismas reglas y actor `cli`, después de las series. Valida antes de escribir que la distribución existe, que no es NON_PUBLIC, el tamaño y que no cambia un fichero ya subido. Que falte el fichero de una distribución no es un error (queda `unavailable`). Los bytes se suben tal cual (el SHA-256 depende de ellos: `semantic/.gitattributes` los marca `-text`).
+
+### Almacenamiento
+
+`STORAGE_BACKEND=disk` (MVP) usa `STORAGE_DISK_PATH` (en la imagen, `/data/distributions`, del usuario sin privilegios). **`STORAGE_BACKEND=r2` todavía no está implementado:** falta decidir el cliente (p. ej. `boto3`, que sería una dependencia nueva) y los nombres de las variables de credenciales; hasta entonces responde 503 con un mensaje claro en cualquier operación con ficheros.
+
+### Evaluación FAIR con F-UJI (decisión 45)
+
+- Al publicar una versión **nueva** (API o `load-semantic`) se encola su evaluación (`fair_evaluations`, estado `pending`) sin bloquear la publicación. Una versión que ya tiene alguna evaluación no se reevalúa sola; un editor puede pedirlo con `POST …/fair`.
+- Un **trabajador en segundo plano** (hilo que arranca con la API) reclama cada pendiente con un `UPDATE … WHERE status='pending'` atómico (con varios workers nadie evalúa dos veces lo mismo), se despierta al publicar y cada `FAIR_WORKER_POLL_SECONDS` (así recoge lo que encola `load-semantic`). Sobrevive a cualquier error. Una evaluación `running` huérfana (reinicio a mitad) pasa a `failed` pasado `FUJI_TIMEOUT_SECONDS` + 2 min.
+- Petición a F-UJI: `POST {FUJI_URL}/evaluate` con Basic, `object_identifier` = URI de la versión con `BASE_URI` cambiado por `FAIR_TARGET_BASE_URL`, `metadata_service_endpoint` = `{FAIR_TARGET_BASE_URL}sparql` con `metadata_service_type=sparql`, `metric_version=metrics_v0.5`, `use_datacite=false`, `use_github=false` y `test_debug=false`. Se guarda la URL evaluada.
+- **Puntuaciones:** solo de la respuesta de F-UJI (esquema `FAIRResults` de su `openapi.yaml`): `summary.score_percent` `FAIR` (total), `F`, `A`, `I` y `R`, tal cual (F-UJI las redondea a dos decimales; aquí no se redondean más), y `summary.maturity.FAIR` como nivel, convertido a texto sin cambiarlo (`2.25` → `"2.25"`). `evaluator` es `F-UJI {software_version} ({metric_version})`. Si el resumen no trae el total o algún valor no es un número entre 0 y 100, la evaluación queda `failed` («La respuesta de F-UJI no es válida»).
+- **Errores** (F-UJI caído, timeout, 4xx/5xx, respuesta no válida, sin credenciales): `failed` con un mensaje fijo, sin trazas ni rutas. La ficha nunca se rompe.
+- **Ficha** (`VersionDetail.fair`, `FairSummary`): `status` es el de la evaluación más reciente (`not_evaluated` si no hay ninguna); puntuaciones, nivel, evaluador y `evaluated_at` son los de la última `done` (una reevaluación en curso sigue mostrando la anterior). `report_url` es la ruta relativa `/datasets/{slug}/versions/{version}/fair/report`. `DatasetCard.fair_total` es el total de la última `done` de la versión actual.
+- Auditoría `fair_evaluated` al terminar, con su estado.
+
+### SPARQL público (decisión 42)
+
+- Validación con el analizador de rdflib **antes** de llamar a Fuseki: como mucho 20 KB (413); solo `SELECT`, `ASK`, `CONSTRUCT` y `DESCRIBE` (una actualización da 400 «solo lectura»); sin `SERVICE` en ningún punto (400); `FROM`/`FROM NAMED` solo hacia IRIs bajo `BASE_URI` (todos los grafos que escribe el backend están ahí y son públicos). Un error de sintaxis da 400 con línea y columna, sin trazas. Una consulta que Jena admite pero rdflib no sabe analizar también da 400.
+- Se ejecuta contra `/{FUSEKI_DATASET}/query` (anónimo, solo lectura), con el grafo por defecto de Fuseki (`unionDefaultGraph`, como esperan las consultas de referencia). Tiempo máximo total `SPARQL_TIMEOUT_SECONDS` (también se pasa a Fuseki como `timeout`); al superarlo, o si Fuseki responde 503, **504**.
+- Resultados recortados a `SPARQL_MAX_ROWS` con `X-Result-Truncated: true`. Los triples (CONSTRUCT/DESCRIBE) se leen de Fuseki en N-Triples línea a línea y se corta la conexión al llegar al límite; las filas se leen en JSON con un tope de 32 MiB (si se supera, 400 pidiendo un `LIMIT`).
+- Formatos por `Accept`: SELECT/ASK, `application/sparql-results+json` (por defecto) o `text/csv`; CONSTRUCT/DESCRIBE, `text/turtle` (por defecto) o `application/ld+json`. Con `Accept: application/sparql-results+json, text/turtle;q=0.9` (el del frontend) cada tipo de consulta recibe su formato. Sin ningún formato válido, 406.
+- **Límite de frecuencia:** `SPARQL_RATE_ANON_PER_MIN` por IP y `SPARQL_RATE_AUTH_PER_MIN` por usuario, con ventana fija de un minuto guardada en PostgreSQL (`rate_limit_counters`, incremento atómico con `INSERT … ON CONFLICT`), así que vale con varios workers y réplicas. Al superarlo, 429 con `Retry-After`. En el peor caso la ventana fija admite el doble del límite en el cambio de minuto.
+- **IP del cliente:** la de la conexión (`request.client`); `X-Forwarded-For` se ignora. uvicorn solo reescribe la IP con esa cabecera si la conexión llega desde una IP de `FORWARDED_ALLOW_IPS` (por defecto `127.0.0.1`); detrás de un proxy inverso (fase 5) esa variable de uvicorn es la configuración explícita de proxies de confianza.
+- CORS expone `X-Result-Truncated`, `Retry-After` y `Content-Disposition`.
+
+### Consultas guardadas (decisión 43)
+
+- **De referencia:** `SEMANTIC_DIR/consultas/{id}.rq` (de `semantico`), en orden alfabético de `id`. Se leen las líneas `# title:` y `# hint:` del principio, se quitan del texto (el resto de comentarios se conserva) y `{BASE_URI}` se sustituye por `BASE_URI`. No se pueden cambiar ni borrar (404).
+- **Personales:** tabla `saved_queries`; solo las ve, cambia (`PUT`, cuerpo completo) y borra su dueño. Las de otro usuario dan 404. `title` 1-120, `hint` 0-200, `query` hasta 20 KB, sin caracteres de control (salvo saltos de línea y tabuladores en la consulta). Como mucho `SAVED_QUERIES_MAX_PER_USER` (409). Se guarda el texto, no se ejecuta. Auditoría `saved_query_created` y `saved_query_deleted` con el id, nunca el texto.
+
+### Migraciones
+
+`0003` añade `users.tokens_valid_after` y las tablas `distribution_files`, `used_download_tokens`, `fair_evaluations`, `saved_queries`, `login_attempts` y `rate_limit_counters`.
+
 ## Roles y autorización
 
 - `lector`: anónimo, sin cuenta. Ve lo público.
 - `miembro`, `editor` y `admin`: cuentas guardadas en PostgreSQL.
 
-El JWT lleva `sub` (id de la cuenta), `username`, `role`, `iat` y `exp`. El rol del token es informativo para el frontend: en cada petición el backend vuelve a leer la cuenta de la base de datos, así que un cambio de rol o una baja tienen efecto inmediato, sin esperar a que caduque el token.
+El JWT lleva `sub` (id de la cuenta), `username`, `role`, `iat`, `iat_us` (instante de emisión en microsegundos, fase 4) y `exp`. El rol del token es informativo para el frontend: en cada petición el backend vuelve a leer la cuenta de la base de datos, así que un cambio de rol o una baja tienen efecto inmediato. Además (fase 4, decisión 18), `users.tokens_valid_after` se fija al dar de baja una cuenta o cambiar su rol (y servirá para el cambio de contraseña cuando exista): un token emitido antes da 401, y reactivar la cuenta no revive los tokens viejos. `iat_us` evita que sobreviva un token emitido en el mismo segundo que la baja sin cambiar el `iat` estándar en segundos.
 
 Para proteger rutas en las fases siguientes:
 
@@ -293,10 +379,12 @@ Un admin no puede quitarse el rol de admin ni darse de baja a sí mismo (409), p
 ## Contraseñas y auditoría
 
 - Contraseñas con argon2id (`pwdlib`). Mínimo 12 caracteres, sin caracteres de control. Nunca se devuelven ni se registran.
-- El login responde igual (401, mismo mensaje) si el usuario no existe, la contraseña es incorrecta, la cuenta está de baja o el nombre de usuario contiene caracteres de control (NUL incluido). En este último caso no se consulta la base de datos y la auditoría registra el motivo `invalid_username` sin guardar el valor enviado.
+- El login responde igual (401, mismo mensaje) si el usuario no existe, la contraseña es incorrecta, la cuenta está de baja o el nombre de usuario contiene caracteres de control (NUL incluido). En este último caso no se consulta la cuenta y la auditoría registra el motivo `invalid_username`.
+- **Bloqueo (fase 4, decisión 18):** los fallos se cuentan por (nombre normalizado —sin controles, sin espacios alrededor y en minúsculas—, IP de la conexión) en la tabla `login_attempts`, así que vale con varios workers. El fallo número `LOGIN_MAX_FAILURES` dentro de `LOGIN_WINDOW_MINUTES` responde aún 401 y bloquea el par; desde ahí, cualquier intento responde **429 con `Retry-After`** durante `LOGIN_LOCKOUT_MINUTES`, aunque la contraseña sea correcta (se audita `login_locked` una vez, y cada intento bloqueado como `login_failure` con motivo `locked`). Un login correcto borra el contador del par.
 - Los nombres de usuario y las contraseñas con caracteres de control se rechazan en `POST /users` con 422.
 - Las respuestas 422 siguen el formato de FastAPI (`detail` con `type`, `loc` y `msg`), pero nunca devuelven el valor enviado (`input`) ni el contexto (`ctx`), para no reflejar contraseñas.
 - La tabla `audit_events` registra `login_success`, `login_failure` (con el motivo), `user_created`, `role_changed` (rol anterior y nuevo), `user_deactivated` y `user_reactivated`, con quién (`actor_*`), sobre quién (`target_*`) y cuándo (`occurred_at`, UTC). Las altas por CLI quedan con `actor_username = "cli"`.
+- Fase 4: `login_failure` guarda siempre el nombre intentado en `target_username`, sin caracteres de control y truncado a 64 (con NUL u otros controles se guarda el nombre limpio, nunca el valor bruto). Acciones nuevas: `login_locked`, `distribution_uploaded`, `distribution_downloaded`, `fair_evaluated`, `saved_query_created` y `saved_query_deleted`. Nunca se guardan secretos, tokens ni el texto de las consultas. `audit_events.action` es texto: las acciones nuevas no necesitan migración.
 
 ## Primer admin (CLI)
 
@@ -343,6 +431,8 @@ Las pruebas usan **SQLite en memoria** por defecto: no necesitan servicios, son 
 **Fuseki en las pruebas unitarias:** la dependencia `get_triplestore` se sustituye por `MemoryStore` (`app/triplestore.py`), un `rdflib.Dataset` en memoria con el mismo contrato que `FusekiStore` (`construct`, `get_graph`, `put_graph`): ejecuta las mismas consultas SPARQL con el motor de rdflib y guarda cada grafo con nombre por separado. Además registra las consultas recibidas, lo que permite comprobar que un slug malicioso o el texto de `q` nunca llegan a SPARQL. El cliente HTTP de Fuseki se prueba aparte con `httpx.MockTransport` (`tests/test_triplestore.py`).
 
 **Datos de prueba:** `tests/fixtures/data/` es una copia de `semantic/data/` (datos sintéticos de G2, de `semantico`), y `tests/fixtures/semantic/` copia `semantic/vocabularios/`, `semantic/ontologias/` y `semantic/shapes/ontologias-vocabularios.ttl` (fase 3); `tests/test_contracts_fase2.py` comprueba que las copias son idénticas. `tests/fixtures/ontologia-recuentos.ttl` es una ontología propia de las pruebas, con recuentos conocidos, y `tests/fixtures/invalid-ontologias-vocabularios/` copia los ejemplos inválidos de `semantico`. Las formas SHACL no se copian: las pruebas montan un `SEMANTIC_DIR` temporal con las formas reales de `semantic/shapes/` y esos datos. Cuando `semantic/data/` llegue a `main`, la copia se puede sustituir por los ficheros originales.
+
+**Fase 4:** `tests/fixtures/semantic/consultas/` copia las consultas de referencia de `semantic/consultas/`. `tests/fase4_data.py` define una serie propia de las pruebas con distribuciones PUBLIC, RESTRICTED, NON_PUBLIC y sin `dcat:mediaType` (los datos sintéticos de `semantic/` solo tienen RESTRICTED). F-UJI se simula con `httpx.MockTransport` y `tests/fixtures/fuji/evaluate-respuesta.json`, con el formato real de F-UJI 4.0.1: el envoltorio `FAIRResults` de su `fuji_server/yaml/openapi.yaml` y el `summary` grabado de una evaluación real que guarda su `tests/functional/test_evaluation.py` (el detalle `results` va vacío y los datos del envoltorio son de prueba). El SPARQL público se prueba con `MemoryQueryRunner` (rdflib con el grafo por defecto como unión) y el cliente de Fuseki con `httpx.MockTransport`. El trabajador FAIR no arranca en las pruebas (`FAIR_WORKER_POLL_SECONDS=0`): se llama a `fair.process_pending`.
 
 ### Pruebas contra un Fuseki real
 

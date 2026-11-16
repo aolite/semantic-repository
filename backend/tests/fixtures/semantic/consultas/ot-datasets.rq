@@ -1,0 +1,19 @@
+# title: Datasets clasificados en OT
+# hint: dcat:theme dentro del esquema OT / ICS
+#
+# Consulta de referencia del prototipo (Consola SPARQL). Adaptada al modelo:
+# el esquema OT es <{BASE_URI}vocab/ot>, sin barra final. El backend
+# sustituye {BASE_URI} al servirla. Ver semantic/uris.md.
+PREFIX dcat: <http://www.w3.org/ns/dcat#>
+PREFIX dct:  <http://purl.org/dc/terms/>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+
+SELECT ?dataset ?titulo ?concepto
+WHERE {
+  ?dataset a dcat:Dataset ;
+           dct:title ?titulo ;
+           dcat:theme ?c .
+  ?c skos:inScheme <{BASE_URI}vocab/ot> ;
+     skos:prefLabel ?concepto .
+  FILTER (lang(?concepto) = "es")
+}

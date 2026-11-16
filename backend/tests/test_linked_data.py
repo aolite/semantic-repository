@@ -18,13 +18,22 @@ def api(client: TestClient, loaded_store: MemoryStore) -> TestClient:
     return client
 
 
+@pytest.mark.parametrize("accept", ["", "*/*"])
+def test_series_uri_without_rdf_accept_redirects(api: TestClient, accept: str) -> None:
+    response = api.get(
+        "/dataset/modbus-tcp-testbed", headers={"Accept": accept}, follow_redirects=False
+    )
+    assert response.status_code == 303
+    assert response.headers["location"].endswith("/datasets/modbus-tcp-testbed")
+
+
 @pytest.mark.parametrize(
     ("accept", "media", "fmt"),
     [
         ("text/turtle", "text/turtle", "turtle"),
         ("application/ld+json", "application/ld+json", "json-ld"),
-        ("*/*", "text/turtle", "turtle"),
-        (None, "text/turtle", "turtle"),
+        # Fase 4 (decisión 31): sin Accept o con */* ya no sale Turtle sino un 303 al HTML
+        # (ver test_series_uri_without_rdf_accept_redirects).
     ],
 )
 def test_series_uri_returns_rdf(api: TestClient, accept: str | None, media: str, fmt: str) -> None:

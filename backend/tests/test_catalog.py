@@ -4,7 +4,6 @@ Se usa ``MemoryStore`` (rdflib) con los datos sintéticos de G2 cargados como lo
 ``load-semantic``: el vocabulario en su grafo y cada serie en el suyo.
 """
 
-import json
 from pathlib import Path
 
 import pytest
@@ -66,6 +65,7 @@ def test_list_returns_cards(api: TestClient) -> None:
         "formats": ["text/csv", "application/vnd.apache.parquet", "application/vnd.tcpdump.pcap"],
         "current_version": "2.1.0",
         "synthetic": True,
+        "fair_total": None,  # fase 4: sin evaluación FAIR terminada
     }
     assert card["description"].startswith("Capturas de red etiquetadas")
 
@@ -193,6 +193,11 @@ def test_detail_current_version(api: TestClient) -> None:
         "media_type_uri": "http://www.iana.org/assignments/media-types/application/vnd.tcpdump.pcap",
         "access_url": f"{MODBUS}/2.1.0/pcap",
         "access_rights": {"uri": RESTRICTED, "code": "RESTRICTED"},
+        # Fase 4: sin fichero subido.
+        "download": "unavailable",
+        "download_url": None,
+        "byte_size": None,
+        "sha256": None,
     }
     assert [(s["kind"], s["label"]) for s in version["provenance"]] == [
         ("activity", "Captura en banco de pruebas"),
@@ -215,7 +220,9 @@ def test_detail_current_version(api: TestClient) -> None:
     assert meta["access_rights"]["code"] == "RESTRICTED"
     assert [t["label"] for t in meta["themes"]] == ["Modbus/TCP", "Nivel 1 · Control básico"]
     assert meta["conforms_to"] == [{"uri": f"{BASE_URI}onto/itot/1.2.0", "label": None}]
-    assert "fair" not in json.dumps(body).lower()
+    # Fase 4: la evaluación FAIR sale solo de F-UJI; sin evaluación, no hay puntuación.
+    assert body["version"]["fair"]["status"] == "not_evaluated"
+    assert body["version"]["fair"]["total"] is None
 
 
 def test_detail_history(api: TestClient) -> None:

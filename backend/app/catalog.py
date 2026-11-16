@@ -392,7 +392,13 @@ def _card(view: SeriesView, slug: str) -> schemas.DatasetCard:
 def _matches(view: SeriesView, query: str) -> bool:
     needle = normalize(query)
     current = view.current()
-    texts = [view.title() or "", view.description() or "", *view.theme_search_text(current)]
+    # Decisión 30: también en la URI de la serie (sin BASE_URI, que comparten todas).
+    texts = [
+        view.title() or "",
+        view.description() or "",
+        view.uris.searchable_uri(view.uri),
+        *view.theme_search_text(current),
+    ]
     if current is not None:
         texts.extend(str(v) for v in view.graph.objects(current, DCT.title))
         texts.extend(str(v) for v in view.graph.objects(current, DCT.description))
@@ -629,9 +635,23 @@ def version_rdf(store: TripleStore, uris: Uris, slug: str, version: str | None) 
     target = view.find_version(version) if version else view.current()
     if target is None:
         raise NotFoundError(f"{slug}/{version}")
-    excluded = {view.node, *(v for v in view.versions() if v != target)}
     result = _new_graph(graph, uris)
-    pending: list[Node] = [target]
+    for triple in version_subgraph(graph, view.node, target):
+        result.add(triple)
+    return result
+
+
+def version_subgraph(graph: Graph, series: URIRef, version: URIRef) -> Graph:
+    """Triples de una versión y de lo que cuelga de ella en el grafo de la serie
+    (distribuciones, actividades PROV, nodos en blanco, agentes), sin la serie ni las
+    demás versiones. Es lo que sirve la URI de la versión y lo que se compara para la
+    inmutabilidad (decisión 28)."""
+    versions = {
+        v for v in graph.subjects(DCAT.inSeries, series) if (v, RDF.type, DCAT.Dataset) in graph
+    }
+    excluded = {series, *(v for v in versions if v != version)}
+    result = Graph()
+    pending: list[Node] = [version]
     seen: set[Node] = set()
     while pending:
         subject = pending.pop()

@@ -16,6 +16,24 @@ Flujo (compartido por ``POST /datasets`` y ``python -m app.cli load-semantic``):
 4. ``publish``: sustituye **por completo** el grafo con nombre ``{BASE_URI}dataset/{slug}``
    por el contenido recibido (``PUT`` del Graph Store Protocol). Si el grafo ya tenía
    exactamente el mismo contenido (isomorfo), no se escribe nada.
+
+Reglas de la fase 4:
+
+- **Versiones inmutables (decisión 28).** Antes de escribir, cada versión que ya está en
+  el grafo publicado tiene que venir en la petición con el mismo contenido: su subgrafo
+  (``catalog.version_subgraph``: sus triples, los de sus distribuciones y su procedencia
+  PROV) es isomorfo al publicado (``rdflib.compare.isomorphic``, que trata bien los nodos
+  en blanco). Si falta, 409 ``version_removed``; si cambia, 409 ``version_immutable``. Los
+  metadatos de la serie sí pueden cambiar y las versiones nuevas se añaden.
+- **Catálogo (decisión 29).** Cada serie publicada queda enlazada desde el catálogo:
+  ``<{BASE_URI}catalogo> dcat:dataset <serie>`` se añade al grafo del catálogo si falta.
+  Al cargar ``data/catalogo.ttl`` con ``load-semantic`` se conservan los
+  ``dcat:dataset`` del catálogo publicado que apuntan a series (``merge_catalog``), para
+  no borrar las series publicadas por la API.
+- **FAIR.** Las versiones nuevas (las que no estaban en el grafo publicado) se encolan
+  para evaluarlas con F-UJI en segundo plano (``app.fair``).
+- **Segmento reservado.** ``fichero`` no puede ser el slug de una distribución: es la ruta
+  de su fichero (``{distribución}/fichero``).
 """
 
 import json
@@ -41,7 +59,11 @@ from app.uris import DCAT, Uris, is_slug
 SH = Namespace("http://www.w3.org/ns/shacl#")
 
 RdfFormat = Literal["turtle", "json-ld"]
-IngestErrorKind = Literal["syntax", "structure", "uri", "shacl", "limit"]
+IngestErrorKind = Literal[
+    "syntax", "structure", "uri", "shacl", "limit", "version_removed", "version_immutable"
+]
+# Errores de ingesta que son un conflicto con lo publicado (409) y no un RDF inválido (422).
+CONFLICT_KINDS = frozenset({"version_removed", "version_immutable"})
 
 VOCAB_FILE = Path("data") / "vocab-minimo.ttl"
 CATALOG_FILE = Path("data") / "catalogo.ttl"
@@ -67,6 +89,7 @@ MAX_NESTING_DEPTH = 64
 #   mucho 32 veces el tamaño del cuerpo más 1 MiB, y nunca más de 32 Mi caracteres. Un
 #   Turtle normal con prefijos expande entre 2 y 10 veces.
 MAX_IRI_LENGTH = 4096
+RESERVED_DISTRIBUTION_SLUG = "fichero"
 DEFAULT_MAX_TRIPLES = 100_000
 EXPANSION_FACTOR = 32
 EXPANSION_FLOOR = 1024 * 1024
@@ -100,6 +123,7 @@ class PreparedSeries:
     uri: str
     graph: Graph
     versions: list[str]
+    catalog_uri: str | None = None  # {BASE_URI}catalogo (decisión 29)
 
 
 @dataclass
@@ -111,6 +135,7 @@ class PublishResult:
     triples: int
     created: bool
     changed: bool
+    new_versions: list[str] = field(default_factory=list)
 
 
 # --- 1. Análisis -------------------------------------------------------------
@@ -413,12 +438,31 @@ def check_structure(graph: Graph, uris: Uris) -> PreparedSeries:
 
     for version_node in version_prefixes:
         for dist in graph.objects(URIRef(version_node), DCAT.distribution):
-            if isinstance(dist, URIRef) and not str(dist).startswith(
-                version_prefixes[version_node]
-            ):
+            if not isinstance(dist, URIRef):
+                continue
+            prefix = version_prefixes[version_node]
+            if not str(dist).startswith(prefix):
                 issues.append(
                     Issue(
                         "Una distribución debe colgar de la URI de su versión ({version}/{dist})",
+                        focus_node=str(dist),
+                    )
+                )
+                continue
+            segment = str(dist)[len(prefix) :]
+            if not is_slug(segment):
+                issues.append(
+                    Issue(
+                        "El último segmento de una distribución ({version}/{dist}) debe ser un "
+                        "slug",
+                        focus_node=str(dist),
+                    )
+                )
+            elif segment == RESERVED_DISTRIBUTION_SLUG:
+                issues.append(
+                    Issue(
+                        f"'{RESERVED_DISTRIBUTION_SLUG}' es un segmento reservado (la ruta del "
+                        "fichero de la distribución): no puede ser el slug de una distribución",
                         focus_node=str(dist),
                     )
                 )
@@ -440,7 +484,9 @@ def check_structure(graph: Graph, uris: Uris) -> PreparedSeries:
     if issues:
         raise IngestError("uri", "Hay recursos con URIs fuera del patrón", issues)
     versions.sort(key=lambda v: tuple(int(p) for p in v.split(".")))
-    return PreparedSeries(slug=slug, uri=series_uri, graph=graph, versions=versions)
+    return PreparedSeries(
+        slug=slug, uri=series_uri, graph=graph, versions=versions, catalog_uri=uris.catalog
+    )
 
 
 # --- 3. SHACL ----------------------------------------------------------------
@@ -594,8 +640,66 @@ def store_graph(store: TripleStore, graph_uri: str, graph: Graph) -> tuple[bool,
     return created, True
 
 
+def published_versions(graph: Graph, series_uri: str) -> dict[str, URIRef]:
+    """Versiones (``dcat:Dataset`` con ``dcat:inSeries`` a la serie) por URI."""
+    series = URIRef(series_uri)
+    return {
+        str(node): node
+        for node in graph.subjects(DCAT.inSeries, series)
+        if isinstance(node, URIRef) and (node, RDF.type, DCAT.Dataset) in graph
+    }
+
+
+def check_immutable(current: Graph, prepared: PreparedSeries) -> list[str]:
+    """Decisión 28. Devuelve las URIs de las versiones nuevas o lanza 409.
+
+    Cada versión publicada tiene que venir con un subgrafo isomorfo al publicado.
+    """
+    from app.catalog import version_subgraph  # evita la importación circular
+
+    series = URIRef(prepared.uri)
+    before = published_versions(current, prepared.uri)
+    after = published_versions(prepared.graph, prepared.uri)
+    removed = sorted(set(before) - set(after))
+    if removed:
+        raise IngestError(
+            "version_removed",
+            "Faltan versiones ya publicadas: las versiones son inmutables y la serie se envía "
+            "siempre con todas ellas",
+            [
+                Issue("Versión publicada que no viene en la petición", focus_node=uri)
+                for uri in removed
+            ],
+        )
+    changed = [
+        uri
+        for uri in sorted(before)
+        if not isomorphic(
+            version_subgraph(current, series, before[uri]),
+            version_subgraph(prepared.graph, series, after[uri]),
+        )
+    ]
+    if changed:
+        raise IngestError(
+            "version_immutable",
+            "Hay versiones ya publicadas con otro contenido: las versiones son inmutables; "
+            "publica los cambios como una versión nueva",
+            [Issue("Versión publicada con contenido distinto", focus_node=uri) for uri in changed],
+        )
+    return sorted(set(after) - set(before))
+
+
 def publish(store: TripleStore, prepared: PreparedSeries) -> PublishResult:
-    created, changed = store_graph(store, prepared.uri, prepared.graph)
+    """Comprueba la inmutabilidad, escribe la serie (si cambia) y la enlaza al catálogo."""
+    store.ensure_writable()
+    current = store.get_graph(prepared.uri)
+    new_versions = check_immutable(current, prepared)
+    created = len(current) == 0
+    changed = created or not isomorphic(current, prepared.graph)
+    if changed:
+        store.put_graph(prepared.uri, prepared.graph)
+    if prepared.catalog_uri:
+        ensure_in_catalog(store, prepared.catalog_uri, prepared.uri)
     return PublishResult(
         slug=prepared.slug,
         uri=prepared.uri,
@@ -604,7 +708,31 @@ def publish(store: TripleStore, prepared: PreparedSeries) -> PublishResult:
         triples=len(prepared.graph),
         created=created,
         changed=changed,
+        new_versions=new_versions,
     )
+
+
+def ensure_in_catalog(store: TripleStore, catalog_uri: str, series_uri: str) -> bool:
+    """Decisión 29: ``<catálogo> dcat:dataset <serie>``. Devuelve si ha escrito."""
+    graph = store.get_graph(catalog_uri)
+    triple = (URIRef(catalog_uri), DCAT.dataset, URIRef(series_uri))
+    if triple in graph:
+        return False
+    graph.add(triple)
+    store.put_graph(catalog_uri, graph)
+    return True
+
+
+def merge_catalog(current: Graph, loaded: Graph, uris: Uris) -> Graph:
+    """``data/catalogo.ttl`` más los ``dcat:dataset`` publicados que apuntan a series."""
+    merged = Graph()
+    for triple in loaded:
+        merged.add(triple)
+    catalog = URIRef(uris.catalog)
+    for series in current.objects(catalog, DCAT.dataset):
+        if isinstance(series, URIRef) and uris.series_slug(str(series)) is not None:
+            merged.add((catalog, DCAT.dataset, series))
+    return merged
 
 
 def parse_file(path: Path, base_uri: str, *, max_triples: int = DEFAULT_MAX_TRIPLES) -> Graph:
@@ -637,6 +765,10 @@ def publish_and_audit(
     falla no queda un evento de una publicación que no ha ocurrido.
     """
     result = publish(store, prepared)
+    if result.new_versions:
+        from app import fair  # evita la importación circular
+
+        fair.enqueue(session, result.new_versions, requested_by=actor, commit=False)
     audit.record(
         session,
         AuditAction.DATASET_PUBLISHED,
@@ -650,8 +782,13 @@ def publish_and_audit(
             "triples": result.triples,
             "created": result.created,
             "changed": result.changed,
+            "new_versions": result.new_versions,
             "via": via,
         },
     )
     session.commit()
+    if result.new_versions:
+        from app import fair
+
+        fair.notify()
     return result
