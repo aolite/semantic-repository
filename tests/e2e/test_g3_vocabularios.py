@@ -842,14 +842,22 @@ def test_las_uris_persistentes_sirven_rdf_por_negociacion(stack: Stack, loaded: 
         "/vocab/corp/trl",
         "/vocab/ot/modbus-tcp",
     ):
+        # Fase 4 (decisión 31): sin Accept o con */* ya no sale Turtle, sino un 303 al HTML.
+        for accept in (None, "*/*"):
+            see_other = _get(
+                stack,
+                path,
+                headers={"Accept": accept} if accept else {},
+                follow_redirects=False,
+            )
+            assert see_other.status == 303, f"{path} {accept}"
+            assert see_other.headers["location"].startswith(stack.frontend_origin + "/")
         for accept, media in (
-            (None, "text/turtle"),
-            ("*/*", "text/turtle"),
             ("text/turtle", "text/turtle"),
             ("application/ld+json", "application/ld+json"),
             ("application/rdf+xml", "application/rdf+xml"),
         ):
-            response = _get(stack, path, headers={"Accept": accept} if accept else {})
+            response = _get(stack, path, headers={"Accept": accept})
             assert response.status == 200, f"{path} {accept}"
             assert response.headers["content-type"].startswith(media), f"{path} {accept}"
         assert _get(stack, path, headers={"Accept": "image/png"}).status == 406, path

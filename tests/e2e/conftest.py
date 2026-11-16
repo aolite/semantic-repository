@@ -1,4 +1,4 @@
-"""Entorno de las pruebas de extremo a extremo de las puertas (G1 a G3).
+"""Entorno de las pruebas de extremo a extremo de las puertas (G1 a G4).
 
 Levanta el ``docker-compose.yml`` real del repositorio en un proyecto de Compose propio
 (``itot-e2e-<aleatorio>``), con puertos libres elegidos al vuelo y un fichero de entorno
@@ -41,6 +41,8 @@ class Response:
     status: int
     headers: dict[str, str]
     text: str
+    # Cuerpo sin decodificar (para descargas binarias: PCAP, NPZ, Parquet).
+    content: bytes = b""
 
     def json(self) -> object:
         return json.loads(self.text)
@@ -89,16 +91,20 @@ def http(
     opener = urllib.request.urlopen if follow_redirects else _NO_REDIRECT_OPENER.open
     try:
         with opener(request, timeout=HTTP_TIMEOUT_SECONDS) as raw:
+            content = raw.read()
             return Response(
                 raw.status,
                 {k.lower(): v for k, v in raw.headers.items()},
-                raw.read().decode("utf-8", "replace"),
+                content.decode("utf-8", "replace"),
+                content,
             )
     except urllib.error.HTTPError as error:
+        content = error.read()
         return Response(
             error.code,
             {k.lower(): v for k, v in error.headers.items()},
-            error.read().decode("utf-8", "replace"),
+            content.decode("utf-8", "replace"),
+            content,
         )
 
 
@@ -299,6 +305,10 @@ def _build_stack(workdir: Path) -> Stack:
     )
     # Sin / & \ : la imagen de Fuseki aplica esta contraseña con sed.
     env["FUSEKI_ADMIN_PASSWORD"] = secrets.token_hex(16)
+    # Fase 4: usuario de escritura propio del backend en Fuseki, y credenciales de la API de
+    # F-UJI. Distintos entre sí y de los valores ficticios de .env.example.
+    env["FUSEKI_BACKEND_PASSWORD"] = secrets.token_hex(16)
+    env["FUJI_PASSWORD"] = secrets.token_hex(16)
     env["JWT_SECRET"] = secrets.token_hex(32)
     env["CORS_ORIGINS"] = f"http://localhost:{frontend_port}"
     env["VITE_API_BASE_URL"] = f"http://localhost:{backend_port}"
@@ -340,6 +350,8 @@ def _build_stack(workdir: Path) -> Stack:
     )
     stack.remember("POSTGRES_PASSWORD", postgres_password)
     stack.remember("FUSEKI_ADMIN_PASSWORD", env["FUSEKI_ADMIN_PASSWORD"])
+    stack.remember("FUSEKI_BACKEND_PASSWORD", env["FUSEKI_BACKEND_PASSWORD"])
+    stack.remember("FUJI_PASSWORD", env["FUJI_PASSWORD"])
     stack.remember("JWT_SECRET", env["JWT_SECRET"])
     return stack
 
@@ -347,8 +359,46 @@ def _build_stack(workdir: Path) -> Stack:
 # --- Fixtures ------------------------------------------------------------------------
 
 
+def _attach_stack(workdir: Path, project: str, env_file: Path) -> Stack:
+    """Desarrollo de las pruebas: usa un entorno ya levantado (``E2E_ATTACH_PROJECT`` y
+    ``E2E_ATTACH_ENV_FILE``) en vez de levantar uno nuevo. Nunca lo apaga."""
+    values: dict[str, str] = {}
+    for line in env_file.read_text(encoding="utf-8").splitlines():
+        if line.strip() and not line.startswith("#") and "=" in line:
+            key, _, value = line.partition("=")
+            values[key.strip()] = value.strip()
+    override_file = workdir / "docker-compose.attach.yml"
+    override_file.write_text(
+        f"services:\n  backend:\n    env_file: !override\n      - {env_file}\n", "utf-8"
+    )
+    stack = Stack(
+        project=project,
+        workdir=workdir,
+        env_file=env_file,
+        override_file=override_file,
+        env=values,
+        example_env=_read_env_example(),
+        ports={
+            "postgres": int(values["POSTGRES_HOST_PORT"]),
+            "fuseki": int(values["FUSEKI_HOST_PORT"]),
+            "backend": int(values["BACKEND_HOST_PORT"]),
+            "frontend": int(values["FRONTEND_HOST_PORT"]),
+        },
+    )
+    for name in ("POSTGRES_PASSWORD", "FUSEKI_ADMIN_PASSWORD", "FUSEKI_BACKEND_PASSWORD"):
+        stack.remember(name, values[name])
+    stack.remember("FUJI_PASSWORD", values["FUJI_PASSWORD"])
+    stack.remember("JWT_SECRET", values["JWT_SECRET"])
+    return stack
+
+
 @pytest.fixture(scope="session")
 def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Stack]:
+    attach = os.environ.get("E2E_ATTACH_PROJECT")
+    if attach:
+        env_file = Path(os.environ["E2E_ATTACH_ENV_FILE"])
+        yield _attach_stack(tmp_path_factory.mktemp("attach"), attach, env_file)
+        return
     reason = _docker_available()
     if reason is not None:
         if os.environ.get("E2E_REQUIRE_DOCKER") == "1":

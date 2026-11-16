@@ -188,8 +188,9 @@ def test_los_cuatro_servicios_estan_sanos_incluido_el_frontend(stack: Stack) -> 
     text = result.stdout.strip()
     rows = json.loads(text) if text.startswith("[") else [json.loads(x) for x in text.splitlines()]
     health = {row["Service"]: row["Health"] for row in rows}
-    # En la fase 2 el frontend declara healthcheck: los cuatro deben estar healthy.
-    assert health == {name: "healthy" for name in ("postgres", "fuseki", "backend", "frontend")}
+    # El frontend declara healthcheck desde la fase 2 y F-UJI (fase 4) también: todos healthy.
+    expected = ("postgres", "fuseki", "fuji", "backend", "frontend")
+    assert health == {name: "healthy" for name in expected}
 
 
 def test_el_backend_recibe_semantic_y_las_credenciales_de_fuseki(stack: Stack) -> None:
@@ -199,8 +200,10 @@ def test_el_backend_recibe_semantic_y_las_credenciales_de_fuseki(stack: Stack) -
     backend = json.loads(result.stdout)["services"]["backend"]
     environment = backend["environment"]
     assert environment["SEMANTIC_DIR"] == "/semantic"
-    assert environment["FUSEKI_USER"] == stack.env["FUSEKI_USER"]
-    assert environment["FUSEKI_PASSWORD"] == stack.env["FUSEKI_ADMIN_PASSWORD"]
+    # Fase 4 (decisión 32): el backend escribe con su propio usuario, no con `admin`.
+    assert environment["FUSEKI_USER"] == stack.env["FUSEKI_USER"] == "backend"
+    assert environment["FUSEKI_PASSWORD"] == stack.env["FUSEKI_BACKEND_PASSWORD"]
+    assert environment["FUSEKI_PASSWORD"] != stack.env["FUSEKI_ADMIN_PASSWORD"]
     assert environment["FRONTEND_BASE_URL"] == stack.env["FRONTEND_BASE_URL"]
     mounts = [v for v in backend["volumes"] if v.get("target") == "/semantic"]
     assert len(mounts) == 1
@@ -555,12 +558,21 @@ def test_la_uri_persistente_redirige_303_a_la_ficha_del_frontend(stack: Stack, l
 def test_la_uri_persistente_sirve_rdf_por_negociacion(stack: Stack, loaded: str) -> None:
     base = _base_uri(stack)
     url = f"{stack.api}/dataset/modbus-tcp-testbed"
+    # Fase 4 (decisión 31): sin Accept o con */* es un 303 al HTML, no Turtle.
+    for accept in (None, "*/*"):
+        see_other = http(
+            "GET",
+            url,
+            headers={"Accept": accept} if accept else {},
+            follow_redirects=False,
+        )
+        assert see_other.status == 303, accept
+        assert see_other.headers["location"].startswith(stack.frontend_origin + "/")
     for accept, media in (
-        (None, "text/turtle"),
         ("text/turtle", "text/turtle"),
         ("application/ld+json", "application/ld+json"),
     ):
-        response = http("GET", url, headers={"Accept": accept} if accept else {})
+        response = http("GET", url, headers={"Accept": accept})
         assert response.status == 200, accept
         assert response.headers["content-type"].startswith(media), accept
     series = http("GET", url, headers={"Accept": "text/turtle"}).text
@@ -855,7 +867,7 @@ def test_la_auditoria_y_los_logs_no_contienen_secretos(stack: Stack, published: 
         assert secret not in logs, f"los logs contienen {name}"
     # Tampoco la cabecera Basic con la que el backend escribe en Fuseki.
     basic = base64.b64encode(
-        f"{stack.env['FUSEKI_USER']}:{stack.env['FUSEKI_ADMIN_PASSWORD']}".encode()
+        f"{stack.env['FUSEKI_USER']}:{stack.env['FUSEKI_BACKEND_PASSWORD']}".encode()
     ).decode()
     assert basic not in logs
     assert basic not in dump
