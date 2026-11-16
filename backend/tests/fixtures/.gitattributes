@@ -1,0 +1,2 @@
+# Copia de semantic/data/sintetico/ficheros: byte a byte, como en semantic/.gitattributes.
+data/sintetico/ficheros/** -text
