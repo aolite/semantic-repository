@@ -80,13 +80,8 @@ def login(
     remaining = login_guard.locked_for(db, form.username, ip)
     if remaining is not None:
         verify_password(form.password, None)  # mismo tiempo que un login normal
-        audit.record(
-            db,
-            AuditAction.LOGIN_FAILURE,
-            target_username=attempted,
-            details={"reason": "locked"},
-        )
-        db.commit()
+        # Sin fila de auditoría por intento bloqueado: ya quedó `login_locked` al empezar el
+        # bloqueo, y así un atacante no llena `audit_events` a base de reintentos.
         too_many(remaining)
 
     if has_control_chars(form.username):

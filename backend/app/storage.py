@@ -37,6 +37,14 @@ class StorageConfigError(StorageError):
     """El almacenamiento elegido no está configurado o no está implementado."""
 
 
+class OutsideRootError(FileNotFoundError):
+    """La ruta resuelta (p. ej. por un enlace simbólico) sale de la carpeta raíz.
+
+    Hereda de ``FileNotFoundError``: al leer, el fichero simplemente no existe (404), sin
+    revelar nada de la estructura del disco.
+    """
+
+
 def storage_key(slug: str, version: str, dist: str) -> str:
     """``{slug}/{version}/{dist}`` con los segmentos validados (evita path traversal)."""
     if not (is_slug(slug) and is_version(version) and is_slug(dist)):
@@ -82,11 +90,14 @@ class DiskStorage:
         root = self.root.resolve()
         path = (root / key).resolve()
         if root not in path.parents:  # defensa en profundidad: nunca fuera de la raíz
-            raise ValueError("Clave de almacenamiento fuera de la carpeta raíz")
+            raise OutsideRootError("Clave de almacenamiento fuera de la carpeta raíz")
         return path
 
     def save(self, key: str, source: BinaryIO) -> None:
-        path = self._path(key)
+        try:
+            path = self._path(key)
+        except OutsideRootError as exc:
+            raise StorageError("No se puede escribir en el almacenamiento de disco") from exc
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             fd, tmp_name = tempfile.mkstemp(prefix=".subida-", dir=path.parent)
@@ -106,7 +117,10 @@ class DiskStorage:
                 os.unlink(tmp_name)
 
     def exists(self, key: str) -> bool:
-        return self._path(key).is_file()
+        try:
+            return self._path(key).is_file()
+        except OutsideRootError:
+            return False
 
     def size(self, key: str) -> int:
         return self._path(key).stat().st_size

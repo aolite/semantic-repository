@@ -259,6 +259,34 @@ describe('Consola SPARQL', () => {
     expect(await screen.findByRole('button', { name: /Consulta de prueba A/ })).toBeInTheDocument()
   })
 
+  it('QA-G4-04: conserva lo escrito antes de que carguen las consultas guardadas y lo ejecuta', async () => {
+    let resolveQueries: (response: Response) => void = () => {}
+    const fetchMock = mockSparql({
+      queries: () => new Promise<Response>((resolve) => (resolveQueries = resolve)),
+    })
+    const { user } = renderApp('/sparql')
+    await screen.findByText(SPARQL_TEXT.queriesLoading)
+    const mine = 'ASK { ?s ?p ?o } # escrita antes de cargar'
+    await user.click(editor())
+    await user.paste(mine)
+
+    resolveQueries(jsonResponse(REFERENCE))
+    const first = await screen.findByRole('button', { name: /Consulta de prueba A/ })
+    expect(editor()).toHaveValue(mine)
+    expect(first).toHaveAttribute('aria-pressed', 'false')
+
+    await user.click(screen.getByRole('button', { name: 'Ejecutar' }))
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.some(([u]) => new URL(String(u)).pathname === '/sparql')).toBe(true),
+    )
+    const call = fetchMock.mock.calls.find(([u]) => new URL(String(u)).pathname === '/sparql')!
+    expect(call[1]?.body).toBe(mine)
+
+    // Elegir una consulta explícitamente sí carga su texto.
+    await user.click(first)
+    expect(editor()).toHaveValue('SELECT ?a WHERE { ?a ?b ?c }')
+  })
+
   it('con sesión: pide las personales con el JWT, las pone tras las de referencia y guarda una nueva', async () => {
     let created: SavedQuery | null = null
     const fetchMock = mockSparql({

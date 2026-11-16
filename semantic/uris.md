@@ -61,7 +61,7 @@ Detalles:
 
 ## `dcat:accessURL` de las distribuciones
 
-`dcat:accessURL` de cada distribución es **la URI de la propia distribución** (decisión del responsable, 2026-11-14): `{BASE_URI}dataset/{slug}/{version}/{dist}`. El prototipo no da URL de acceso. Al resolverla, el backend aplica el control de acceso por rol (lector, miembro…) según el `dct:accessRights` de la versión. `semantic/scripts/validate.py` comprueba que los datos de `semantic/data/` cumplen esta regla.
+`dcat:accessURL` de cada distribución es **la URI de la propia distribución** (decisión del responsable, 2026-11-14): `{BASE_URI}dataset/{slug}/{version}/{dist}`. El prototipo no da URL de acceso. Desde la fase 4, al resolverla el backend devuelve los metadatos de la distribución (RDF por negociación de contenido, o 303 a la ficha HTML) y no el fichero. El fichero se descarga en `…/{dist}/fichero`, donde se aplica el control de acceso según el `dct:accessRights` efectivo (ver más abajo). `semantic/scripts/validate.py` comprueba que los datos de `semantic/data/` cumplen esta regla.
 
 ## Ficheros de distribución y derechos de acceso (fase 4)
 

@@ -306,21 +306,31 @@ def _version_uri(store: StoreDep, uris: UrisDep, slug: str, version: str) -> str
     response_class=JSONResponse,
     responses={
         status.HTTP_200_OK: {
-            "description": "Respuesta de F-UJI tal cual (su esquema FAIRResults)",
+            "description": "Respuesta de F-UJI (su esquema FAIRResults) sin URLs internas: "
+            "la URL evaluada pasa a ser la URI persistente de la versión y "
+            "FAIR_TARGET_BASE_URL pasa a BASE_URI",
             "content": {"application/json": {"schema": {"type": "object"}}},
         },
         status.HTTP_404_NOT_FOUND: {"model": schemas.ErrorResponse},
     },
 )
 def get_fair_report(
-    slug: SlugPath, version: VersionPath, store: StoreDep, uris: UrisDep, db: DbDep
+    slug: SlugPath,
+    version: VersionPath,
+    store: StoreDep,
+    uris: UrisDep,
+    db: DbDep,
+    settings: SettingsDep,
 ) -> JSONResponse:
     done = fair.latest_done(db, _version_uri(store, uris, slug, version))
     if done is None or done.report is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="No hay evaluación FAIR terminada"
         )
-    return JSONResponse(content=done.report)
+    report = fair.public_report(
+        settings, done.report, evaluated_url=done.evaluated_url, version_uri=done.version_uri
+    )
+    return JSONResponse(content=report)
 
 
 @router.post(

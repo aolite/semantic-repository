@@ -17,6 +17,12 @@ En la fase 2 se añaden:
 - **Frontend:** catálogo y ficha de dataset, con los datasets sintéticos (ADR 0016).
 - **`semantic/`:** comando `load-semantic` para cargar los datos sintéticos.
 
+En la fase 3 se añaden (ADR 0020 a 0025):
+
+- **Backend:** lectura pública de esquemas SKOS, vocabularios y ontologías (`/schemes`, `/vocabularies`, `/ontologies`) y URIs persistentes `/onto/...` y `/vocab/...` con negociación de contenido. En la ingesta calcula las métricas OWL de cada versión de ontología con owlready2, sin Java (ADR 0021), y comprueba su consistencia con Pellet, que sí necesita Java en la imagen del backend y razona sin las ontologías importadas (ADR 0022). El perfil OWL es aproximado y la expresividad DL no se calcula.
+- **`semantic/`:** ontologías y vocabularios sintéticos, marcados como tales (ADR 0020), que `load-semantic` carga con sus métricas.
+- **Publicación:** una etiqueta de Git (`onto/{slug}/v{version}`, `vocab/{slug}/v{version}` o `vocab/corp/{slug}/v{version}`) dispara en GitHub Actions la validación SHACL, la documentación (WIDOCO para ontologías; una página HTML sencilla para esquemas SKOS) y una Release con el RDF. La Release no despliega nada: la carga en un entorno es manual con `load-semantic` hasta la fase 5 (ADR 0025). Detalle en [`infra/README.md`](../infra/README.md).
+
 En la fase 4 (contrato de G4) se añaden:
 
 - **F-UJI** como servicio interno, con la evaluación FAIR de cada versión de dataset nueva (ADR 0036).
@@ -26,7 +32,7 @@ En la fase 4 (contrato de G4) se añaden:
 
 Todo lo demás es objetivo de fases posteriores y está marcado como [Posterior].
 
-Leyenda: **[Fase 1]** y **[Fase 2]** existen hoy; **[Fase 4]** lo fija el contrato de la fase 4 y se integra en esa fase; **[Posterior]** objetivo de fases posteriores.
+Leyenda: **[Fase 1]**, **[Fase 2]** y **[Fase 3]** existen hoy; **[Fase 4]** lo fija el contrato de la fase 4 y se integra en esa fase; **[Posterior]** objetivo de fases posteriores.
 
 ## Componentes
 
@@ -51,7 +57,7 @@ flowchart TD
 | Almacenamiento de distribuciones | Interfaz con dos implementaciones, disco (MVP) y Cloudflare R2 (despliegue), elegida por configuración (`STORAGE_BACKEND`). Guarda los ficheros con la clave `{slug}/{version}/{dist}`; su tamaño y su suma de comprobación van en PostgreSQL | [Fase 4] |
 | F-UJI | Evaluador FAIR como servicio interno, sin puertos publicados en el host: solo el backend lo llama. Puntuación por versión | [Fase 4] |
 | Ingesta | Validación con formas SHACL y carga al triplestore, siempre mediante el backend | [Fase 2] para datasets |
-| Repositorio Git de ontologías y vocabularios | Fuente de verdad; solo se publican versiones etiquetadas, y cada etiqueta dispara validación, documentación y publicación (CI) | [Posterior] fase 3 |
+| Repositorio Git de ontologías y vocabularios | Fuente de verdad; solo se publican versiones etiquetadas, y cada etiqueta dispara validación, documentación y publicación (CI) | [Fase 3] |
 
 ## Reglas de arquitectura
 
@@ -75,7 +81,7 @@ JWT emitido y verificado dentro del backend, sin SSO en el MVP. Roles: lector (a
 |---|---|---|
 | Login | El frontend envía credenciales al backend, que valida contra PostgreSQL y devuelve un JWT; el frontend lo usa en las llamadas siguientes | [Fase 1] |
 | Publicación de un dataset | Un editor o admin envía metadatos con `POST /datasets`; el backend los valida con SHACL y los escribe en un grafo con nombre por serie en Fuseki. La lectura pública es `GET /datasets`, `GET /datasets/{slug}` y `GET /datasets/{slug}/rdf`. Las URIs persistentes `/dataset/{slug}[/{version}]` negocian contenido (Turtle o JSON-LD) y redirigen con 303 a la ficha del frontend. El comando `load-semantic` carga los datasets sintéticos (ADR 0016) | [Fase 2]; [Posterior] fase 4 la evaluación FAIR con F-UJI y el guardado de distribuciones en el almacenamiento |
-| Publicación de ontologías y vocabularios | Una etiqueta de versión en Git dispara validación, documentación y publicación | [Posterior] fase 3 |
+| Publicación de ontologías y vocabularios | Una etiqueta de versión en Git dispara validación, documentación y publicación (Release de GitHub); la carga en el triplestore se hace con `load-semantic` (ADR 0025) | [Fase 3] |
 | Consulta SPARQL | El frontend y cualquier cliente consultan `/sparql` en el backend, que valida la consulta (solo lectura, sin `SERVICE`) y la ejecuta contra el endpoint de solo lectura de Fuseki, con tiempo máximo, número máximo de filas y límite de frecuencia (ADR 0033) | [Fase 4] |
 | Consultas guardadas | Las de referencia se leen de `semantic/consultas/` y las ve todo el mundo; las personales se guardan en PostgreSQL y solo las ve su dueño (ADR 0034) | [Fase 4] |
 | Evaluación FAIR | Al publicar una versión nueva de dataset, el backend encola su evaluación en F-UJI en segundo plano, sin bloquear la publicación. F-UJI evalúa la URI de la versión, y el backend guarda el resultado en PostgreSQL con el informe completo. Si F-UJI falla, la evaluación queda como fallida y la API sigue funcionando (ADR 0036) | [Fase 4] |

@@ -18,15 +18,20 @@ configuración de ``infra``): las consultas sin ``GRAPH`` ven la unión de los g
 esperan las consultas de referencia de ``semantic/consultas/``.
 
 Resultados acotados a ``SPARQL_MAX_ROWS`` filas (SELECT) o triples (CONSTRUCT/DESCRIBE);
-si se recortan, ``truncated=True`` (cabecera ``X-Result-Truncated: true``). Los triples
-se leen en N-Triples línea a línea y se corta la conexión al llegar al límite; las filas se
-leen en JSON con un tope de ``MAX_RESPONSE_BYTES``.
+si se recortan, ``truncated=True`` (cabecera ``X-Result-Truncated: true``). Todo se lee
+en streaming y se corta la conexión al llegar al límite: los triples en N-Triples, línea a
+línea; las filas en JSON, fila a fila (``_SelectStream``). ``MAX_RESPONSE_BYTES`` acota lo
+que se procesa: si se alcanza antes de ``SPARQL_MAX_ROWS`` filas, el resultado también se
+recorta (con la misma cabecera); solo da 400 si ni siquiera se puede leer la cabecera o
+una sola fila con ese tope.
 """
 
+import codecs
 import csv
 import io
 import json
 import time
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -43,6 +48,7 @@ QueryKind = Literal["SELECT", "ASK", "CONSTRUCT", "DESCRIBE"]
 MAX_QUERY_BYTES = 20 * 1024
 MAX_RESPONSE_BYTES = 32 * 1024 * 1024
 CONNECT_TIMEOUT_SECONDS = 3.0
+READ_CHUNK_BYTES = 64 * 1024
 
 _KINDS: dict[str, QueryKind] = {
     "SelectQuery": "SELECT",
@@ -189,20 +195,6 @@ def _term_json(term: Any) -> dict[str, str]:
     return {"type": "literal", "value": str(term)}
 
 
-def _from_select_json(kind: QueryKind, data: Any, max_rows: int) -> QueryResult:
-    if not isinstance(data, dict):
-        raise SparqlBackendError("Respuesta de Fuseki no válida")
-    if kind == "ASK":
-        return QueryResult(kind=kind, boolean=bool(data.get("boolean")))
-    head = data.get("head") or {}
-    variables = [str(v) for v in head.get("vars", [])]
-    bindings = (data.get("results") or {}).get("bindings") or []
-    truncated = len(bindings) > max_rows
-    return QueryResult(
-        kind=kind, variables=variables, bindings=bindings[:max_rows], truncated=truncated
-    )
-
-
 # --- Ejecución ------------------------------------------------------------------------------
 
 
@@ -259,21 +251,16 @@ class FusekiQueryRunner:
     def _read_json(
         self, response: httpx.Response, kind: QueryKind, max_rows: int, deadline: float
     ) -> QueryResult:
-        chunks: list[bytes] = []
-        size = 0
-        for chunk in response.iter_bytes():
-            self._check_deadline(deadline)
-            size += len(chunk)
-            if size > MAX_RESPONSE_BYTES:
-                raise SparqlRequestError(
-                    "El resultado es demasiado grande: añade LIMIT o filtra más la consulta"
-                )
-            chunks.append(chunk)
+        chunks = response.iter_bytes(READ_CHUNK_BYTES)
+        stream = _SelectStream(chunks, lambda: self._check_deadline(deadline), MAX_RESPONSE_BYTES)
         try:
-            data = json.loads(b"".join(chunks))
-        except ValueError as exc:
+            return stream.read(kind, max_rows)
+        except _TooLargeError:
+            raise SparqlRequestError(
+                "El resultado es demasiado grande: añade LIMIT o filtra más la consulta"
+            ) from None
+        except (ValueError, _EndOfStreamError) as exc:
             raise SparqlBackendError("Respuesta de Fuseki no válida") from exc
-        return _from_select_json(kind, data, max_rows)
 
     def _read_triples(
         self, response: httpx.Response, kind: QueryKind, max_rows: int, deadline: float
@@ -294,6 +281,170 @@ class FusekiQueryRunner:
         except Exception as exc:
             raise SparqlBackendError("Respuesta de Fuseki no válida") from exc
         return QueryResult(kind=kind, graph=graph, truncated=truncated)
+
+
+class _TooLargeError(Exception):
+    """Se ha procesado más de ``MAX_RESPONSE_BYTES`` (o un solo valor no cabe)."""
+
+
+class _EndOfStreamError(Exception):
+    """La respuesta terminó a mitad del JSON."""
+
+
+class _SelectStream:
+    """Lector incremental de SPARQL 1.1 Query Results JSON.
+
+    Recorre el objeto de primer nivel clave a clave y ``results.bindings`` fila a fila con
+    ``json.JSONDecoder.raw_decode``: nunca tiene en memoria más que la fila en curso y las
+    ya leídas. Deja de leer (y la conexión se cierra al salir) en cuanto tiene una fila más
+    que ``max_rows``, o al haber procesado ``max_bytes`` caracteres, y entonces marca el
+    resultado como truncado.
+    """
+
+    _WHITESPACE = " \t\r\n"
+
+    def __init__(
+        self, chunks: Iterator[bytes], on_chunk: Callable[[], None], max_bytes: int
+    ) -> None:
+        self._chunks = chunks
+        self._on_chunk = on_chunk
+        self._decoder = codecs.getincrementaldecoder("utf-8")()
+        self._json = json.JSONDecoder()
+        self._max_bytes = max_bytes
+        self._buffer = ""
+        self._pos = 0
+        self._consumed = 0
+        self._eof = False
+
+    # --- Lectura ------------------------------------------------------------------------
+
+    def _fill(self) -> bool:
+        if self._eof:
+            return False
+        # Se descarta lo ya procesado para no acumular la respuesta entera.
+        self._consumed += self._pos
+        self._buffer = self._buffer[self._pos :]
+        self._pos = 0
+        try:
+            chunk = next(self._chunks)
+        except StopIteration:
+            self._buffer += self._decoder.decode(b"", final=True)
+            self._eof = True
+            return False
+        self._on_chunk()
+        self._buffer += self._decoder.decode(chunk)
+        return True
+
+    def _check_size(self) -> None:
+        if self._consumed + self._pos > self._max_bytes:
+            raise _TooLargeError()
+
+    def _peek(self) -> str:
+        while True:
+            while self._pos < len(self._buffer) and self._buffer[self._pos] in self._WHITESPACE:
+                self._pos += 1
+            if self._pos < len(self._buffer):
+                return self._buffer[self._pos]
+            if not self._fill():
+                raise _EndOfStreamError()
+
+    def _expect(self, *chars: str) -> str:
+        char = self._peek()
+        if char not in chars:
+            raise ValueError(f"Se esperaba {' o '.join(chars)}")
+        self._pos += 1
+        return char
+
+    def _value(self) -> Any:
+        self._peek()
+        while True:
+            try:
+                value, end = self._json.raw_decode(self._buffer, self._pos)
+            except json.JSONDecodeError:
+                if len(self._buffer) - self._pos > self._max_bytes:
+                    raise _TooLargeError() from None
+                if not self._fill():
+                    raise
+                continue
+            # Un número o un literal al final del búfer puede seguir en el trozo siguiente.
+            if end == len(self._buffer) and not self._eof and self._fill():
+                continue
+            self._pos = end
+            self._check_size()
+            return value
+
+    # --- Estructura ---------------------------------------------------------------------
+
+    def read(self, kind: QueryKind, max_rows: int) -> QueryResult:
+        head: Any = None
+        boolean: Any = None
+        bindings: list[Any] = []
+        truncated = False
+        self._expect("{")
+        if self._peek() == "}":
+            self._pos += 1
+        else:
+            while True:
+                key = self._value()
+                self._expect(":")
+                if key == "results" and kind != "ASK":
+                    truncated = self._read_results(bindings, max_rows)
+                    if truncated:
+                        break
+                else:
+                    value = self._value()
+                    if key == "head":
+                        head = value
+                    elif key == "boolean":
+                        boolean = value
+                if self._expect(",", "}") == "}":
+                    break
+        if kind == "ASK":
+            return QueryResult(kind=kind, boolean=bool(boolean))
+        variables = [str(v) for v in (head or {}).get("vars", [])] if isinstance(head, dict) else []
+        if not variables:  # p. ej. «results» antes que «head» y se dejó de leer
+            for row in bindings:
+                variables.extend(var for var in row if var not in variables)
+        return QueryResult(
+            kind=kind, variables=variables, bindings=bindings[:max_rows], truncated=truncated
+        )
+
+    def _read_results(self, bindings: list[Any], max_rows: int) -> bool:
+        """Lee ``results``. Devuelve ``True`` si se ha dejado de leer (resultado truncado)."""
+        self._expect("{")
+        if self._peek() == "}":
+            self._pos += 1
+            return False
+        while True:
+            key = self._value()
+            self._expect(":")
+            if key == "bindings":
+                if self._read_bindings(bindings, max_rows):
+                    return True
+            else:
+                self._value()
+            if self._expect(",", "}") == "}":
+                return False
+
+    def _read_bindings(self, bindings: list[Any], max_rows: int) -> bool:
+        self._expect("[")
+        if self._peek() == "]":
+            self._pos += 1
+            return False
+        while True:
+            try:
+                row = self._value()
+            except _TooLargeError:
+                if not bindings:
+                    raise
+                return True
+            if not isinstance(row, dict):
+                raise ValueError("Fila no válida")
+            if len(bindings) >= max_rows:
+                return True
+            bindings.append(row)
+            if self._expect(",", "]") == "]":
+                return False
 
 
 class MemoryQueryRunner:

@@ -24,12 +24,13 @@ from app import audit, ratelimit, saved_queries, schemas, sparql_public
 from app.config import Settings
 from app.deps import CurrentUser, DbDep, OptionalUser, SettingsDep
 from app.models import AuditAction, SavedQuery, User
-from app.negotiation import JSONLD, TURTLE, negotiate
+from app.negotiation import JSONLD, RDFXML, TURTLE, negotiate
 
 router = APIRouter(prefix="/sparql", tags=["sparql"])
 
 SPARQL_JSON = "application/sparql-results+json"
 CSV = "text/csv"
+NTRIPLES = "application/n-triples"
 SPARQL_QUERY = "application/sparql-query"
 FORM = "application/x-www-form-urlencoded"
 # Un formulario puede triplicar el tamaño de la consulta al codificarla con %XX.
@@ -38,9 +39,10 @@ MAX_FORM_BYTES = 3 * sparql_public.MAX_QUERY_BYTES + 1024
 OFFERED: dict[str, list[str]] = {
     "SELECT": [SPARQL_JSON, CSV],
     "ASK": [SPARQL_JSON, CSV],
-    "CONSTRUCT": [TURTLE, JSONLD],
-    "DESCRIBE": [TURTLE, JSONLD],
+    "CONSTRUCT": [TURTLE, JSONLD, RDFXML, NTRIPLES],
+    "DESCRIBE": [TURTLE, JSONLD, RDFXML, NTRIPLES],
 }
+GRAPH_SERIALIZERS = {TURTLE: "turtle", JSONLD: "json-ld", RDFXML: "xml", NTRIPLES: "nt"}
 
 
 def get_query_runner(settings: SettingsDep) -> sparql_public.FusekiQueryRunner:
@@ -111,20 +113,29 @@ def _execute(
         return Response(result.to_csv(), media_type="text/csv; charset=utf-8", headers=headers)
     graph = result.graph if result.graph is not None else None
     assert graph is not None  # noqa: S101 - CONSTRUCT/DESCRIBE siempre traen grafo
-    body = graph.serialize(format="json-ld" if media == JSONLD else "turtle")
+    try:
+        body = graph.serialize(format=GRAPH_SERIALIZERS[media])
+    except Exception:  # noqa: BLE001 - p. ej. un predicado que RDF/XML no puede escribir
+        raise _error(
+            status.HTTP_406_NOT_ACCEPTABLE,
+            f"El resultado no se puede escribir en {media}; pídelo en {TURTLE} o {JSONLD}",
+        ) from None
     return Response(body, media_type=media, headers=headers)
 
 
 RESPONSES = {
     status.HTTP_200_OK: {
         "description": "SELECT/ASK: application/sparql-results+json (por defecto) o text/csv. "
-        "CONSTRUCT/DESCRIBE: text/turtle (por defecto) o application/ld+json. Con "
+        "CONSTRUCT/DESCRIBE: text/turtle (por defecto), application/ld+json, "
+        "application/rdf+xml o application/n-triples. Con "
         "`X-Result-Truncated: true` si se ha recortado a SPARQL_MAX_ROWS",
         "content": {
             SPARQL_JSON: {"schema": {"type": "object"}},
             CSV: {"schema": {"type": "string"}},
             TURTLE: {"schema": {"type": "string"}},
             JSONLD: {"schema": {"type": "object"}},
+            RDFXML: {"schema": {"type": "string"}},
+            NTRIPLES: {"schema": {"type": "string"}},
         },
     },
     status.HTTP_400_BAD_REQUEST: {

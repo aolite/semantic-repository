@@ -22,6 +22,7 @@ from typing import BinaryIO, Literal, cast
 from rdflib import URIRef
 from rdflib.namespace import RDF
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app import audit, catalog
@@ -174,14 +175,7 @@ def upload(
     stored = hash_stream(source)
     existing = session.get(DistributionFile, info.storage_key)
     if existing is not None:
-        if existing.sha256 != stored.sha256:
-            raise FileExistsConflictError(info.storage_key)
-        if storage.exists(info.storage_key):
-            return UploadResult(existing, created=False)
-        # El registro existe pero el fichero se perdió: se vuelve a escribir el mismo.
-        storage.save(info.storage_key, source)
-        return UploadResult(existing, created=False)
-    storage.save(info.storage_key, source)
+        return _repeated(storage, info, existing, stored.sha256, source)
     record = DistributionFile(
         storage_key=info.storage_key,
         distribution_uri=info.uri,
@@ -192,6 +186,22 @@ def upload(
         uploaded_at=datetime.now(UTC),
     )
     session.add(record)
+    # El registro se inserta antes de escribir el fichero: con subidas simultáneas de la
+    # misma distribución, la clave primaria deja pasar a una sola (las demás esperan a que
+    # termine y reciben IntegrityError) y nadie sobrescribe el fichero de otra.
+    try:
+        session.flush()
+    except IntegrityError:
+        session.rollback()
+        winner = session.get(DistributionFile, info.storage_key)
+        if winner is None:  # pragma: no cover - la otra subida se deshizo
+            raise
+        return _repeated(storage, info, winner, stored.sha256, source)
+    try:
+        storage.save(info.storage_key, source)
+    except BaseException:
+        session.rollback()
+        raise
     audit.record(
         session,
         AuditAction.DISTRIBUTION_UPLOADED,
@@ -208,6 +218,22 @@ def upload(
     )
     session.commit()
     return UploadResult(record, created=True)
+
+
+def _repeated(
+    storage: Storage,
+    info: DistributionInfo,
+    existing: DistributionFile,
+    sha256: str,
+    source: BinaryIO,
+) -> UploadResult:
+    """Subida de una distribución que ya tiene fichero: idempotente o 409."""
+    if existing.sha256 != sha256:
+        raise FileExistsConflictError(info.storage_key)
+    if not storage.exists(info.storage_key):
+        # El registro existe pero el fichero se perdió: se vuelve a escribir el mismo.
+        storage.save(info.storage_key, source)
+    return UploadResult(existing, created=False)
 
 
 def files_by_uri(session: Session, uris_: list[str]) -> dict[str, DistributionFile]:

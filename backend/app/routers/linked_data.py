@@ -9,6 +9,11 @@ Negociación (decisión 31):
 - Sin ``Accept``, con ``*/*`` o con ``text/html``: 303 See Other a la ficha del frontend
   (``FRONTEND_BASE_URL``). El RDF solo sale con un ``Accept`` de RDF.
 
+Signposting (https://signposting.org/FAIR/): el 303 y el RDF llevan una cabecera ``Link``
+con ``rel="cite-as"`` hacia la URI persistente y ``rel="describedby"`` hacia sus
+representaciones RDF (la misma URI con su ``type``), para que un cliente sepa cuál es el
+identificador y dónde están los metadatos sin seguir la redirección al frontend.
+
 Rutas:
 
 - ``/dataset/{slug}``: la serie completa.
@@ -74,20 +79,36 @@ def _choose(request: Request) -> str:
     return media
 
 
-def _see_other(url: str) -> RedirectResponse:
-    return RedirectResponse(url, status_code=status.HTTP_303_SEE_OTHER, headers={"Vary": "Accept"})
+def signposting(uri: str) -> str:
+    """Valor de la cabecera ``Link`` (RFC 8288) con el signposting de una URI persistente."""
+    links = [f'<{uri}>; rel="cite-as"']
+    links.extend(
+        f'<{uri}>; rel="describedby"; type="{media}"' for media in (TURTLE, JSONLD, RDFXML)
+    )
+    return ", ".join(links)
+
+
+def _see_other(url: str, uri: str) -> RedirectResponse:
+    return RedirectResponse(
+        url,
+        status_code=status.HTTP_303_SEE_OTHER,
+        headers={"Vary": "Accept", "Link": signposting(uri)},
+    )
 
 
 def _not_found() -> HTTPException:
     return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No existe")
 
 
-def _rdf(graph: Graph, uris: UrisDep, media: str) -> Response:
+def _rdf(graph: Graph, uris: UrisDep, media: str, uri: str) -> Response:
     if media == RDFXML:
-        return graph_response(graph, uris, media)
-    from app.routers.datasets import rdf_response
+        response = graph_response(graph, uris, media)
+    else:
+        from app.routers.datasets import rdf_response
 
-    return rdf_response(catalog.serialize(graph, uris, _fmt(media)), media)
+        response = rdf_response(catalog.serialize(graph, uris, _fmt(media)), media)
+    response.headers["Link"] = signposting(uri)
+    return response
 
 
 @router.get(
@@ -104,9 +125,10 @@ def resolve_series(
         graph = catalog.series_rdf(store, uris, slug)
     except catalog.NotFoundError as exc:
         raise _not_found() from exc
+    uri = uris.series(slug)
     if media == HTML:
-        return _see_other(f"{settings.frontend_base_url}/datasets/{quote(slug)}")
-    return _rdf(graph, uris, media)
+        return _see_other(f"{settings.frontend_base_url}/datasets/{quote(slug)}", uri)
+    return _rdf(graph, uris, media, uri)
 
 
 @router.get(
@@ -128,11 +150,12 @@ def resolve_version(
         graph = catalog.version_rdf(store, uris, slug, version)
     except catalog.NotFoundError as exc:
         raise _not_found() from exc
+    uri = uris.version(slug, version)
     if media == HTML:
         return _see_other(
-            f"{settings.frontend_base_url}/datasets/{quote(slug)}?version={quote(version)}"
+            f"{settings.frontend_base_url}/datasets/{quote(slug)}?version={quote(version)}", uri
         )
-    return _rdf(graph, uris, media)
+    return _rdf(graph, uris, media, uri)
 
 
 def distribution_rdf(store: StoreDep, uris: UrisDep, slug: str, version: str, dist: str) -> Graph:
@@ -183,12 +206,14 @@ def resolve_distribution(
         graph = distribution_rdf(store, uris, slug, version, dist)
     except catalog.NotFoundError as exc:
         raise _not_found() from exc
+    uri = f"{uris.version(slug, version)}/{dist}"
     if media == HTML:
         return _see_other(
             f"{settings.frontend_base_url}/datasets/{quote(slug)}?version={quote(version)}"
-            "#distribuciones"
+            "#distribuciones",
+            uri,
         )
-    return _rdf(graph, uris, media)
+    return _rdf(graph, uris, media, uri)
 
 
 # --- Fichero de la distribución (decisión 40) -----------------------------------------

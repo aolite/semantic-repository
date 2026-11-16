@@ -27,7 +27,7 @@ CSV = b"# SINTETICO\r\na,b\r\n1,2\r\n"
 def semantic_copy(tmp_path: Path, semantic_dir: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     root = tmp_path / "semantic"
     shutil.copytree(semantic_dir, root)
-    # Parte de cero: ``semantic/`` ya trae ficheros sintéticos reales.
+    # Ficheros propios de estas pruebas, no los sintéticos de las fixtures.
     shutil.rmtree(root / "data" / "sintetico" / "ficheros", ignore_errors=True)
     files = root / "data" / "sintetico" / "ficheros" / "modbus-tcp-testbed"
     (files / "2.1.0").mkdir(parents=True)
