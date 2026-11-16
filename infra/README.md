@@ -145,7 +145,7 @@ Todas están en `.env.example` con valores ficticios o por defecto. Llegan al ba
 | `FUJI_URL` | `http://fuji:1071/fuji/api/v1` | Backend a F-UJI |
 | `FUJI_USERNAME`, `FUJI_PASSWORD` | `fuji-backend`, ficticia | Autenticación Basic de la API de F-UJI. Obligatorias |
 | `FUJI_TIMEOUT_SECONDS` | `300` | Tiempo máximo de una evaluación |
-| `FAIR_TARGET_BASE_URL` | `http://backend:8000/` | URL base que se pasa a F-UJI en lugar de `BASE_URI`. Vacío usa `BASE_URI` |
+| `FAIR_TARGET_BASE_URL` | `http://backend:8000/` | URL base que se pasa a F-UJI en lugar de `BASE_URI`. El Compose la fija a `http://backend:8000/` si `.env` no la define; vacía usa `BASE_URI`, que F-UJI no alcanza sin salida a internet |
 | `SPARQL_TIMEOUT_SECONDS` | `10` | SPARQL público |
 | `SPARQL_MAX_ROWS` | `10000` | SPARQL público |
 | `SPARQL_RATE_ANON_PER_MIN` | `30` | Por IP |
