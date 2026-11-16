@@ -1,7 +1,9 @@
-export { ApiError, apiRequest, apiRequestText, apiUrl, isAbortError, withQuery } from './client'
+export { ApiError, apiHref, apiRequest, apiRequestRaw, apiRequestText, apiUrl, isAbortError, withQuery } from './client'
 export { requestToken, fetchCurrentUser } from './auth'
 export { fetchHealth } from './health'
-export { fetchDataset, fetchDatasetRdf, listDatasets } from './datasets'
+export { fetchDataset, fetchDatasetRdf, listDatasets, requestDownloadLink } from './datasets'
+export { createSavedQuery, listSavedQueries, runSparql, SPARQL_RESULTS_JSON } from './sparql'
+export type { SparqlRunResult } from './sparql'
 export type { ListDatasetsParams } from './datasets'
 export {
   fetchConcept,
@@ -28,10 +30,14 @@ export type {
   DatasetUse,
   DatasetVersionUse,
   DcatMetadata,
+  DistributionDownload,
   DistributionRead,
+  DownloadLink,
   DocumentationCoverageRead,
   DomainRef,
   DomainSlug,
+  FairStatus,
+  FairSummary,
   HealthResponse,
   ImportRef,
   IngestErrorResponse,
@@ -49,6 +55,8 @@ export type {
   ProvenanceStep,
   RdfFormat,
   ResourceRef,
+  SavedQuery,
+  SavedQueryCreate,
   Role,
   SchemeDetail,
   SchemeKind,
@@ -67,3 +75,4 @@ export type {
   VocabularyPage,
   VocabularyStatus,
 } from './types'
+export type { SparqlJsonResults, SparqlTerm } from '../sparql/w3c'

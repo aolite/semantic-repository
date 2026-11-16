@@ -1,4 +1,5 @@
 import { render } from '@testing-library/react'
+import type { ReactNode } from 'react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router'
 import { vi } from 'vitest'
@@ -26,13 +27,17 @@ export function userFixture(overrides: Partial<CurrentUser> = {}): CurrentUser {
   }
 }
 
-/** Renderiza la aplicación completa en la ruta indicada. */
-export function renderApp(route = '/') {
+/**
+ * Renderiza la aplicación completa en la ruta indicada. `extra` se renderiza
+ * dentro del router (p. ej. un botón «atrás» o una sonda de la URL).
+ */
+export function renderApp(route = '/', extra?: ReactNode) {
   const user = userEvent.setup()
   const result = render(
     <AuthProvider>
       <MemoryRouter initialEntries={[route]}>
         <AppRoutes />
+        {extra}
       </MemoryRouter>
     </AuthProvider>,
   )

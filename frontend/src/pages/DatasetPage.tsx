@@ -7,7 +7,6 @@ import {
   isAbortError,
   type DatasetDetail,
   type DcatMetadata,
-  type DistributionRead,
   type DomainRef,
   type ProvenanceStep,
   type RdfFormat,
@@ -26,6 +25,8 @@ import {
   themeLabel,
 } from '../catalog/labels'
 import { CopyUriButton } from '../components/CopyUriButton'
+import { DistributionsSection } from '../dataset/DistributionsSection'
+import { FairSection } from '../dataset/FairSection'
 import { DomainTag, SyntheticTag, TypeTag } from '../components/Tags'
 import { conceptRouteFromUri, ontologyRouteFromUri } from '../vocab/routes'
 import '../styles/dataset.css'
@@ -164,21 +165,13 @@ function DatasetView({ data, requestedVersion }: { data: DatasetDetail; requeste
           </section>
 
           <VersioningSection data={data} version={v} />
-          <DistributionsSection distributions={v?.distributions ?? []} />
+          <DistributionsSection slug={data.slug} version={v?.version ?? null} distributions={v?.distributions ?? []} />
           <ProvenanceSection steps={v?.provenance ?? []} version={v?.version ?? null} />
           {v && <RdfSection slug={data.slug} version={isCurrent ? null : v.version} />}
         </div>
 
         <div className="dataset__side">
-          <section aria-labelledby="h-fair" className="panel">
-            <div className="panel__head">
-              <h2 id="h-fair" className="panel__title">
-                Evaluación FAIR
-              </h2>
-              {v?.version && <span className="panel__hint">v{v.version}</span>}
-            </div>
-            <p className="muted">Disponible en la fase 4</p>
-          </section>
+          <FairSection fair={v?.fair ?? null} version={v?.version ?? null} />
 
           {v && <MetadataAside metadata={v.metadata} domains={data.domains} />}
         </div>
@@ -273,47 +266,6 @@ function VersionHistory({ data, shown }: { data: DatasetDetail; shown: string | 
         })}
       </ul>
     </div>
-  )
-}
-
-function DistributionsSection({ distributions }: { distributions: DistributionRead[] }) {
-  return (
-    <section aria-labelledby="h-dist" className="panel">
-      <div className="panel__head">
-        <h2 id="h-dist" className="panel__title">
-          Distribuciones
-        </h2>
-        <span className="panel__hint mono">dcat:distribution</span>
-      </div>
-      {distributions.length === 0 ? (
-        <p className="muted">Esta versión no declara distribuciones.</p>
-      ) : (
-        <div className="table-wrap">
-          <table className="table table--stack">
-            <thead>
-              <tr>
-                <th scope="col">Distribución</th>
-                <th scope="col">dcat:mediaType</th>
-                <th scope="col">Acceso</th>
-              </tr>
-            </thead>
-            <tbody>
-              {distributions.map((d) => (
-                <tr key={d.uri}>
-                  <th scope="row" data-label="Distribución">
-                    {d.title ?? lastSegment(d.uri)}
-                  </th>
-                  <td data-label="dcat:mediaType" className="mono">
-                    {d.media_type ?? NOT_STATED}
-                  </td>
-                  <td data-label="Acceso">{accessLabel(d.access_rights) ?? NOT_STATED}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </section>
   )
 }
 

@@ -1,0 +1,365 @@
+/* Pantalla Consulta SPARQL (valores del prototipo; objetivos táctiles de 44 px). */
+.sparql {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.sparql__header {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sparql__title {
+  margin: 0;
+  font-size: 36px;
+  line-height: 1.12;
+}
+
+.sparql__endpoint {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  word-break: break-all;
+}
+
+.sparql__columns {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 20px;
+}
+
+/* Consultas guardadas */
+.sparql__saved {
+  flex: 1 1 240px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sparql__saved-label {
+  padding: 0 4px 6px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.sparql__saved-state {
+  margin: 0;
+  padding: 0 4px;
+  font-size: 14px;
+  color: var(--color-text-muted);
+}
+
+.sparql__saved-state--error {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  color: #8c1d18;
+}
+
+.sparql__saved-state--error p {
+  margin: 0;
+}
+
+.saved-query {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 56px;
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.saved-query:hover {
+  border-color: var(--color-border);
+}
+
+.saved-query[aria-pressed='true'] {
+  border-color: var(--color-border);
+  background: var(--color-surface);
+}
+
+.saved-query__title {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.saved-query[aria-pressed='true'] .saved-query__title {
+  font-weight: 700;
+}
+
+.saved-query__hint {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.sparql__work {
+  flex: 999 1 560px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* Editor */
+.sparql__editor {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border-radius: var(--radius-card);
+  background: var(--color-code-bg);
+  color: var(--color-code-text);
+}
+
+.sparql__editor :focus-visible {
+  outline-color: var(--color-white);
+}
+
+.sparql__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sparql__editor-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-code-text);
+}
+
+.sparql__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.sparql__button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--touch-target);
+  padding: 0 14px;
+  border: 1px solid var(--sparql-button-border);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--color-white);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.sparql__button:hover {
+  background: rgb(255 255 255 / 0.08);
+}
+
+.sparql__button--run {
+  padding: 0 16px;
+  border-color: var(--sparql-run);
+  background: var(--sparql-run);
+  font-weight: 700;
+}
+
+.sparql__button--run:hover {
+  border-color: var(--sparql-run-hover);
+  background: var(--sparql-run-hover);
+}
+
+.sparql__button[aria-busy='true'] {
+  cursor: progress;
+  opacity: 0.85;
+}
+
+.sparql__textarea {
+  width: 100%;
+  min-height: 300px;
+  padding: 14px;
+  border: 1px solid var(--sparql-editor-border);
+  border-radius: var(--radius);
+  background: var(--sparql-editor-bg);
+  color: var(--color-code-text);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.65;
+  resize: vertical;
+}
+
+.sparql__saved-message {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-code-text);
+}
+
+/* Formulario «Guardar» (no está en el prototipo). */
+.save-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--sparql-editor-border);
+  border-radius: var(--radius);
+}
+
+.save-form__field {
+  flex: 1 1 200px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.save-form__field input {
+  min-height: var(--touch-target);
+  padding: 0 12px;
+  border: 1px solid var(--sparql-editor-border);
+  border-radius: var(--radius);
+  background: var(--sparql-editor-bg);
+  color: var(--color-code-text);
+  font: inherit;
+  font-size: 14px;
+}
+
+.save-form__field input[aria-invalid='true'] {
+  border-color: #f2b8b5;
+}
+
+.save-form__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.save-form__error {
+  flex: 1 1 100%;
+  margin: 0;
+  font-size: 13px;
+  color: #f2b8b5;
+}
+
+/* Resultados */
+.sparql__results {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+}
+
+.sparql__results-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sparql__results-title {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.sparql__count {
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.sparql__formats {
+  border-radius: var(--radius);
+}
+
+.sparql__formats .segmented__button {
+  font-size: 13px;
+}
+
+.sparql__empty {
+  margin: 0;
+  padding: 20px;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius);
+  text-align: center;
+  color: var(--color-text-muted);
+}
+
+.sparql__error {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid #b3261e;
+  border-radius: var(--radius);
+  background: #fbeceb;
+  color: #8c1d18;
+  overflow-wrap: anywhere;
+}
+
+.sparql__note {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.sparql__boolean {
+  margin: 0;
+  font-size: 14px;
+}
+
+.sparql__table-wrap {
+  overflow-x: auto;
+}
+
+.sparql__table {
+  width: 100%;
+  min-width: 620px;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.sparql__table th {
+  padding: 8px 14px 8px 0;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 12px;
+  font-weight: 500;
+  text-align: left;
+  color: var(--color-text-muted);
+}
+
+.sparql__table td {
+  padding: 12px 14px 12px 0;
+  border-bottom: 1px solid var(--color-divider);
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.sparql__code {
+  margin: 0;
+  max-height: 480px;
+  overflow: auto;
+  padding: 14px;
+  border-radius: var(--radius);
+  background: var(--color-code-bg);
+  color: var(--color-code-text);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.65;
+  white-space: pre;
+}
+
+.sparql__code:focus-visible {
+  outline-color: var(--color-link);
+}

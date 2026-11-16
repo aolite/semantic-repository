@@ -65,6 +65,20 @@
   --color-code-tabs: #555554;
   --radius-card: 12px;
 
+  /* Evaluación FAIR: barras por principio (Ficha de dataset) */
+  --fair-f: #662483;
+  --fair-a: #b35099;
+  --fair-i: #3d6fb6;
+  --fair-r: #3c3d91;
+  --fair-track: #e8e4ee;
+
+  /* Consola SPARQL */
+  --sparql-editor-bg: #2a2a29;
+  --sparql-editor-border: #555554;
+  --sparql-button-border: #878787;
+  --sparql-run: #b35099;
+  --sparql-run-hover: #96407f;
+
   /* Tipografía */
   --font-sans: 'Trebuchet MS', 'Today Sans', 'Segoe UI', sans-serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, monospace;

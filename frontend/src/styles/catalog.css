@@ -217,6 +217,50 @@
   color: var(--color-text-muted);
 }
 
+/* «FAIR {n}» con su barra (solo datasets evaluados). */
+.card__fair {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--color-text);
+}
+
+.card__fair-label {
+  font-weight: 700;
+  color: var(--color-brand);
+}
+
+.card__fair-bar {
+  display: block;
+  width: 72px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--fair-track);
+  overflow: hidden;
+}
+
+.card__fair-fill {
+  display: block;
+  height: 100%;
+  background: var(--color-brand);
+}
+
+/* Paginación de los datasets (no está en el prototipo). */
+.pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+
+.pager__status {
+  font-size: 14px;
+  color: var(--color-text-secondary);
+}
+
 /* Tarjetas de vocabularios (pantalla Vocabularios y ontologías, también en el Catálogo). */
 .card__status {
   margin-left: auto;
