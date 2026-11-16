@@ -12,10 +12,13 @@ Flujo:
    despierta al publicar (``notify``) y, además, cada ``FAIR_WORKER_POLL_SECONDS`` (así
    recoge también lo que encola ``load-semantic``, que es otro proceso).
 3. Se llama a ``POST {FUJI_URL}/evaluate`` (API de F-UJI, ``fuji_server/yaml/openapi.yaml``)
-   con la URI de la versión, cambiando ``BASE_URI`` por ``FAIR_TARGET_BASE_URL``, y el
-   endpoint SPARQL equivalente como ``metadata_service_endpoint``
-   (``metadata_service_type=sparql``). ``use_datacite`` y ``use_github`` van a ``false``
-   para que F-UJI haga las menos llamadas externas posibles.
+   con la URL del RDF de la versión bajo ``FAIR_TARGET_BASE_URL`` (``evaluation_target``:
+   la URI persistente redirige con 303 al frontend, que F-UJI no alcanza), y el endpoint
+   SPARQL equivalente como ``metadata_service_endpoint`` (``metadata_service_type=sparql``).
+   La URL evaluada queda en ``fair_evaluations.evaluated_url``. ``use_datacite`` y
+   ``use_github`` van a ``false`` para que F-UJI haga las menos llamadas externas posibles.
+   El informe se guarda tal cual; al servirlo, ``public_report`` cambia
+   ``FAIR_TARGET_BASE_URL`` por ``BASE_URI``.
 4. Las puntuaciones salen **solo** de la respuesta de F-UJI: ``summary.score_percent`` por
    categoría (``F``, ``A``, ``I``, ``R``) y total (``FAIR``), tal cual (F-UJI ya las
    redondea a dos decimales), y el nivel de madurez de ``summary.maturity.FAIR``. Ese
@@ -43,6 +46,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app import audit
 from app.config import Settings
 from app.models import AuditAction, FairEvaluation, User
+from app.uris import Uris, is_slug, is_version
 
 logger = logging.getLogger(__name__)
 
@@ -138,6 +142,68 @@ def target_url(settings: Settings, version_uri: str) -> str:
     if version_uri.startswith(settings.base_uri):
         return settings.fair_base_url + version_uri[len(settings.base_uri) :]
     return version_uri
+
+
+def evaluation_target(settings: Settings, version_uri: str) -> str:
+    """URL que se pasa a F-UJI como ``object_identifier`` (QA-G4-01).
+
+    No es la URI persistente: F-UJI la pide con ``Accept: text/html, */*``, el backend
+    responde 303 a la ficha del frontend (decisión 31) y F-UJI sigue la redirección. El
+    frontend no está en la red de F-UJI (y aunque lo estuviera, es una aplicación de una
+    sola página sin metadatos en el HTML), así que F-UJI no encuentra la página de destino
+    y no recoge ningún metadato. Por eso se le da la representación RDF de la versión, que
+    responde Turtle con cualquier ``Accept`` (``format=turtle``), construida desde
+    ``FAIR_TARGET_BASE_URL``. El RDF identifica la versión con su URI persistente.
+    """
+    uris = Uris(settings.base_uri)
+    if version_uri.startswith(uris.dataset_ns):
+        slug, _, version = version_uri[len(uris.dataset_ns) :].partition("/")
+        if is_slug(slug) and is_version(version):
+            return f"{settings.fair_base_url}datasets/{slug}/rdf?version={version}&format=turtle"
+    return target_url(settings, version_uri)
+
+
+def public_report(
+    settings: Settings,
+    report: Any,
+    *,
+    evaluated_url: str | None = None,
+    version_uri: str | None = None,
+) -> Any:
+    """Informe de F-UJI sin las URLs internas, para servirlo en la API.
+
+    F-UJI repite la URL evaluada (y la del endpoint SPARQL) en la petición, en los
+    resultados y en sus mensajes. Con ``FAIR_TARGET_BASE_URL`` apuntando a un host interno
+    (``http://backend:8000/``), el informe público lo revelaría. Se sustituye:
+
+    1. la URL evaluada (el RDF de la versión, ``evaluation_target``) por la URI persistente
+       de la versión, que es lo que identifica al recurso evaluado;
+    2. cualquier otra aparición de ``FAIR_TARGET_BASE_URL`` por ``BASE_URI``.
+
+    El informe guardado en ``fair_evaluations.report`` no cambia.
+    """
+    internal = settings.fair_base_url
+    public = settings.base_uri
+    replacements: list[tuple[str, str]] = []
+    if evaluated_url and version_uri and evaluated_url != version_uri:
+        replacements.append((evaluated_url, version_uri))
+    if internal != public:
+        replacements += [(internal, public), (internal.rstrip("/"), public.rstrip("/"))]
+    if not replacements:
+        return report
+
+    def clean(value: Any) -> Any:
+        if isinstance(value, str):
+            for old, new in replacements:
+                value = value.replace(old, new)
+            return value
+        if isinstance(value, list):
+            return [clean(item) for item in value]
+        if isinstance(value, dict):
+            return {clean(key): clean(item) for key, item in value.items()}
+        return value
+
+    return clean(report)
 
 
 class FujiClient:
@@ -327,7 +393,7 @@ def evaluate_one(session: Session, settings: Settings, client: FujiClient) -> bo
     row = _claim(session)
     if row is None:
         return False
-    url = target_url(settings, row.version_uri)
+    url = evaluation_target(settings, row.version_uri)
     row.evaluated_url = url
     try:
         report = client.evaluate(url, f"{settings.fair_base_url}sparql")

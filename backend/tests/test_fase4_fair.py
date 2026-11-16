@@ -36,6 +36,8 @@ from tests.fase4_data import V1, V2, editor_headers, publish, series
 FIXTURE = Path(__file__).parent / "fixtures" / "fuji" / "evaluate-respuesta.json"
 REPORT = json.loads(FIXTURE.read_text(encoding="utf-8"))
 VERSION = f"{BASE_URI}dataset/prueba/1.0.0"
+# Lo que se pasa a F-UJI: el RDF de la versión bajo FAIR_TARGET_BASE_URL (QA-G4-01).
+TARGET = "http://backend:8000/datasets/prueba/rdf?version=1.0.0&format=turtle"
 
 
 @pytest.fixture
@@ -113,7 +115,7 @@ def test_publish_enqueues_and_worker_evaluates(
     assert fair.process_pending(session_factory, fuji_settings, ok_client) == 1
 
     sent = json.loads(requests_seen[0].content)
-    assert sent["object_identifier"] == "http://backend:8000/dataset/prueba/1.0.0"
+    assert sent["object_identifier"] == TARGET
     assert sent["metadata_service_endpoint"] == "http://backend:8000/sparql"
     assert sent["metadata_service_type"] == "sparql"
     assert sent["use_datacite"] is False
@@ -128,13 +130,17 @@ def test_publish_enqueues_and_worker_evaluates(
     assert summary["evaluator"] == "F-UJI 4.0.1 (metrics_v0.5)"
     assert summary["evaluated_at"]
     assert summary["report_url"] == "/datasets/prueba/versions/1.0.0/fair/report"
-    assert client.get(summary["report_url"]).json() == REPORT
+    served = client.get(summary["report_url"]).json()
+    assert "backend:8000" not in json.dumps(served)  # sin el host interno
+    assert served["request"]["object_identifier"] == VERSION
+    assert served["request"]["metadata_service_endpoint"] == f"{BASE_URI}sparql"
+    assert served["summary"] == REPORT["summary"]
     card = client.get("/datasets").json()["items"][0]
     assert card["fair_total"] == 70.83
 
     with session_factory() as session:
         row = session.scalars(select(FairEvaluation)).one()
-        assert row.evaluated_url == "http://backend:8000/dataset/prueba/1.0.0"
+        assert row.evaluated_url == TARGET
         event = session.scalars(
             select(AuditEvent).where(AuditEvent.action == AuditAction.FAIR_EVALUATED.value)
         ).one()
