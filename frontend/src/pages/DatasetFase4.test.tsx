@@ -49,7 +49,7 @@ describe('Ficha de dataset · Evaluación FAIR', () => {
     expect(within(fair).getByText('v2.1.0')).toBeInTheDocument()
     expect(within(fair).getByText('41')).toBeInTheDocument()
     expect(within(fair).getByText('/ 100')).toBeInTheDocument()
-    expect(within(fair).getByText('nivel-de-prueba')).toBeInTheDocument()
+    expect(within(fair).getByText('Madurez 1.75 / 3')).toBeInTheDocument()
     expect(
       within(fair).getByText('Puntuación calculada en backend sobre los metadatos y las distribuciones publicadas.'),
     ).toBeInTheDocument()

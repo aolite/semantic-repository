@@ -42,7 +42,10 @@ export function FairSection({ fair, version }: { fair: FairSummary | null; versi
               <span className="fair__max">/ 100</span>
             </div>
             <div className="fair__level">
-              <span className="fair__maturity">{fair.maturity ?? NOT_STATED}</span>
+              <span className="fair__maturity">
+                {/* Madurez de F-UJI tal cual, de 0 a 3 (decisión 46). */}
+                {fair.maturity != null ? `Madurez ${fair.maturity} / 3` : NOT_STATED}
+              </span>
               <span className="fair__note">{FAIR_SCORE_NOTE}</span>
             </div>
           </div>
