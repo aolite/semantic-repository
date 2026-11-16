@@ -16,7 +16,7 @@ El login es público y emite JWT (ADR 0011, ADR 0015). Sin límite de intentos p
 
 El responsable del proyecto ha decidido (decisión 18 de `Plan.md`):
 
-- **Bloqueo por intentos.** Cinco fallos en 15 minutos para el mismo par (usuario, IP) dan un 429 durante 15 minutos, con cabecera `Retry-After`. El bloqueo se aplica aunque la contraseña sea correcta, y un login correcto pone a cero el contador de ese par. El orquestador propuso estos valores y el responsable los aceptó.
+- **Bloqueo por intentos.** Cinco fallos en 15 minutos para el mismo par (usuario, IP) bloquean ese par durante 15 minutos. El quinto fallo responde todavía 401; el bloqueo empieza en el intento siguiente, que recibe 429 con cabecera `Retry-After`. El bloqueo se aplica aunque la contraseña sea correcta, y un login correcto pone a cero el contador de ese par. El orquestador propuso estos valores y el responsable los aceptó.
 - **Valores configurables.** Van por variables de entorno (`LOGIN_MAX_FAILURES`, `LOGIN_WINDOW_MINUTES`, `LOGIN_LOCKOUT_MINUTES`), con esos valores por defecto.
 - **Auditoría.** `login_failure` guarda el `username` intentado, truncado y sin caracteres de control. No guarda contraseñas ni tokens.
 - **Revocación.** Una baja invalida todos los tokens emitidos antes. El contrato de la fase 4 lo implementa con un campo `users.tokens_valid_after`: un token con `iat` anterior da 401. También se actualiza al cambiar la contraseña o el rol. Reactivar una cuenta no revive los tokens viejos.
