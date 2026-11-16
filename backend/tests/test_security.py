@@ -17,23 +17,25 @@ import hashlib
 import hmac
 import json
 import re
+import unicodedata
 import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import httpx
 import jwt
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
-from app import security
+from app import fair, security
 from app.config import Settings
 from app.export_openapi import OPENAPI_PATH
 from app.models import AuditAction, AuditEvent, Role, User
 from app.security import create_access_token
-from tests.conftest import DEFAULT_PASSWORD, FIXTURE_DATA_DIR, FIXTURE_SEMANTIC_DIR
+from tests.conftest import DEFAULT_PASSWORD, FIXTURE_DATA_DIR, FIXTURE_SEMANTIC_DIR, TESTS_DIR
 
 _SERIES_TTL = FIXTURE_DATA_DIR / "sintetico" / "modbus-tcp-testbed.ttl"
 _SCHEME_TTL = FIXTURE_SEMANTIC_DIR / "vocabularios" / "corp" / "trl.ttl"
@@ -381,11 +383,17 @@ def test_promotion_and_demotion_apply_to_the_token_in_use(
     target_headers = login("sube-y-baja")
     assert client.get("/users", headers=target_headers).status_code == 403
 
+    # Fase 4 (decisión 18): un cambio de rol invalida los tokens emitidos antes, así que
+    # el token en uso deja de valer (401) y el rol nuevo llega con un login nuevo.
     client.patch(f"/users/{target.id}", json={"role": "admin"}, headers=admin_headers)
+    assert client.get("/users", headers=target_headers).status_code == 401
+    target_headers = login("sube-y-baja")
     assert client.get("/users", headers=target_headers).status_code == 200
     assert client.get("/auth/me", headers=target_headers).json()["role"] == "admin"
 
     client.patch(f"/users/{target.id}", json={"role": "editor"}, headers=admin_headers)
+    assert client.get("/users", headers=target_headers).status_code == 401
+    target_headers = login("sube-y-baja")
     assert client.get("/users", headers=target_headers).status_code == 403
     assert client.get("/auth/me", headers=target_headers).json()["role"] == "editor"
 
@@ -744,7 +752,10 @@ def test_login_with_control_chars_is_the_generic_401_and_is_not_stored(
         event = list(session.scalars(select(AuditEvent).order_by(AuditEvent.id)))[-1]
     assert event.action == AuditAction.LOGIN_FAILURE
     assert event.details == {"reason": "invalid_username"}
-    assert event.target_username is None
+    # Fase 4 (decisión 18): se guarda el nombre intentado sin caracteres de control (nunca
+    # el valor bruto con NUL), truncado a 64.
+    expected = "".join(c for c in username if unicodedata.category(c) != "Cc")[:64]
+    assert event.target_username == (expected or None)
     assert event.target_user_id is None
     assert event.actor_id is None
 
@@ -947,6 +958,26 @@ def test_audit_never_stores_passwords_tokens_or_hashes(
         headers=headers | {"Content-Type": "text/turtle"},
     )
     assert ontology.status_code == 201, ontology.text
+    # Fase 4: fichero de distribución (subida y descarga restringida), evaluación FAIR,
+    # consultas guardadas y bloqueo de login.
+    member = _bearer(member_token)
+    file_path = "/datasets/modbus-tcp-testbed/versions/2.1.0/distributions/csv/file"
+    uploaded = client.put(file_path, files={"file": ("f.csv", b"a,b\r\n")}, headers=headers)
+    assert uploaded.status_code == 201, uploaded.text
+    downloaded = client.get("/dataset/modbus-tcp-testbed/2.1.0/csv/fichero", headers=member)
+    assert downloaded.status_code == 200
+    report = json.loads((TESTS_DIR / "fixtures" / "fuji" / "evaluate-respuesta.json").read_text())
+    settings.fuji_username, settings.fuji_password = "usuario-fuji", "clave-fuji-de-prueba"
+    fuji = fair.FujiClient(
+        settings, transport=httpx.MockTransport(lambda _r: httpx.Response(200, json=report))
+    )
+    assert fair.process_pending(session_factory, settings, fuji) >= 1
+    saved = client.post(
+        "/sparql/queries", json={"title": "Mía", "query": "ASK {}"}, headers=member
+    ).json()
+    assert client.delete(f"/sparql/queries/{saved['id']}", headers=member).status_code == 204
+    for _ in range(settings.login_max_failures):
+        client.post("/auth/token", data={"username": "bloqueada", "password": wrong_password})
 
     with session_factory() as session:
         actions = set(session.scalars(select(AuditEvent.action)))
@@ -1032,8 +1063,23 @@ def test_audit_details_have_only_the_expected_keys(
             "triples",
             "created",
             "changed",
+            "new_versions",
             "via",
         },
+        # Fase 4.
+        AuditAction.DISTRIBUTION_UPLOADED: {
+            "storage_key",
+            "distribution",
+            "media_type",
+            "byte_size",
+            "sha256",
+            "via",
+        },
+        AuditAction.DISTRIBUTION_DOWNLOADED: {"storage_key", "via"},
+        AuditAction.FAIR_EVALUATED: {"evaluation", "version", "status", "evaluated_url", "total"},
+        AuditAction.SAVED_QUERY_CREATED: {"query"},
+        AuditAction.SAVED_QUERY_DELETED: {"query"},
+        AuditAction.LOGIN_LOCKED: {"failures", "minutes"},
         AuditAction.LOGIN_SUCCESS: set(),
         AuditAction.LOGIN_FAILURE: {"reason"},
         AuditAction.USER_CREATED: {"role", "via"},
@@ -1161,6 +1207,9 @@ def test_openapi_marks_every_private_operation_as_secured(client: TestClient) ->
         ("get", "/vocab/{slug}/{concept}"),
         ("get", "/vocab/corp/{slug}"),
         ("get", "/vocab/corp/{slug}/{concept}"),
+        # Fase 4: informe FAIR y URI persistente de una distribución.
+        ("get", "/datasets/{slug}/versions/{version}/fair/report"),
+        ("get", "/dataset/{slug}/{version}/{dist}"),
     }
     seen = set()
     for path, operations in schema["paths"].items():
@@ -1180,6 +1229,19 @@ def test_openapi_marks_every_private_operation_as_secured(client: TestClient) ->
         ("post", "/datasets"),
         ("post", "/ontologies"),
         ("post", "/schemes"),
+        # Fase 4. Con token opcional (públicos, pero con JWT cambia el límite o el acceso):
+        # el fichero (RESTRICTED), el SPARQL y el listado de consultas guardadas.
+        ("get", "/dataset/{slug}/{version}/{dist}/fichero"),
+        ("get", "/sparql"),
+        ("post", "/sparql"),
+        ("get", "/sparql/queries"),
+        # Con cuenta.
+        ("put", "/datasets/{slug}/versions/{version}/distributions/{dist}/file"),
+        ("post", "/datasets/{slug}/versions/{version}/distributions/{dist}/download-link"),
+        ("post", "/datasets/{slug}/versions/{version}/fair"),
+        ("post", "/sparql/queries"),
+        ("put", "/sparql/queries/{query_id}"),
+        ("delete", "/sparql/queries/{query_id}"),
     }
 
 

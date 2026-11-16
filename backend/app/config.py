@@ -78,9 +78,34 @@ class Settings(BaseSettings):
     # Orígenes CORS separados por comas.
     cors_origins: str = ""
 
-    # Almacenamiento de distribuciones (la interfaz llega en la fase 4).
+    # Almacenamiento de distribuciones (interfaz en ``app.storage``).
     storage_backend: Literal["disk", "r2"] = "disk"
     storage_disk_path: str = "/data/distributions"
+    max_upload_mb: int = Field(default=512, gt=0, le=1024 * 1024)
+    download_link_ttl_seconds: int = Field(default=60, gt=0, le=3600)
+
+    # Evaluador FAIR (F-UJI). Las credenciales son opcionales al arrancar: sin ellas la
+    # evaluación queda ``failed`` con un motivo claro, pero la API funciona.
+    fuji_url: str = "http://fuji:1071/fuji/api/v1"
+    fuji_username: str | None = Field(default=None, repr=False)
+    fuji_password: str | None = Field(default=None, repr=False)
+    fuji_timeout_seconds: float = Field(default=300.0, gt=0, le=3600)
+    # URL base que se pasa a F-UJI en lugar de BASE_URI (vacío = BASE_URI).
+    fair_target_base_url: str = ""
+    # Intervalo del trabajador que recoge las evaluaciones pendientes (0 = desactivado).
+    fair_worker_poll_seconds: float = Field(default=10.0, ge=0, le=3600)
+
+    # SPARQL público (decisión 42).
+    sparql_timeout_seconds: float = Field(default=10.0, gt=0, le=300)
+    sparql_max_rows: int = Field(default=10_000, gt=0, le=1_000_000)
+    sparql_rate_anon_per_min: int = Field(default=30, gt=0, le=100_000)
+    sparql_rate_auth_per_min: int = Field(default=60, gt=0, le=100_000)
+    saved_queries_max_per_user: int = Field(default=50, gt=0, le=10_000)
+
+    # Login (decisión 18).
+    login_max_failures: int = Field(default=5, gt=0, le=1000)
+    login_window_minutes: int = Field(default=15, gt=0, le=24 * 60)
+    login_lockout_minutes: int = Field(default=15, gt=0, le=24 * 60)
 
     @field_validator("base_uri")
     @classmethod
@@ -102,15 +127,25 @@ class Settings(BaseSettings):
             raise ValueError(f"debe tener al menos {minimum} bytes con {algorithm}")
         return value
 
-    @field_validator("fuseki_url", "frontend_base_url")
+    @field_validator("fuseki_url", "frontend_base_url", "fuji_url")
     @classmethod
     def _strip_trailing_slash(cls, value: str) -> str:
         return value.strip().rstrip("/")
 
-    @field_validator("fuseki_user", "fuseki_password")
+    @field_validator("fuseki_user", "fuseki_password", "fuji_username", "fuji_password")
     @classmethod
     def _empty_is_none(cls, value: str | None) -> str | None:
         return value or None
+
+    @field_validator("fair_target_base_url")
+    @classmethod
+    def _target_base(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            return ""
+        if not value.startswith(("http://", "https://")):
+            raise ValueError("FAIR_TARGET_BASE_URL debe ser una URL http(s)")
+        return value if value.endswith("/") else f"{value}/"
 
     @field_validator("semantic_dir")
     @classmethod
@@ -122,6 +157,17 @@ class Settings(BaseSettings):
         if self.fuseki_user and self.fuseki_password:
             return (self.fuseki_user, self.fuseki_password)
         return None
+
+    @property
+    def fuji_credentials(self) -> tuple[str, str] | None:
+        if self.fuji_username and self.fuji_password:
+            return (self.fuji_username, self.fuji_password)
+        return None
+
+    @property
+    def fair_base_url(self) -> str:
+        """URL base con la que F-UJI alcanza las URIs persistentes."""
+        return self.fair_target_base_url or self.base_uri
 
     @property
     def cors_origins_list(self) -> list[str]:

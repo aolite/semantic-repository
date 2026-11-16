@@ -151,13 +151,21 @@ def _minimal_graph() -> Graph:
 
 
 def _snapshot(store: MemoryStore) -> dict[str, Graph]:
-    """Copia de todos los grafos con nombre (para comprobar después que no cambian)."""
+    """Copia de todos los grafos con nombre (para comprobar después que no cambian).
+
+    Fase 4 (decisión 29): publicar la serie ``prueba`` por la API añade
+    ``<catálogo> dcat:dataset <serie>`` al grafo del catálogo. Ese triple es el único
+    cambio permitido fuera del grafo de la serie, así que no se copia (y un catálogo que
+    solo tenga ese triple no cuenta como grafo)."""
+    link = (URIRef(f"{BASE_URI}catalogo"), DCAT.dataset, URIRef(PRUEBA))
     result: dict[str, Graph] = {}
     for name in sorted(store.graph_names()):
         copy = Graph()
         for triple in store.dataset.graph(URIRef(name)):
-            copy.add(triple)
-        result[name] = copy
+            if triple != link:
+                copy.add(triple)
+        if len(copy):
+            result[name] = copy
     return result
 
 
@@ -1128,7 +1136,11 @@ def test_ingest_by_role_and_audit(
         assert events == []
         assert store.graph_names() == set()
         return
-    assert store.graph_names() == {PRUEBA}
+    # Fase 4 (decisión 29): además, el catálogo enlaza la serie.
+    assert store.graph_names() == {PRUEBA, f"{BASE_URI}catalogo"}
+    assert set(store.get_graph(f"{BASE_URI}catalogo")) == {
+        (URIRef(f"{BASE_URI}catalogo"), DCAT.dataset, URIRef(PRUEBA))
+    }
     assert len(events) == 1
     event = events[0]
     assert event.actor_id == user.id
@@ -1141,6 +1153,7 @@ def test_ingest_by_role_and_audit(
         "triples": len(_minimal_graph()),
         "created": True,
         "changed": True,
+        "new_versions": [f"{PRUEBA}/1.0.0"],  # fase 4: versiones encoladas para F-UJI
         "via": "api",
     }
 
@@ -1227,7 +1240,9 @@ def test_rejected_ingests_leave_no_audit_event_and_no_data(
 def test_only_get_and_post_exist_on_the_catalog(
     api: TestClient, loaded_store: MemoryStore, editor_headers: dict[str, str]
 ) -> None:
-    """No hay borrado ni modificación parcial, ni un endpoint SPARQL en la fase 2."""
+    """No hay borrado ni modificación parcial. El endpoint SPARQL público llega en la fase 4
+    (``/sparql``, solo lectura: ver test_fase4_sparql.py); el resto de rutas de Fuseki no
+    existen en el backend."""
     before = _snapshot(loaded_store)
     for method in ("PUT", "PATCH", "DELETE"):
         for path in (
@@ -1239,7 +1254,7 @@ def test_only_get_and_post_exist_on_the_catalog(
         ):
             response = api.request(method, path, headers=editor_headers)
             assert response.status_code == 405, f"{method} {path}"
-    for path in ("/sparql", "/query", "/update", "/data", "/itot/sparql", "/itot/update"):
+    for path in ("/query", "/update", "/data", "/itot/sparql", "/itot/update"):
         for method in ("GET", "POST"):
             response = api.request(method, path, params={"query": "ASK {}"})
             assert response.status_code == 404, f"{method} {path}"
@@ -1385,7 +1400,8 @@ def test_successful_write_does_not_log_credentials(
     with caplog.at_level(logging.DEBUG):
         response = _post(lenient, editor_headers, MINIMAL)
     assert response.status_code == 201, response.text
-    assert seen == [f"Basic {FUSEKI_TEST_BASIC}"]
+    # Fase 4 (decisión 29): dos escrituras, la serie y el enlace desde el catálogo.
+    assert seen == [f"Basic {FUSEKI_TEST_BASIC}"] * 2
     assert _leaks(response.text) == []
     assert _leaks("\n".join(record.getMessage() for record in caplog.records)) == []
 

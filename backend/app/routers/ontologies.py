@@ -43,9 +43,11 @@ def _not_found(exc: Exception) -> HTTPException:
     description=(
         "Recibe una versión de ontología (una owl:Ontology `{BASE_URI}onto/{slug}` con "
         "owl:versionIRI `{BASE_URI}onto/{slug}/{version}`) en Turtle o JSON-LD; las IRIs "
-        "relativas se resuelven contra BASE_URI. Sustituye por completo el grafo con nombre del "
-        "versionIRI. Antes de escribir calcula las métricas OWL (owlready2) y la consistencia "
-        "(Pellet) **sin descargar los owl:imports**, y las guarda como metadatos de la versión. "
+        "relativas se resuelven contra BASE_URI. Las versiones son inmutables: si el versionIRI "
+        "ya está publicado con otro contenido, 409 `version_immutable`; con el mismo, la "
+        "ingesta es idempotente. Antes de escribir calcula las métricas OWL (owlready2) y la "
+        "consistencia (Pellet) **sin descargar los owl:imports**, y las guarda como "
+        "metadatos de la versión. "
         "201 si la versión es nueva; 200 si ya existía (`changed=false` si era idéntica). "
         "Requiere rol editor (admin hereda los permisos de editor)."
     ),
@@ -62,6 +64,10 @@ def _not_found(exc: Exception) -> HTTPException:
         },
         status.HTTP_401_UNAUTHORIZED: {"description": "No autenticado"},
         status.HTTP_403_FORBIDDEN: {"description": "Requiere rol editor o admin"},
+        status.HTTP_409_CONFLICT: {
+            "model": schemas.IngestErrorResponse,
+            "description": "La versionIRI ya está publicada con otro contenido (version_immutable)",
+        },
         status.HTTP_413_CONTENT_TOO_LARGE: {"model": schemas.ErrorResponse},
         status.HTTP_415_UNSUPPORTED_MEDIA_TYPE: {"model": schemas.ErrorResponse},
         status.HTTP_422_UNPROCESSABLE_CONTENT: {
@@ -89,13 +95,16 @@ def create_ontology(
             data, rdf_format, uris.base, max_triples=settings.ingest_max_triples
         )
         prepared = vocab_ingest.prepare_ontology(graph, uris, settings)
+        # Inmutabilidad (409) antes de calcular métricas: no se gasta Pellet en balde.
+        store.ensure_writable()
+        vocab_ingest.check_ontology_immutable(store, prepared)
         # Métricas y consistencia antes de escribir: si owlready2 no puede leerla, 422.
         analysis = vocab_ingest.analyze_ontology(prepared, settings, db)
+        result = vocab_ingest.publish_ontology_and_audit(
+            store, db, prepared, settings, analysis=analysis, actor=editor, via="api"
+        )
     except ingest.IngestError as exc:
         return ingest_error_response(exc)
-    result = vocab_ingest.publish_ontology_and_audit(
-        store, db, prepared, settings, analysis=analysis, actor=editor, via="api"
-    )
     if not result.created:
         response.status_code = status.HTTP_200_OK
     metrics, consistency = result.metrics, result.consistency

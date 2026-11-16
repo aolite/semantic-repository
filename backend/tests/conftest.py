@@ -18,6 +18,11 @@ os.environ["DATABASE_URL"] = "sqlite://"
 os.environ["FUSEKI_URL"] = "http://fuseki.test:3030"
 os.environ["FUSEKI_DATASET"] = "itot"
 os.environ["CORS_ORIGINS"] = "http://localhost:5173"
+# Sin trabajador FAIR en segundo plano: las pruebas llaman a fair.process_pending.
+os.environ["FAIR_WORKER_POLL_SECONDS"] = "0"
+os.environ.pop("FUJI_USERNAME", None)
+os.environ.pop("FUJI_PASSWORD", None)
+os.environ.pop("FAIR_TARGET_BASE_URL", None)
 os.environ.pop("BASE_URI", None)
 os.environ.pop("FUSEKI_USER", None)
 os.environ.pop("FUSEKI_PASSWORD", None)
@@ -36,12 +41,15 @@ from sqlalchemy.pool import StaticPool
 from app import ingest, owl_metrics, vocab_ingest
 from app.config import Settings, get_settings
 from app.db import Base, get_db
-from app.deps import get_triplestore
+from app.deps import get_storage, get_triplestore
 from app.main import create_app
 from app.models import OntologyMetricsRecord, Role, User
 from app.routers.health import get_fuseki_checker
+from app.routers.sparql import get_query_runner
 from app.schemas import ComponentStatus
 from app.security import hash_password
+from app.sparql_public import MemoryQueryRunner
+from app.storage import DiskStorage
 from app.triplestore import MemoryStore
 from app.uris import Uris
 
@@ -71,6 +79,8 @@ def semantic_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
     shutil.copytree(FIXTURE_DATA_DIR, root / "data")
     shutil.copytree(FIXTURE_SEMANTIC_DIR / "vocabularios", root / "vocabularios")
     shutil.copytree(FIXTURE_SEMANTIC_DIR / "ontologias", root / "ontologias")
+    # Consultas de referencia (fase 4): copia de semantic/consultas/ de semantico.
+    shutil.copytree(FIXTURE_SEMANTIC_DIR / "consultas", root / "consultas")
     os.environ["SEMANTIC_DIR"] = str(root)
     ingest.clear_caches()
     return root
@@ -226,11 +236,25 @@ def fuseki_status() -> dict[str, ComponentStatus]:
 
 
 @pytest.fixture
+def file_storage(tmp_path: Path) -> DiskStorage:
+    """Almacenamiento de distribuciones en disco, en una carpeta temporal por prueba."""
+    return DiskStorage(tmp_path / "distribuciones")
+
+
+@pytest.fixture
+def query_runner(store: MemoryStore) -> MemoryQueryRunner:
+    """SPARQL público sobre el mismo ``MemoryStore`` (grafo por defecto = unión)."""
+    return MemoryQueryRunner(store.dataset)
+
+
+@pytest.fixture
 def client(
     settings: Settings,
     session_factory: sessionmaker[Session],
     fuseki_status: dict[str, ComponentStatus],
     store: MemoryStore,
+    file_storage: DiskStorage,
+    query_runner: MemoryQueryRunner,
 ) -> Iterator[TestClient]:
     app = create_app(settings)
 
@@ -244,6 +268,8 @@ def client(
     app.dependency_overrides[get_db] = _get_db
     app.dependency_overrides[get_fuseki_checker] = lambda: lambda _settings: fuseki_status["value"]
     app.dependency_overrides[get_triplestore] = lambda: store
+    app.dependency_overrides[get_storage] = lambda: file_storage
+    app.dependency_overrides[get_query_runner] = lambda: query_runner
     with TestClient(app) as test_client:
         yield test_client
 

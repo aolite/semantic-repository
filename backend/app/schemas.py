@@ -129,6 +129,11 @@ class DatasetCard(BaseModel):
     )
     current_version: str | None
     synthetic: bool
+    fair_total: float | None = Field(
+        default=None,
+        description="Puntuación FAIR total (0-100, tal cual la da F-UJI, con sus decimales) "
+        "de la última evaluación done de la versión actual; null si no hay",
+    )
 
 
 class DatasetPage(BaseModel):
@@ -167,6 +172,19 @@ class DistributionRead(BaseModel):
     access_rights: AccessRights | None = Field(
         description="De la distribución o, si no tiene, de la versión"
     )
+    download: Literal["open", "authenticated", "metadata_only", "unavailable"] = Field(
+        default="unavailable",
+        description="open: PUBLIC con fichero (cualquiera descarga); authenticated: RESTRICTED "
+        "con fichero (miembro o superior); metadata_only: NON_PUBLIC (defensa, nunca hay "
+        "fichero); unavailable: sin fichero o accessRights fuera de la tabla europea",
+    )
+    download_url: str | None = Field(
+        default=None,
+        description="Ruta del fichero (/dataset/{slug}/{version}/{dist}/fichero, relativa a "
+        "la API) cuando download es open o authenticated",
+    )
+    byte_size: int | None = Field(default=None, description="Tamaño del fichero en bytes")
+    sha256: str | None = Field(default=None, description="SHA-256 del fichero (hex)")
 
 
 class ProvenanceStep(BaseModel):
@@ -190,6 +208,31 @@ class DcatMetadata(BaseModel):
     conforms_to: list[ResourceRef]
 
 
+FairStatus = Literal["pending", "running", "done", "failed", "not_evaluated"]
+
+
+class FairSummary(BaseModel):
+    """Evaluación FAIR de una versión con F-UJI (decisión 45).
+
+    ``status`` es el de la evaluación más reciente; las puntuaciones, el nivel, el
+    evaluador y la fecha son los de la última evaluación ``done`` (pueden convivir: una
+    reevaluación en curso muestra la anterior). Todo sale de la respuesta de F-UJI.
+    """
+
+    status: FairStatus
+    total: float | None = Field(description="summary.score_percent.FAIR de F-UJI (0-100)")
+    findable: float | None = Field(description="summary.score_percent.F (0-100)")
+    accessible: float | None = Field(description="summary.score_percent.A (0-100)")
+    interoperable: float | None = Field(description="summary.score_percent.I (0-100)")
+    reusable: float | None = Field(description="summary.score_percent.R (0-100)")
+    maturity: str | None = Field(description="summary.maturity.FAIR de F-UJI, tal cual")
+    evaluator: str | None = Field(description="F-UJI {software_version} ({metric_version})")
+    evaluated_at: str | None = Field(description="Fin de la evaluación (ISO 8601, UTC)")
+    report_url: str | None = Field(
+        description="Ruta del informe completo (relativa a la API) si hay una evaluación done"
+    )
+
+
 class VersionDetail(BaseModel):
     uri: str
     version: str | None
@@ -203,6 +246,7 @@ class VersionDetail(BaseModel):
     distributions: list[DistributionRead]
     provenance: list[ProvenanceStep]
     metadata: DcatMetadata
+    fair: FairSummary | None = Field(default=None, description="Evaluación FAIR (F-UJI)")
 
 
 class DatasetDetail(BaseModel):
@@ -244,9 +288,13 @@ class IngestIssue(BaseModel):
 
 class IngestErrorResponse(BaseModel):
     detail: str
-    kind: Literal["syntax", "structure", "uri", "shacl", "limit"] = Field(
+    kind: Literal[
+        "syntax", "structure", "uri", "shacl", "limit", "version_removed", "version_immutable"
+    ] = Field(
         description="limit: se ha superado un límite de la ingesta (tripletas, tamaño "
-        "expandido, IRI, profundidad o tiempo o memoria de la validación SHACL)"
+        "expandido, IRI, profundidad o tiempo o memoria de la validación SHACL). "
+        "version_removed y version_immutable (409): falta una versión ya publicada o viene "
+        "con otro contenido; las versiones afectadas van en issues (focus_node)"
     )
     issues: list[IngestIssue]
     report: str | None = Field(description="Informe SHACL en texto (solo kind=shacl)")
@@ -254,6 +302,66 @@ class IngestErrorResponse(BaseModel):
 
 class ErrorResponse(BaseModel):
     detail: str
+
+
+# --- Fase 4: ficheros, SPARQL público y consultas guardadas ----------------------------
+
+
+class DistributionFileRead(BaseModel):
+    storage_key: str = Field(description="{slug}/{version}/{dist}")
+    byte_size: int
+    sha256: str
+    media_type: str = Field(description="Del RDF (dcat:mediaType), no del cliente")
+    uploaded_at: datetime
+
+
+class DownloadLink(BaseModel):
+    url: str = Field(
+        description="Ruta de descarga con el token firmado (?token=…), relativa a la API"
+    )
+    expires_at: datetime
+
+
+SAVED_QUERY_MAX_BYTES = 20 * 1024
+
+
+def _check_text(value: str, *, allow_newlines: bool) -> str:
+    for char in value:
+        if char in "\n\r\t" and allow_newlines:
+            continue
+        if has_control_chars(char):
+            raise ValueError("no puede contener caracteres de control")
+    return value
+
+
+class SavedQueryCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(min_length=1, max_length=120)
+    hint: str | None = Field(default=None, max_length=200)
+    query: str = Field(min_length=1, max_length=SAVED_QUERY_MAX_BYTES)
+
+    @field_validator("title", "hint")
+    @classmethod
+    def _single_line(cls, value: str | None) -> str | None:
+        return None if value is None else _check_text(value, allow_newlines=False)
+
+    @field_validator("query")
+    @classmethod
+    def _query_text(cls, value: str) -> str:
+        if len(value.encode("utf-8")) > SAVED_QUERY_MAX_BYTES:
+            raise ValueError("la consulta supera 20 KB")
+        return _check_text(value, allow_newlines=True)
+
+
+class SavedQuery(BaseModel):
+    id: str = Field(description="Slug en las de referencia; UUID en las personales")
+    title: str
+    hint: str | None
+    query: str
+    kind: Literal["reference", "personal"]
+    created_at: str | None
+    updated_at: str | None
 
 
 # --- Vocabularios y ontologías (fase 3) ------------------------------------------------

@@ -21,7 +21,8 @@ from sqlalchemy.orm import Session
 from app.config import Settings, get_settings
 from app.db import get_db
 from app.models import Role, User
-from app.security import InvalidTokenError, decode_access_token
+from app.security import InvalidTokenError, decode_access_token, token_revoked
+from app.storage import Storage, storage_from_settings
 from app.triplestore import FusekiStore, TripleStore
 from app.uris import Uris
 
@@ -52,6 +53,9 @@ def get_current_user_optional(
         raise _unauthorized() from exc
     user = db.get(User, claims.user_id)
     if user is None or not user.is_active:
+        raise _unauthorized()
+    if token_revoked(claims.issued_at_us, user.tokens_valid_after):
+        # Decisión 18: baja, cambio de rol o de contraseña posterior a la emisión.
         raise _unauthorized()
     return user
 
@@ -115,3 +119,11 @@ def get_uris(settings: SettingsDep) -> Uris:
 
 StoreDep = Annotated[TripleStore, Depends(get_triplestore)]
 UrisDep = Annotated[Uris, Depends(get_uris)]
+
+
+def get_storage(settings: SettingsDep) -> Storage:
+    """Almacenamiento de distribuciones según ``STORAGE_BACKEND``. Las pruebas lo sustituyen."""
+    return storage_from_settings(settings)
+
+
+StorageDep = Annotated[Storage, Depends(get_storage)]

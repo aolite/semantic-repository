@@ -163,17 +163,25 @@ def test_changed_content_recomputes(
     assert first.status_code == 201
     assert first.json()["metrics"]["classes"] == 1
     assert first.json()["consistency"]["consistent"] is None
+    # Fase 4 (decisión 28): la versión publicada es inmutable. Otro contenido con la misma
+    # versionIRI es 409 sin recalcular nada; las métricas se recalculan si el contenido
+    # guardado cambia (aquí, el registro de métricas no coincide con el grafo).
     second = client.post(
         "/ontologies", content=_onto(":A a owl:Class . :B a owl:Class ."), headers=editor | TTL
     )
-    assert second.status_code == 200
-    assert second.json()["changed"] is True
-    assert second.json()["metrics_recomputed"] is True
-    assert second.json()["metrics"]["classes"] == 2
-    assert len(calls) == 2
+    assert second.status_code == 409
+    assert second.json()["kind"] == "version_immutable"
+    assert len(calls) == 1
     with session_factory() as session:
         record = session.get(OntologyMetricsRecord, f"{BASE_URI}onto/prueba/1.0.0")
-        assert record is not None and record.metrics["classes"] == 2
+        assert record is not None
+        record.content_hash = "0" * 64  # métricas de otro contenido
+        session.commit()
+    third = client.post("/ontologies", content=_onto(":A a owl:Class ."), headers=editor | TTL)
+    assert third.status_code == 200
+    assert third.json()["changed"] is False
+    assert third.json()["metrics_recomputed"] is True
+    assert len(calls) == 2
 
 
 @requires_java

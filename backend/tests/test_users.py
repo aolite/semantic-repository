@@ -184,13 +184,15 @@ def test_role_change_applies_to_existing_tokens(
     admin_headers: dict[str, str],
     login: Callable[..., dict[str, str]],
 ) -> None:
-    """El rol se lee de la BD: degradar a un admin le quita el acceso al momento."""
+    """Degradar a un admin le quita el acceso al momento. Desde la fase 4 (decisión 18),
+    el cambio de rol invalida los tokens emitidos antes (401); con uno nuevo, 403."""
     other = make_user("admin2", Role.ADMIN)
     other_headers = login("admin2")
     assert client.get("/users", headers=other_headers).status_code == 200
 
     client.patch(f"/users/{other.id}", json={"role": "miembro"}, headers=admin_headers)
-    assert client.get("/users", headers=other_headers).status_code == 403
+    assert client.get("/users", headers=other_headers).status_code == 401
+    assert client.get("/users", headers=login("admin2")).status_code == 403
 
 
 def test_deactivate_and_reactivate(
