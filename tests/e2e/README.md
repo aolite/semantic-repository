@@ -47,7 +47,7 @@ Lo que esta prueba no cubre: el contenido que pinta el navegador en las pantalla
 
 La prueba de caducidad espera de verdad `DOWNLOAD_LINK_TTL_SECONDS` y la de límites espera al inicio de un minuto: G4 tarda unos tres minutos más que G3.
 
-Puntuación real de F-UJI 4.0.1 con los datos sintéticos: 8.33 sobre 100 (F 14.29, A 33.33, I 0, R 0, madurez 1.0), porque F-UJI no llega a los metadatos (QA-G4-01).
+Puntuación real de F-UJI 4.0.1 con los datos sintéticos (versión actual de cada dataset): total 52.08 (F 35.71, A 100, I 50, R 50), con madurez 2.0 en `modbus-tcp-testbed` y 1.75 en los otros dos.
 
 ## Puerta G3 · vocabularios cargados
 
@@ -79,15 +79,17 @@ Para comprobar que el backend no sale a buscar una URL que viene en el RDF (un `
 
 Los hallazgos de las fases 2 y 3 (QA-G2-01 a QA-G2-07 y QA-G3-01 a QA-G3-13) están corregidos: sus pruebas pasan sin marca, aquí y en `backend/tests/`. En la fase 4 lo corrigieron las decisiones 28 a 30 y 44 (versiones inmutables, `q` por URI, catálogo en `dcat:dataset` y `IED ⊑ ActivoIndustrial`), con pruebas en `test_g4_fair_versiones.py`.
 
-Hallazgos abiertos de la fase 4 (`xfail(strict=True)`: la prueba avisa cuando se corrijan):
+Hallazgos de la fase 4: **todos cerrados** y sus pruebas pasan sin marca (reverificación sobre `integracion/fase4`).
 
-| Id | Capa | Defecto |
-|---|---|---|
-| QA-G4-01 | `backend` | F-UJI no llega a los metadatos de un dataset (8.33 sobre 100; con la URL del RDF, 52.08): pide `/dataset/{slug}/{versión}` con `Accept: text/html, */*`, recibe el 303 al frontend (`FRONTEND_BASE_URL`, que no resuelve desde `fuji-net`) y el respaldo por SPARQL envía `DESCRIBE <None>` con `Accept: application/rdf+xml` (406) |
-| QA-G4-02 | `backend` | El log de acceso de uvicorn escribe el enlace de descarga con su `?token=` firmado |
-| QA-G4-03 | `backend` | Un `SELECT` de más de 32 MB da 400 en lugar de truncarse a `SPARQL_MAX_ROWS` con `X-Result-Truncated` |
-| QA-G4-05 | `backend` | Subidas simultáneas del mismo fichero dan 500 (carrera al insertar `distribution_files`) |
-| QA-G4-04 | `frontend` | Lo que se escribe en el editor antes de que carguen las consultas guardadas se pierde (solo en `tests/browser/`) |
+| Id | Capa | Defecto | Estado |
+|---|---|---|---|
+| QA-G4-01 | `backend` | F-UJI no llegaba a los metadatos (8.33 sobre 100) | Cerrado: evalúa la URL del RDF; 52.08 con los datos sintéticos (madurez 1.75 o 2.0). El informe público muestra la URI persistente y no el host interno |
+| QA-G4-02 | `backend` | El log de acceso escribía el `?token=` firmado | Cerrado: `token=[oculto]` |
+| QA-G4-03 | `backend` | Un `SELECT` de más de 32 MB daba 400 en vez de truncarse | Cerrado: truncado en streaming con `X-Result-Truncated` |
+| QA-G4-04 | `frontend` | Se perdía lo escrito en el editor antes de cargar las consultas guardadas | Cerrado (`tests/browser/`) |
+| QA-G4-05 | `backend` | Subidas simultáneas del mismo fichero daban 500 | Cerrado: 200 idempotente o 409 `file_exists` |
+
+Un hallazgo nuevo se marca con `xfail(strict=True)` y su `QA-G4-NN` hasta que se corrija.
 
 ### Requisitos
 

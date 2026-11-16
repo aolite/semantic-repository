@@ -9,8 +9,8 @@ La evaluación FAIR es la real: F-UJI corre dentro del Compose (red interna ``fu
 evalúa el dataset a través del backend. Nada de esto simula F-UJI.
 
 Comparte el entorno de ``conftest.py`` con G1 a G3 y se ejecuta después. Crea sus propias
-cuentas. Los defectos conocidos llevan ``xfail(strict=True)`` con su identificador
-``QA-G4-NN``; ver ``tests/e2e/README.md``. La prueba de límites de frecuencia va la última
+cuentas. Los defectos que se abran llevan ``xfail(strict=True)`` con su identificador
+``QA-G4-NN`` (hoy ninguno abierto); ver ``tests/e2e/README.md``. La prueba de límites de frecuencia va la última
 porque agota el cupo anónimo del minuto.
 """
 
@@ -366,11 +366,19 @@ def test_las_puntuaciones_salen_solo_del_informe_de_fuji(
         assert fair["reusable"] == percent["R"]
         assert fair["maturity"] == str(summary["maturity"]["FAIR"])
         assert data["software_version"] in fair["evaluator"]
-        # A F-UJI se le pasa la URL base interna, no el dominio de BASE_URI.
+        # El informe público muestra la URI persistente con BASE_URI, no la URL interna.
         request = data["request"]
-        assert request["object_identifier"] == (
-            f"{stack.example_env['FAIR_TARGET_BASE_URL']}dataset/{slug}/{version}"
+        base = stack.env["BASE_URI"]
+        assert request["object_identifier"] == f"{base}dataset/{slug}/{version}"
+        # En la base de datos queda la URL del RDF que evaluó F-UJI (red interna).
+        internal = stack.example_env["FAIR_TARGET_BASE_URL"]
+        stored = stack.psql(
+            "select evaluated_url from fair_evaluations where status = 'done' and "
+            f"version_uri = '{base}dataset/{slug}/{version}' order by finished_at desc limit 1"
         )
+        assert stored == [f"{internal}datasets/{slug}/rdf?version={version}&format=turtle"]
+        # Ni el informe ni sus URLs filtran el host interno.
+        assert "backend:8000" not in report.text and internal not in report.text
         assert request["use_datacite"] is False
         # La evaluación es completa: F-UJI ha aplicado sus pruebas, no un resultado vacío.
         assert data["total_metrics"] == len(data["results"]) >= 15
@@ -388,16 +396,6 @@ def test_la_ficha_de_cada_version_antigua_tiene_su_propia_evaluacion(
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "QA-G4-01: F-UJI no llega a los metadatos. Pide /dataset/{slug}/{version} con "
-        "`Accept: text/html, */*` y recibe el 303 al frontend (FRONTEND_BASE_URL, que no "
-        "resuelve desde fuji-net: connection refused); y el respaldo por "
-        "SPARQL envía `DESCRIBE <None>` con `Accept: application/rdf+xml` (406). "
-        "Puntuación real: 8.33 sobre 100 frente a 52.08 si se le da la URL del RDF."
-    ),
-)
 def test_fuji_lee_los_metadatos_del_dataset_pese_al_303(
     stack: Stack, evaluated: dict[str, dict]
 ) -> None:
@@ -743,14 +741,6 @@ def test_las_distribuciones_publicas_restringidas_y_de_defensa_de_una_serie_nuev
     assert modes == {"abierta": "open", "restringida": "authenticated", "defensa": "metadata_only"}
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "QA-G4-05: subidas simultáneas del mismo fichero a la misma distribución dan 500 "
-        "(IntegrityError al insertar dos veces `distribution_files.storage_key`) en lugar de "
-        "201 la primera y 200 idempotente las demás"
-    ),
-)
 def test_subidas_simultaneas_del_mismo_fichero_son_idempotentes(
     stack: Stack, g4_editor: Account
 ) -> None:
@@ -788,13 +778,6 @@ def test_dos_enlaces_simultaneos_del_mismo_token_solo_descargan_una_vez(
     assert statuses.count(200) == 1 and statuses.count(401) == 19, statuses
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "QA-G4-02: el log de acceso de uvicorn escribe la URL completa del enlace de descarga, "
-        "con su `?token=` firmado, en los logs del contenedor del backend"
-    ),
-)
 def test_los_logs_no_contienen_los_enlaces_firmados(stack: Stack, loaded: str) -> None:
     logs = stack.compose("logs", "--no-color", "--no-log-prefix", "backend", timeout=120)
     text = logs.stdout + logs.stderr
@@ -1076,14 +1059,6 @@ def test_el_sparql_publico_no_se_cuelga_con_consultas_costosas_ni_enormes(
     assert _json(_sparql(stack, "ASK {}", token=g4_editor.token))["boolean"] is True
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "QA-G4-03: una consulta SELECT cuyo resultado supera 32 MB responde 400 «demasiado "
-        "grande» en lugar de truncarse a SPARQL_MAX_ROWS con X-Result-Truncated: el ejecutor "
-        "lee toda la respuesta de Fuseki antes de recortar las filas"
-    ),
-)
 def test_un_select_enorme_se_trunca_en_vez_de_dar_400(
     stack: Stack, loaded: str, g4_editor: Account
 ) -> None:

@@ -111,10 +111,10 @@ test('un miembro guarda una consulta personal; otro miembro y el anónimo no la 
   expect(removed.status).toBe(204)
 })
 
-// QA-G4-04 (frontend): lo que se escribe en el editor antes de que lleguen las consultas
+// QA-G4-04 (corregido): lo que se escribe en el editor antes de que lleguen las consultas
 // guardadas se pierde, porque al llegar se carga el texto de la primera de referencia. Se
 // reproduce de forma determinista retrasando la respuesta de `/sparql/queries`.
-test.fail('QA-G4-04: el texto escrito antes de que carguen las consultas guardadas se conserva', async ({ page }) => {
+test('QA-G4-04: el texto escrito antes de que carguen las consultas guardadas se conserva', async ({ page }) => {
   await page.route('**/sparql/queries', async (route) => {
     await new Promise((resolve) => setTimeout(resolve, 1500))
     await route.continue()
