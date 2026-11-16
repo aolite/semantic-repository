@@ -14,7 +14,8 @@
 - esquemas: ``{FRONTEND_BASE_URL}/vocabularios/{slug}`` o ``/vocabularios/corp/{slug}``
   (``?concepto=`` en un concepto).
 
-Sin ``Accept`` o con ``*/*``: Turtle. Un recurso que no existe da 404 en cualquier formato.
+Sin ``Accept`` o con ``*/*``: 303 al frontend, como con ``text/html`` (decisión 31). El RDF
+solo sale con un ``Accept`` de RDF. Un recurso que no existe da 404 en cualquier formato.
 """
 
 from typing import Annotated
@@ -34,7 +35,8 @@ from app.uris import SLUG_PATTERN, VERSION_PATTERN, Uris
 onto_router = APIRouter(prefix="/onto", tags=["linked-data"])
 vocab_router = APIRouter(prefix="/vocab", tags=["linked-data"])
 
-OFFERED = [TURTLE, JSONLD, RDFXML, HTML]
+# HTML primero: sin Accept o con */* gana el 303 al frontend (decisión 31).
+OFFERED = [HTML, TURTLE, JSONLD, RDFXML]
 
 SlugPath = Annotated[str, Path(pattern=SLUG_PATTERN, max_length=200)]
 VersionPath = Annotated[str, Path(pattern=VERSION_PATTERN, max_length=50)]
@@ -44,7 +46,9 @@ RESPONSES = {
         "description": "RDF del recurso",
         "content": {m: {"schema": RDF_BODY_SCHEMA} for m in (TURTLE, JSONLD, RDFXML)},
     },
-    status.HTTP_303_SEE_OTHER: {"description": "Accept: text/html. Redirige al frontend"},
+    status.HTTP_303_SEE_OTHER: {
+        "description": "Sin Accept, con */* o con text/html: redirige al frontend"
+    },
     status.HTTP_404_NOT_FOUND: {"model": schemas.ErrorResponse},
     status.HTTP_406_NOT_ACCEPTABLE: {"model": schemas.ErrorResponse},
     status.HTTP_503_SERVICE_UNAVAILABLE: {"model": schemas.ErrorResponse},

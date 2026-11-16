@@ -422,7 +422,9 @@ def list_vocabularies(
         for c in cards
         if (kind is None or c.kind == kind)
         and (domain is None or (c.domain is not None and c.domain.slug == domain))
-        and _matches(q, c.title, c.prefix, c.namespace)
+        # Decisión 30: título, descripción, prefijo y URI del recurso (sin BASE_URI, que
+        # comparten todos los recursos propios), pero ya no el espacio de nombres.
+        and _matches(q, c.title, c.description, c.prefix, uris.searchable_uri(c.uri))
     ]
     items.sort(key=lambda c: (KIND_ORDER[c.kind], normalize(c.title or ""), c.uri))
     return schemas.VocabularyPage(items=items, total=len(items), counts=counts)

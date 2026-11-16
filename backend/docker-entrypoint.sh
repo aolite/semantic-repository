@@ -11,4 +11,6 @@ fi
 # Valida la configuración antes de tocar la base de datos (sin JWT_SECRET no arranca).
 python -c "from app.config import get_settings; get_settings()"
 alembic upgrade head
-exec uvicorn app.main:app --host 0.0.0.0 --port 8000
+# --log-config: el formato de uvicorn de siempre, con un filtro que oculta el valor de
+# `token=` (enlaces de descarga firmados) en el log de acceso (app/log_filters.py).
+exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --log-config app/log_config.json

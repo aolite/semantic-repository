@@ -1,6 +1,8 @@
 """Catálogo de datasets: lectura pública (lector anónimo) e ingesta (editor; admin hereda).
 
-En la fase 2 solo hay metadatos: ninguna ruta sirve el contenido de las distribuciones.
+Los ficheros de distribución y la evaluación FAIR (fase 4) están en
+``app.routers.dataset_files``; el fichero en sí se sirve en
+``/dataset/{slug}/{version}/{dist}/fichero`` (``app.routers.linked_data``).
 """
 
 from typing import Annotated, Literal
@@ -9,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Res
 from fastapi.responses import JSONResponse
 from rdflib import Graph, URIRef
 
-from app import catalog, downloads, ingest, schemas
+from app import catalog, downloads, fair_views, ingest, schemas
 from app.deps import DbDep, SettingsDep, StoreDep, UrisDep, require_role
 from app.models import Role, User
 from app.negotiation import JSONLD, TURTLE, negotiate
@@ -76,9 +78,12 @@ def ingest_error_response(exc: ingest.IngestError) -> JSONResponse:
         issues=[schemas.IngestIssue(**issue.__dict__) for issue in exc.issues],
         report=exc.report,
     )
-    return JSONResponse(
-        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, content=body.model_dump()
+    code = (
+        status.HTTP_409_CONFLICT
+        if exc.kind in ingest.CONFLICT_KINDS
+        else status.HTTP_422_UNPROCESSABLE_CONTENT
     )
+    return JSONResponse(status_code=code, content=body.model_dump())
 
 
 @router.post(
@@ -90,8 +95,11 @@ def ingest_error_response(exc: ingest.IngestError) -> JSONResponse:
         "Recibe la serie completa (dcat:DatasetSeries con sus dcat:Dataset y "
         "dcat:Distribution) en Turtle o JSON-LD; las IRIs relativas se resuelven contra "
         "BASE_URI. Sustituye por completo el grafo con nombre `{BASE_URI}dataset/{slug}`. "
-        "201 si la serie es nueva; 200 si ya existía (con `changed=false` si el contenido era "
-        "idéntico). Requiere rol editor (admin hereda los permisos de editor)."
+        "Las versiones ya publicadas son inmutables: tienen que venir todas y con el mismo "
+        "contenido (409 `version_removed` o `version_immutable`, con las versiones en "
+        "`issues`). Las versiones nuevas se encolan para evaluarlas con F-UJI en segundo "
+        "plano. 201 si la serie es nueva; 200 si ya existía (con `changed=false` si el "
+        "contenido era idéntico). Requiere rol editor (admin hereda los permisos de editor)."
     ),
     openapi_extra={
         "requestBody": {
@@ -106,6 +114,11 @@ def ingest_error_response(exc: ingest.IngestError) -> JSONResponse:
         status.HTTP_200_OK: {"model": schemas.IngestResult, "description": "Serie sustituida"},
         status.HTTP_401_UNAUTHORIZED: {"description": "No autenticado"},
         status.HTTP_403_FORBIDDEN: {"description": "Requiere rol editor o admin"},
+        status.HTTP_409_CONFLICT: {
+            "model": schemas.IngestErrorResponse,
+            "description": "Versión publicada ausente (version_removed) o con otro contenido "
+            "(version_immutable)",
+        },
         status.HTTP_413_CONTENT_TOO_LARGE: {"model": schemas.ErrorResponse},
         status.HTTP_415_UNSUPPORTED_MEDIA_TYPE: {"model": schemas.ErrorResponse},
         status.HTTP_422_UNPROCESSABLE_CONTENT: {
@@ -135,7 +148,10 @@ def create_dataset(
         prepared = ingest.prepare_series(graph, uris, settings.semantic_dir)
     except ingest.IngestError as exc:
         return ingest_error_response(exc)
-    result = ingest.publish_and_audit(store, db, prepared, actor=editor, via="api")
+    try:
+        result = ingest.publish_and_audit(store, db, prepared, actor=editor, via="api")
+    except ingest.IngestError as exc:  # 409: versiones inmutables (decisión 28)
+        return ingest_error_response(exc)
     if not result.created:
         response.status_code = status.HTTP_200_OK
     return schemas.IngestResult(
@@ -158,19 +174,22 @@ def create_dataset(
 def list_datasets(
     store: StoreDep,
     uris: UrisDep,
+    db: DbDep,
     q: Annotated[
         str | None,
         Query(
             max_length=200,
-            description="Texto en título, descripción y temas (sin distinguir mayúsculas ni "
-            "acentos)",
+            description="Texto en título, descripción, temas o URI de la serie (subcadena, "
+            "sin distinguir mayúsculas ni acentos)",
         ),
     ] = None,
     domain: Annotated[DomainSlug | None, Query(description="Slug del dominio")] = None,
     page: Annotated[int, Query(ge=1, le=10_000)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 20,
 ) -> schemas.DatasetPage:
-    return catalog.list_datasets(store, uris, q=q, domain=domain, page=page, page_size=page_size)
+    result = catalog.list_datasets(store, uris, q=q, domain=domain, page=page, page_size=page_size)
+    fair_views.add_fair_totals(db, uris, result.items)
+    return result
 
 
 @router.get(
@@ -183,12 +202,15 @@ def list_datasets(
     },
 )
 def get_dataset(
-    slug: SlugPath, store: StoreDep, uris: UrisDep, version: VersionQuery = None
+    slug: SlugPath, store: StoreDep, uris: UrisDep, db: DbDep, version: VersionQuery = None
 ) -> schemas.DatasetDetail:
     try:
-        return catalog.get_dataset(store, uris, slug, version)
+        detail = catalog.get_dataset(store, uris, slug, version)
     except catalog.NotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No existe") from exc
+    if detail.version is not None:
+        fair_views.enrich_version(db, uris, slug, detail.version)
+    return detail
 
 
 RDF_RESPONSES = {

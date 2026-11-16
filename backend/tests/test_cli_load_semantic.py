@@ -20,8 +20,9 @@ from app import cli as cli_module
 from app import ingest, owl_metrics, vocab_ingest
 from app.config import get_settings
 from app.models import AuditAction, AuditEvent, OntologyMetricsRecord
+from app.storage import DiskStorage
 from app.triplestore import MemoryStore
-from tests.conftest import BASE_URI
+from tests.conftest import BASE_URI, FIXTURE_DATA_DIR
 
 runner = CliRunner()
 
@@ -56,14 +57,24 @@ EXPECTED_GRAPHS = {
 }
 
 
+# Ficheros sintéticos de las fixtures (copia de semantic/data/sintetico/ficheros/).
+SYNTHETIC_FILES = sorted(
+    path for path in (FIXTURE_DATA_DIR / "sintetico" / "ficheros").rglob("*") if path.is_file()
+)
+
+
 @pytest.fixture(autouse=True)
 def _cli_uses_test_doubles(
     monkeypatch: pytest.MonkeyPatch,
     session_factory: sessionmaker[Session],
     store: MemoryStore,
+    tmp_path: Path,
 ) -> None:
     monkeypatch.setattr(cli_module, "get_sessionmaker", lambda: session_factory)
     monkeypatch.setattr(cli_module, "get_store", lambda _settings: store)
+    # Las fixtures traen los ficheros sintéticos (fase 4): se suben a una carpeta temporal.
+    storage = DiskStorage(tmp_path / "distribuciones")
+    monkeypatch.setattr(cli_module, "get_file_storage", lambda _settings: storage)
     # La app se importa (y cachea la configuración) antes de que la fixture ``semantic_dir``
     # fije SEMANTIC_DIR: sin esto, la CLI leería el semantic/ del repositorio.
     get_settings.cache_clear()
@@ -109,6 +120,7 @@ def test_load_semantic_loads_everything(
         AuditAction.DATASET_PUBLISHED: 3,
         AuditAction.SCHEME_PUBLISHED: len(SCHEMES),
         AuditAction.ONTOLOGY_PUBLISHED: len(ONTOLOGY_VERSIONS),
+        AuditAction.DISTRIBUTION_UPLOADED: len(SYNTHETIC_FILES),
     }
     assert {e.actor_username for e in events} == {"cli"}
     assert {e.details["via"] for e in events} == {"cli"}
@@ -122,7 +134,7 @@ def test_load_semantic_is_idempotent(store: MemoryStore, metric_calls: list[str]
     metric_calls.clear()
     result = runner.invoke(cli_module.cli, ["load-semantic"])
     assert result.exit_code == 0, result.output
-    assert result.output.count("sin cambios") == len(EXPECTED_GRAPHS)
+    assert result.output.count("sin cambios") == len(EXPECTED_GRAPHS) + len(SYNTHETIC_FILES)
     assert result.output.count("métricas al día") == len(ONTOLOGY_VERSIONS)
     assert metric_calls == []  # el contenido no ha cambiado: no se recalcula
     assert {name: len(store.get_graph(name)) for name in store.graph_names()} == snapshot

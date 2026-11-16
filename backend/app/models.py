@@ -9,7 +9,18 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, Enum, ForeignKey, String, Text, Uuid
+from sqlalchemy import (
+    JSON,
+    BigInteger,
+    DateTime,
+    Enum,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    Uuid,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -37,6 +48,12 @@ class AuditAction(enum.StrEnum):
     DATASET_PUBLISHED = "dataset_published"
     ONTOLOGY_PUBLISHED = "ontology_published"
     SCHEME_PUBLISHED = "scheme_published"
+    DISTRIBUTION_UPLOADED = "distribution_uploaded"
+    DISTRIBUTION_DOWNLOADED = "distribution_downloaded"
+    FAIR_EVALUATED = "fair_evaluated"
+    SAVED_QUERY_CREATED = "saved_query_created"
+    SAVED_QUERY_DELETED = "saved_query_deleted"
+    LOGIN_LOCKED = "login_locked"
 
 
 class User(Base):
@@ -59,6 +76,11 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+    # Decisión 18: los JWT emitidos antes de este instante dejan de valer (baja, cambio
+    # de rol o de contraseña). Reactivar la cuenta no lo borra.
+    tokens_valid_after: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
 
 
@@ -106,3 +128,101 @@ class OntologyMetricsRecord(Base):
     consistency: Mapped[dict[str, Any]] = mapped_column(JSON)
     tool: Mapped[str] = mapped_column(Text)
     computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class DistributionFile(Base):
+    """Fichero de una distribución (decisiones 40 y 41).
+
+    El RDF publicado no cambia al subir un fichero: tamaño y SHA-256 viven aquí.
+    ``storage_key`` es ``{slug}/{version}/{dist}``, igual en disco y en R2.
+    """
+
+    __tablename__ = "distribution_files"
+
+    storage_key: Mapped[str] = mapped_column(String(512), primary_key=True)
+    distribution_uri: Mapped[str] = mapped_column(String(1024), index=True)
+    media_type: Mapped[str] = mapped_column(String(255))
+    byte_size: Mapped[int] = mapped_column(BigInteger)
+    sha256: Mapped[str] = mapped_column(String(64))
+    uploaded_by: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class UsedDownloadToken(Base):
+    """Enlaces de descarga firmados ya usados (son de un solo uso)."""
+
+    __tablename__ = "used_download_tokens"
+
+    jti: Mapped[str] = mapped_column(String(64), primary_key=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class FairEvaluation(Base):
+    """Evaluación FAIR de una versión de dataset con F-UJI. Se conserva el historial."""
+
+    __tablename__ = "fair_evaluations"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    version_uri: Mapped[str] = mapped_column(String(1024), index=True)
+    status: Mapped[str] = mapped_column(String(16), index=True)
+    score_total: Mapped[float | None] = mapped_column(Float, nullable=True)
+    score_f: Mapped[float | None] = mapped_column(Float, nullable=True)
+    score_a: Mapped[float | None] = mapped_column(Float, nullable=True)
+    score_i: Mapped[float | None] = mapped_column(Float, nullable=True)
+    score_r: Mapped[float | None] = mapped_column(Float, nullable=True)
+    maturity: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    evaluator: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    evaluated_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    report: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    requested_by: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class SavedQuery(Base):
+    """Consulta SPARQL personal (decisión 43). Se guarda el texto, no se ejecuta."""
+
+    __tablename__ = "saved_queries"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    owner_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    title: Mapped[str] = mapped_column(String(120))
+    hint: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    query: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class LoginAttempt(Base):
+    """Fallos de login por (usuario normalizado, IP) (decisión 18)."""
+
+    __tablename__ = "login_attempts"
+
+    username: Mapped[str] = mapped_column(String(64), primary_key=True)
+    ip: Mapped[str] = mapped_column(String(64), primary_key=True)
+    failures: Mapped[int] = mapped_column(Integer, default=0)
+    window_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class RateLimitCounter(Base):
+    """Contador de ventana fija (un minuto) del límite de frecuencia del SPARQL público.
+
+    En la base de datos para que valga con varios workers o réplicas del backend.
+    """
+
+    __tablename__ = "rate_limit_counters"
+
+    key: Mapped[str] = mapped_column(String(160), primary_key=True)
+    window: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    count: Mapped[int] = mapped_column(Integer, default=0)

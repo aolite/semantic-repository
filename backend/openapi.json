@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Repositorio semántico IT&OT · API",
-    "description": "API del catálogo DCAT-AP del repositorio semántico IT&OT. Fase 1: health checks, autenticación JWT y gestión de cuentas. Fase 2: lectura del catálogo, ingesta validada con SHACL y negociación de contenido en las URIs persistentes. Fase 3: ingesta y lectura de ontologías (con métricas OWL y consistencia) y de esquemas SKOS, y negociación en sus URIs persistentes.",
+    "description": "API del catálogo DCAT-AP del repositorio semántico IT&OT. Fase 1: health checks, autenticación JWT y gestión de cuentas. Fase 2: lectura del catálogo, ingesta validada con SHACL y negociación de contenido en las URIs persistentes. Fase 3: ingesta y lectura de ontologías (con métricas OWL y consistencia) y de esquemas SKOS, y negociación en sus URIs persistentes. Fase 4: versiones inmutables, ficheros de distribución con acceso por rol, evaluación FAIR con F-UJI, SPARQL público con límites, consultas guardadas y bloqueo de login.",
     "version": "0.1.0"
   },
   "paths": {
@@ -64,6 +64,7 @@
           "auth"
         ],
         "summary": "Login con usuario y contraseña; devuelve un JWT con el rol",
+        "description": "Tras LOGIN_MAX_FAILURES fallos en LOGIN_WINDOW_MINUTES para el mismo (usuario, IP), ese par queda bloqueado LOGIN_LOCKOUT_MINUTES: 429 con Retry-After, aunque la contraseña sea correcta. Un login correcto pone el contador a cero.",
         "operationId": "login_auth_token_post",
         "requestBody": {
           "content": {
@@ -88,6 +89,16 @@
           },
           "401": {
             "description": "Credenciales no válidas"
+          },
+          "429": {
+            "description": "Demasiados intentos fallidos; ver Retry-After",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           },
           "422": {
             "description": "Validation Error",
@@ -293,7 +304,7 @@
           "datasets"
         ],
         "summary": "Publica una serie de dataset (con sus versiones) validada con SHACL",
-        "description": "Recibe la serie completa (dcat:DatasetSeries con sus dcat:Dataset y dcat:Distribution) en Turtle o JSON-LD; las IRIs relativas se resuelven contra BASE_URI. Sustituye por completo el grafo con nombre `{BASE_URI}dataset/{slug}`. 201 si la serie es nueva; 200 si ya existía (con `changed=false` si el contenido era idéntico). Requiere rol editor (admin hereda los permisos de editor).",
+        "description": "Recibe la serie completa (dcat:DatasetSeries con sus dcat:Dataset y dcat:Distribution) en Turtle o JSON-LD; las IRIs relativas se resuelven contra BASE_URI. Sustituye por completo el grafo con nombre `{BASE_URI}dataset/{slug}`. Las versiones ya publicadas son inmutables: tienen que venir todas y con el mismo contenido (409 `version_removed` o `version_immutable`, con las versiones en `issues`). Las versiones nuevas se encolan para evaluarlas con F-UJI en segundo plano. 201 si la serie es nueva; 200 si ya existía (con `changed=false` si el contenido era idéntico). Requiere rol editor (admin hereda los permisos de editor).",
         "operationId": "create_dataset_datasets_post",
         "security": [
           {
@@ -326,6 +337,16 @@
           },
           "403": {
             "description": "Requiere rol editor o admin"
+          },
+          "409": {
+            "description": "Versión publicada ausente (version_removed) o con otro contenido (version_immutable)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestErrorResponse"
+                }
+              }
+            }
           },
           "413": {
             "content": {
@@ -407,10 +428,10 @@
                   "type": "null"
                 }
               ],
-              "description": "Texto en título, descripción y temas (sin distinguir mayúsculas ni acentos)",
+              "description": "Texto en título, descripción, temas o URI de la serie (subcadena, sin distinguir mayúsculas ni acentos)",
               "title": "Q"
             },
-            "description": "Texto en título, descripción y temas (sin distinguir mayúsculas ni acentos)"
+            "description": "Texto en título, descripción, temas o URI de la serie (subcadena, sin distinguir mayúsculas ni acentos)"
           },
           {
             "name": "domain",
@@ -717,6 +738,923 @@
         }
       }
     },
+    "/datasets/{slug}/versions/{version}/distributions/{dist}/file": {
+      "put": {
+        "tags": [
+          "datasets"
+        ],
+        "summary": "Sube el fichero de una distribución (inmutable)",
+        "description": "Cuerpo `multipart/form-data` con un campo `file`. El tipo de medio se toma del RDF (dcat:mediaType; si falta, application/octet-stream), nunca del cliente. 201 si se guarda; 200 si ya había un fichero con el mismo SHA-256 (idempotente); 409 `file_exists` si había otro contenido; 409 `non_public` si el dct:accessRights efectivo es NON_PUBLIC (solo metadatos); 413 si supera MAX_UPLOAD_MB. Requiere rol editor (admin hereda). Auditoría `distribution_uploaded`.",
+        "operationId": "upload_distribution_file_datasets__slug__versions__version__distributions__dist__file_put",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+              "description": "Slug de la serie (semantic/uris.md)",
+              "title": "Slug"
+            },
+            "description": "Slug de la serie (semantic/uris.md)"
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 50,
+              "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+              "description": "Versión MAYOR.MENOR.PARCHE",
+              "title": "Version"
+            },
+            "description": "Versión MAYOR.MENOR.PARCHE"
+          },
+          {
+            "name": "dist",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+              "description": "Slug de la distribución",
+              "title": "Dist"
+            },
+            "description": "Slug de la distribución"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DistributionFileRead"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "El mismo fichero ya estaba subido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DistributionFileRead"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "No autenticado"
+          },
+          "403": {
+            "description": "Requiere rol editor o admin"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "description": "file_exists (otro contenido) o non_public (NON_PUBLIC)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/datasets/{slug}/versions/{version}/distributions/{dist}/download-link": {
+      "post": {
+        "tags": [
+          "datasets"
+        ],
+        "summary": "Enlace de descarga firmado (miembro o superior)",
+        "description": "Devuelve la ruta del fichero (relativa a la API) con un `?token=` firmado por el servidor (HMAC), ligado al fichero y al usuario, de un solo uso y válido DOWNLOAD_LINK_TTL_SECONDS. Así el navegador descarga con un enlace normal sin poner el JWT en la URL. 404 si la distribución no tiene fichero descargable.",
+        "operationId": "create_download_link_datasets__slug__versions__version__distributions__dist__download_link_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+              "description": "Slug de la serie (semantic/uris.md)",
+              "title": "Slug"
+            },
+            "description": "Slug de la serie (semantic/uris.md)"
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 50,
+              "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+              "description": "Versión MAYOR.MENOR.PARCHE",
+              "title": "Version"
+            },
+            "description": "Versión MAYOR.MENOR.PARCHE"
+          },
+          {
+            "name": "dist",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+              "description": "Slug de la distribución",
+              "title": "Dist"
+            },
+            "description": "Slug de la distribución"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DownloadLink"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No autenticado"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/datasets/{slug}/versions/{version}/fair/report": {
+      "get": {
+        "tags": [
+          "datasets"
+        ],
+        "summary": "Informe completo de F-UJI de la última evaluación done (JSON)",
+        "operationId": "get_fair_report_datasets__slug__versions__version__fair_report_get",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+              "description": "Slug de la serie (semantic/uris.md)",
+              "title": "Slug"
+            },
+            "description": "Slug de la serie (semantic/uris.md)"
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 50,
+              "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+              "description": "Versión MAYOR.MENOR.PARCHE",
+              "title": "Version"
+            },
+            "description": "Versión MAYOR.MENOR.PARCHE"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Respuesta de F-UJI (su esquema FAIRResults) sin URLs internas: la URL evaluada pasa a ser la URI persistente de la versión y FAIR_TARGET_BASE_URL pasa a BASE_URI",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/datasets/{slug}/versions/{version}/fair": {
+      "post": {
+        "tags": [
+          "datasets"
+        ],
+        "summary": "Pide una nueva evaluación FAIR con F-UJI (editor)",
+        "description": "Encola la evaluación y responde enseguida (202) con el estado `pending` (o el de la que ya está en curso). Al terminar se audita `fair_evaluated` con su estado.",
+        "operationId": "reevaluate_fair_datasets__slug__versions__version__fair_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+              "description": "Slug de la serie (semantic/uris.md)",
+              "title": "Slug"
+            },
+            "description": "Slug de la serie (semantic/uris.md)"
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 50,
+              "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+              "description": "Versión MAYOR.MENOR.PARCHE",
+              "title": "Version"
+            },
+            "description": "Versión MAYOR.MENOR.PARCHE"
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FairSummary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No autenticado"
+          },
+          "403": {
+            "description": "Requiere rol editor o admin"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sparql": {
+      "get": {
+        "tags": [
+          "sparql"
+        ],
+        "summary": "Endpoint SPARQL público de solo lectura",
+        "operationId": "sparql_get_sparql_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "query",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Consulta SPARQL (SELECT, ASK, CONSTRUCT o DESCRIBE)",
+              "title": "Query"
+            },
+            "description": "Consulta SPARQL (SELECT, ASK, CONSTRUCT o DESCRIBE)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SELECT/ASK: application/sparql-results+json (por defecto) o text/csv. CONSTRUCT/DESCRIBE: text/turtle (por defecto), application/ld+json, application/rdf+xml o application/n-triples. Con `X-Result-Truncated: true` si se ha recortado a SPARQL_MAX_ROWS",
+            "content": {
+              "application/sparql-results+json": {
+                "schema": {
+                  "type": "object"
+                }
+              },
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "text/turtle": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "application/ld+json": {
+                "schema": {
+                  "type": "object"
+                }
+              },
+              "application/rdf+xml": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "application/n-triples": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Sintaxis, actualización, SERVICE o FROM fuera del repositorio",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token no válido"
+          },
+          "406": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Acceptable"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
+          },
+          "429": {
+            "description": "Límite de frecuencia; ver Retry-After",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Gateway Timeout"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "sparql"
+        ],
+        "summary": "Endpoint SPARQL público de solo lectura (POST)",
+        "operationId": "sparql_post_sparql_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SELECT/ASK: application/sparql-results+json (por defecto) o text/csv. CONSTRUCT/DESCRIBE: text/turtle (por defecto), application/ld+json, application/rdf+xml o application/n-triples. Con `X-Result-Truncated: true` si se ha recortado a SPARQL_MAX_ROWS",
+            "content": {
+              "application/sparql-results+json": {
+                "schema": {
+                  "type": "object"
+                }
+              },
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "text/turtle": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "application/ld+json": {
+                "schema": {
+                  "type": "object"
+                }
+              },
+              "application/rdf+xml": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "application/n-triples": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Sintaxis, actualización, SERVICE o FROM fuera del repositorio",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token no válido"
+          },
+          "406": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Acceptable"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
+          },
+          "429": {
+            "description": "Límite de frecuencia; ver Retry-After",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Gateway Timeout"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/sparql-query": {
+              "schema": {
+                "type": "string"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "query"
+                ],
+                "properties": {
+                  "query": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sparql/queries": {
+      "get": {
+        "tags": [
+          "sparql"
+        ],
+        "summary": "Consultas guardadas: las de referencia y, con sesión, las personales",
+        "operationId": "list_queries_sparql_queries_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SavedQuery"
+                  },
+                  "type": "array",
+                  "title": "Response List Queries Sparql Queries Get"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token no válido"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "sparql"
+        ],
+        "summary": "Guarda una consulta personal (miembro o superior)",
+        "operationId": "create_query_sparql_queries_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SavedQueryCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedQuery"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No autenticado"
+          },
+          "409": {
+            "description": "Se ha alcanzado SAVED_QUERIES_MAX_PER_USER",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
+      }
+    },
+    "/sparql/queries/{query_id}": {
+      "put": {
+        "tags": [
+          "sparql"
+        ],
+        "summary": "Modifica una consulta personal (solo su dueño)",
+        "operationId": "update_query_sparql_queries__query_id__put",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "query_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Query Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SavedQueryCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedQuery"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No autenticado"
+          },
+          "404": {
+            "description": "No existe, es de otro usuario o es de referencia",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "sparql"
+        ],
+        "summary": "Borra una consulta personal (solo su dueño)",
+        "operationId": "delete_query_sparql_queries__query_id__delete",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "query_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Query Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "No autenticado"
+          },
+          "404": {
+            "description": "No existe, es de otro usuario o es de referencia",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/dataset/{slug}": {
       "get": {
         "tags": [
@@ -739,7 +1677,7 @@
         ],
         "responses": {
           "200": {
-            "description": "RDF del recurso",
+            "description": "RDF del recurso (solo con un Accept de RDF)",
             "content": {
               "text/turtle": {
                 "schema": {
@@ -752,11 +1690,17 @@
                   "type": "string",
                   "description": "RDF serializado"
                 }
+              },
+              "application/rdf+xml": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
               }
             }
           },
           "303": {
-            "description": "Accept: text/html. Redirige a la ficha del frontend"
+            "description": "Sin Accept, con */* o con text/html: redirige a la ficha del frontend"
           },
           "404": {
             "content": {
@@ -834,7 +1778,7 @@
         ],
         "responses": {
           "200": {
-            "description": "RDF del recurso",
+            "description": "RDF del recurso (solo con un Accept de RDF)",
             "content": {
               "text/turtle": {
                 "schema": {
@@ -847,11 +1791,17 @@
                   "type": "string",
                   "description": "RDF serializado"
                 }
+              },
+              "application/rdf+xml": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
               }
             }
           },
           "303": {
-            "description": "Accept: text/html. Redirige a la ficha del frontend"
+            "description": "Sin Accept, con */* o con text/html: redirige a la ficha del frontend"
           },
           "404": {
             "content": {
@@ -872,6 +1822,253 @@
               }
             },
             "description": "Not Acceptable"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dataset/{slug}/{version}/{dist}": {
+      "get": {
+        "tags": [
+          "linked-data"
+        ],
+        "summary": "URI persistente de una distribución (su dcat:accessURL)",
+        "operationId": "resolve_distribution_dataset__slug___version___dist__get",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+              "title": "Slug"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 50,
+              "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+              "title": "Version"
+            }
+          },
+          {
+            "name": "dist",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+              "description": "Slug de la distribución",
+              "title": "Dist"
+            },
+            "description": "Slug de la distribución"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "RDF del recurso (solo con un Accept de RDF)",
+            "content": {
+              "text/turtle": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              },
+              "application/ld+json": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              },
+              "application/rdf+xml": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              }
+            }
+          },
+          "303": {
+            "description": "Sin Accept, con */* o con text/html: redirige a la ficha del frontend"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "406": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Acceptable"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dataset/{slug}/{version}/{dist}/fichero": {
+      "get": {
+        "tags": [
+          "linked-data"
+        ],
+        "summary": "Fichero de una distribución (control de acceso por dct:accessRights)",
+        "description": "PUBLIC con fichero: cualquiera. RESTRICTED con fichero: `Authorization: Bearer` válido o `?token=` firmado y vigente (de `POST …/download-link`, un solo uso); sin ellos 401. NON_PUBLIC o sin fichero: 404. Se sirve en streaming con el `Content-Type` del RDF y `Content-Disposition: attachment`. Las descargas RESTRICTED se auditan (`distribution_downloaded`).",
+        "operationId": "download_file_dataset__slug___version___dist__fichero_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+              "title": "Slug"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 50,
+              "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+              "title": "Version"
+            }
+          },
+          {
+            "name": "dist",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+              "description": "Slug de la distribución",
+              "title": "Dist"
+            },
+            "description": "Slug de la distribución"
+          },
+          {
+            "name": "token",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 4096
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Enlace firmado de POST …/download-link",
+              "title": "Token"
+            },
+            "description": "Enlace firmado de POST …/download-link"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Contenido del fichero",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
           },
           "503": {
             "content": {
@@ -1013,7 +2210,7 @@
           "ontologies"
         ],
         "summary": "Publica una versión de ontología validada con SHACL y calcula sus métricas",
-        "description": "Recibe una versión de ontología (una owl:Ontology `{BASE_URI}onto/{slug}` con owl:versionIRI `{BASE_URI}onto/{slug}/{version}`) en Turtle o JSON-LD; las IRIs relativas se resuelven contra BASE_URI. Sustituye por completo el grafo con nombre del versionIRI. Antes de escribir calcula las métricas OWL (owlready2) y la consistencia (Pellet) **sin descargar los owl:imports**, y las guarda como metadatos de la versión. 201 si la versión es nueva; 200 si ya existía (`changed=false` si era idéntica). Requiere rol editor (admin hereda los permisos de editor).",
+        "description": "Recibe una versión de ontología (una owl:Ontology `{BASE_URI}onto/{slug}` con owl:versionIRI `{BASE_URI}onto/{slug}/{version}`) en Turtle o JSON-LD; las IRIs relativas se resuelven contra BASE_URI. Las versiones son inmutables: si el versionIRI ya está publicado con otro contenido, 409 `version_immutable`; con el mismo, la ingesta es idempotente. Antes de escribir calcula las métricas OWL (owlready2) y la consistencia (Pellet) **sin descargar los owl:imports**, y las guarda como metadatos de la versión. 201 si la versión es nueva; 200 si ya existía (`changed=false` si era idéntica). Requiere rol editor (admin hereda los permisos de editor).",
         "operationId": "create_ontology_ontologies_post",
         "requestBody": {
           "content": {
@@ -1058,6 +2255,16 @@
           },
           "403": {
             "description": "Requiere rol editor o admin"
+          },
+          "409": {
+            "description": "La versionIRI ya está publicada con otro contenido (version_immutable)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestErrorResponse"
+                }
+              }
+            }
           },
           "413": {
             "description": "Content Too Large",
@@ -2015,7 +3222,7 @@
             }
           },
           "303": {
-            "description": "Accept: text/html. Redirige al frontend"
+            "description": "Sin Accept, con */* o con text/html: redirige al frontend"
           },
           "404": {
             "content": {
@@ -2116,7 +3323,7 @@
             }
           },
           "303": {
-            "description": "Accept: text/html. Redirige al frontend"
+            "description": "Sin Accept, con */* o con text/html: redirige al frontend"
           },
           "404": {
             "content": {
@@ -2206,7 +3413,7 @@
             }
           },
           "303": {
-            "description": "Accept: text/html. Redirige al frontend"
+            "description": "Sin Accept, con */* o con text/html: redirige al frontend"
           },
           "404": {
             "content": {
@@ -2307,7 +3514,7 @@
             }
           },
           "303": {
-            "description": "Accept: text/html. Redirige al frontend"
+            "description": "Sin Accept, con */* o con text/html: redirige al frontend"
           },
           "404": {
             "content": {
@@ -2397,7 +3604,7 @@
             }
           },
           "303": {
-            "description": "Accept: text/html. Redirige al frontend"
+            "description": "Sin Accept, con */* o con text/html: redirige al frontend"
           },
           "404": {
             "content": {
@@ -2498,7 +3705,7 @@
             }
           },
           "303": {
-            "description": "Accept: text/html. Redirige al frontend"
+            "description": "Sin Accept, con */* o con text/html: redirige al frontend"
           },
           "404": {
             "content": {
@@ -3171,6 +4378,18 @@
           "synthetic": {
             "type": "boolean",
             "title": "Synthetic"
+          },
+          "fair_total": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fair Total",
+            "description": "Puntuación FAIR total (0-100, tal cual la da F-UJI, con sus decimales) de la última evaluación done de la versión actual; null si no hay"
           }
         },
         "type": "object",
@@ -3497,6 +4716,42 @@
         ],
         "title": "DcatMetadata"
       },
+      "DistributionFileRead": {
+        "properties": {
+          "storage_key": {
+            "type": "string",
+            "title": "Storage Key",
+            "description": "{slug}/{version}/{dist}"
+          },
+          "byte_size": {
+            "type": "integer",
+            "title": "Byte Size"
+          },
+          "sha256": {
+            "type": "string",
+            "title": "Sha256"
+          },
+          "media_type": {
+            "type": "string",
+            "title": "Media Type",
+            "description": "Del RDF (dcat:mediaType), no del cliente"
+          },
+          "uploaded_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Uploaded At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "storage_key",
+          "byte_size",
+          "sha256",
+          "media_type",
+          "uploaded_at"
+        ],
+        "title": "DistributionFileRead"
+      },
       "DistributionRead": {
         "properties": {
           "uri": {
@@ -3558,6 +4813,54 @@
               }
             ],
             "description": "De la distribución o, si no tiene, de la versión"
+          },
+          "download": {
+            "type": "string",
+            "enum": [
+              "open",
+              "authenticated",
+              "metadata_only",
+              "unavailable"
+            ],
+            "title": "Download",
+            "description": "open: PUBLIC con fichero (cualquiera descarga); authenticated: RESTRICTED con fichero (miembro o superior); metadata_only: NON_PUBLIC (defensa, nunca hay fichero); unavailable: sin fichero o accessRights fuera de la tabla europea",
+            "default": "unavailable"
+          },
+          "download_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Download Url",
+            "description": "Ruta del fichero (/dataset/{slug}/{version}/{dist}/fichero, relativa a la API) cuando download es open o authenticated"
+          },
+          "byte_size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Byte Size",
+            "description": "Tamaño del fichero en bytes"
+          },
+          "sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sha256",
+            "description": "SHA-256 del fichero (hex)"
           }
         },
         "type": "object",
@@ -3661,6 +4964,26 @@
         "title": "DomainRef",
         "description": "Dominio: concepto ``{BASE_URI}vocab/dominio/{slug}``, el ``dct:subject`` del esquema\nde los temas del dataset (o del propio esquema SKOS)."
       },
+      "DownloadLink": {
+        "properties": {
+          "url": {
+            "type": "string",
+            "title": "Url",
+            "description": "Ruta de descarga con el token firmado (?token=…), relativa a la API"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Expires At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "url",
+          "expires_at"
+        ],
+        "title": "DownloadLink"
+      },
       "ErrorResponse": {
         "properties": {
           "detail": {
@@ -3673,6 +4996,144 @@
           "detail"
         ],
         "title": "ErrorResponse"
+      },
+      "FairSummary": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "running",
+              "done",
+              "failed",
+              "not_evaluated"
+            ],
+            "title": "Status"
+          },
+          "total": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total",
+            "description": "summary.score_percent.FAIR de F-UJI (0-100)"
+          },
+          "findable": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Findable",
+            "description": "summary.score_percent.F (0-100)"
+          },
+          "accessible": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accessible",
+            "description": "summary.score_percent.A (0-100)"
+          },
+          "interoperable": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Interoperable",
+            "description": "summary.score_percent.I (0-100)"
+          },
+          "reusable": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reusable",
+            "description": "summary.score_percent.R (0-100)"
+          },
+          "maturity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Maturity",
+            "description": "summary.maturity.FAIR de F-UJI, tal cual"
+          },
+          "evaluator": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evaluator",
+            "description": "F-UJI {software_version} ({metric_version})"
+          },
+          "evaluated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evaluated At",
+            "description": "Fin de la evaluación (ISO 8601, UTC)"
+          },
+          "report_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Report Url",
+            "description": "Ruta del informe completo (relativa a la API) si hay una evaluación done"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "total",
+          "findable",
+          "accessible",
+          "interoperable",
+          "reusable",
+          "maturity",
+          "evaluator",
+          "evaluated_at",
+          "report_url"
+        ],
+        "title": "FairSummary",
+        "description": "Evaluación FAIR de una versión con F-UJI (decisión 45).\n\n``status`` es el de la evaluación más reciente; las puntuaciones, el nivel, el\nevaluador y la fecha son los de la última evaluación ``done`` (pueden convivir: una\nreevaluación en curso muestra la anterior). Todo sale de la respuesta de F-UJI."
       },
       "HTTPValidationError": {
         "properties": {
@@ -3769,10 +5230,12 @@
               "structure",
               "uri",
               "shacl",
-              "limit"
+              "limit",
+              "version_removed",
+              "version_immutable"
             ],
             "title": "Kind",
-            "description": "limit: se ha superado un límite de la ingesta (tripletas, tamaño expandido, IRI, profundidad o tiempo o memoria de la validación SHACL)"
+            "description": "limit: se ha superado un límite de la ingesta (tripletas, tamaño expandido, IRI, profundidad o tiempo o memoria de la validación SHACL). version_removed y version_immutable (409): falta una versión ya publicada o viene con otro contenido; las versiones afectadas van en issues (focus_node)"
           },
           "issues": {
             "items": {
@@ -4749,6 +6212,110 @@
         "title": "Role",
         "description": "Roles con cuenta. ``lector`` (anónimo) no se guarda en la base de datos."
       },
+      "SavedQuery": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "description": "Slug en las de referencia; UUID en las personales"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hint"
+          },
+          "query": {
+            "type": "string",
+            "title": "Query"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "reference",
+              "personal"
+            ],
+            "title": "Kind"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "hint",
+          "query",
+          "kind",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "SavedQuery"
+      },
+      "SavedQueryCreate": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Title"
+          },
+          "hint": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hint"
+          },
+          "query": {
+            "type": "string",
+            "maxLength": 20480,
+            "minLength": 1,
+            "title": "Query"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "title",
+          "query"
+        ],
+        "title": "SavedQueryCreate"
+      },
       "SchemeDetail": {
         "properties": {
           "slug": {
@@ -5379,6 +6946,17 @@
           },
           "metadata": {
             "$ref": "#/components/schemas/DcatMetadata"
+          },
+          "fair": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FairSummary"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Evaluación FAIR (F-UJI)"
           }
         },
         "type": "object",

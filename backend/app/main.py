@@ -1,21 +1,27 @@
 """Aplicación FastAPI del repositorio semántico IT&OT."""
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app import __version__
+from app import __version__, fair
 from app.config import Settings, get_settings
+from app.db import get_sessionmaker
 from app.routers import (
     auth,
+    dataset_files,
     datasets,
     health,
     linked_data,
     linked_data_vocab,
     ontologies,
     schemes,
+    sparql,
     users,
     vocabularies,
 )
@@ -28,8 +34,14 @@ API_DESCRIPTION = (
     "Fase 2: lectura del catálogo, ingesta validada con SHACL y negociación de contenido "
     "en las URIs persistentes. "
     "Fase 3: ingesta y lectura de ontologías (con métricas OWL y consistencia) y de esquemas "
-    "SKOS, y negociación en sus URIs persistentes."
+    "SKOS, y negociación en sus URIs persistentes. "
+    "Fase 4: versiones inmutables, ficheros de distribución con acceso por rol, evaluación "
+    "FAIR con F-UJI, SPARQL público con límites, consultas guardadas y bloqueo de login."
 )
+
+# Cabeceras que el navegador puede leer en respuestas CORS (aviso de truncado del SPARQL,
+# espera de un 429 y nombre del fichero descargado).
+EXPOSED_HEADERS = ["X-Result-Truncated", "Retry-After", "Content-Disposition"]
 
 
 # Claves de cada error de validación que se devuelven al cliente. Se omiten ``input`` y
@@ -62,7 +74,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     """Crea la aplicación. Valida la configuración: sin ``JWT_SECRET`` no arranca."""
     settings = settings or get_settings()
 
-    app = FastAPI(title=API_TITLE, description=API_DESCRIPTION, version=__version__)
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        # Trabajador de las evaluaciones FAIR (F-UJI). FAIR_WORKER_POLL_SECONDS=0 lo apaga
+        # (pruebas). Si F-UJI no está, las evaluaciones quedan failed; la API sigue.
+        worker = None
+        if settings.fair_worker_poll_seconds > 0:
+            worker = fair.FairWorker(get_sessionmaker, settings)
+            worker.start()
+        try:
+            yield
+        finally:
+            if worker is not None:
+                worker.stop()
+
+    app = FastAPI(
+        title=API_TITLE, description=API_DESCRIPTION, version=__version__, lifespan=lifespan
+    )
 
     if settings.cors_origins_list:
         app.add_middleware(
@@ -71,6 +99,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             allow_credentials=False,
             allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
             allow_headers=["Authorization", "Content-Type", "Accept"],
+            expose_headers=EXPOSED_HEADERS,
         )
 
     app.add_exception_handler(RequestValidationError, validation_exception_handler)
@@ -80,6 +109,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(auth.router)
     app.include_router(users.router)
     app.include_router(datasets.router)
+    app.include_router(dataset_files.router)
+    app.include_router(sparql.router)
     app.include_router(linked_data.router)
     app.include_router(vocabularies.router)
     app.include_router(ontologies.router)

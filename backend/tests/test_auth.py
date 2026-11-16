@@ -1,5 +1,6 @@
 import base64
 import json
+import unicodedata
 import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -250,8 +251,10 @@ def test_login_with_control_chars_is_rejected_and_audited(
     assert len(events) == 1
     assert events[0].action == AuditAction.LOGIN_FAILURE
     assert events[0].details == {"reason": "invalid_username"}
-    # No se guarda el valor bruto ni se asocia a ninguna cuenta.
-    assert events[0].target_username is None
+    # Fase 4 (decisión 18): se guarda el nombre intentado sin caracteres de control y
+    # truncado a 64, nunca el valor bruto, y no se asocia a ninguna cuenta.
+    sanitized = "".join(c for c in username if unicodedata.category(c) != "Cc")[:64]
+    assert events[0].target_username == (sanitized or None)
     assert events[0].target_user_id is None
     assert events[0].actor_id is None
 

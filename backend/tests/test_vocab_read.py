@@ -99,7 +99,9 @@ def test_vocabularies_without_metrics(client: TestClient, vocab_store: MemorySto
     ("q", "expected"),
     [
         ("saref", {"https://saref.etsi.org/core/"}),
-        ("onto/itot#", {ONTO}),
+        # Fase 4 (decisión 30): q busca en la URI del recurso, no en su espacio de nombres.
+        ("onto/itot#", set()),
+        ("onto/itot", {ONTO}),
         ("MADUREZ TECNOLOGICA", {f"{BASE_URI}vocab/corp/trl"}),  # sin acentos ni mayúsculas
         ("ectrl", {f"{BASE_URI}vocab/corp/trl"}),
         ("nada-que-coincida", set()),
