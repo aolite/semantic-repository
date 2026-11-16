@@ -242,7 +242,7 @@ export interface VersionDetail {
   provenance: ProvenanceStep[]
   metadata: DcatMetadata
   /** Evaluación FAIR (fase 4); null si no aplica. */
-  fair: FairSummary | null
+  fair?: FairSummary | null
 }
 
 /** Esquema `VersionSummary`: entrada del historial (de la más reciente a la más antigua). */
