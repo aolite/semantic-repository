@@ -31,22 +31,24 @@ services:
   fuseki:
     image: secoresearch/fuseki:6.2.0
     restart: unless-stopped
-    # Se copia infra/fuseki/shiro.ini (plantilla) antes del entrypoint original de la
-    # imagen, porque este escribe la contraseña en el fichero con sed y no admite
-    # montarlo directamente. El comando es el CMD original de la imagen.
-    entrypoint:
-      - /bin/bash
-      - -c
-      - cp /shiro.ini.template /fuseki-base/shiro.ini && exec /docker-entrypoint.sh java -cp '*:/javalibs/*' org.apache.jena.fuseki.main.cmds.FusekiServerCmd
+    # infra/fuseki/entrypoint.sh genera shiro.ini desde la plantilla infra/fuseki/shiro.ini
+    # (con las contraseñas de admin y backend) antes del entrypoint original de la imagen,
+    # que no admite montar el fichero directamente.
+    entrypoint: ["/bin/bash", "/entrypoint.sh"]
+    # CMD original de la imagen; el entrypoint lo pasa al de la imagen.
+    command: ["java", "-cp", "*:/javalibs/*", "org.apache.jena.fuseki.main.cmds.FusekiServerCmd"]
     environment:
-      # El entrypoint de la imagen escribe esta contraseña en shiro.ini.
-      ADMIN_PASSWORD: ${FUSEKI_ADMIN_PASSWORD}
+      # Contraseñas de los usuarios admin y backend: las escribe infra/fuseki/entrypoint.sh
+      # en shiro.ini.
+      FUSEKI_ADMIN_PASSWORD: ${FUSEKI_ADMIN_PASSWORD:?define FUSEKI_ADMIN_PASSWORD en .env (ver .env.example)}
+      FUSEKI_BACKEND_PASSWORD: ${FUSEKI_BACKEND_PASSWORD:?define FUSEKI_BACKEND_PASSWORD en .env (ver .env.example)}
     ports:
       - "127.0.0.1:${FUSEKI_HOST_PORT:-3030}:3030"
     volumes:
       - fuseki-data:/fuseki-base/databases
       - ./infra/fuseki/assembler.ttl:/fuseki-base/configuration/assembler.ttl:ro
       - ./infra/fuseki/shiro.ini:/shiro.ini.template:ro
+      - ./infra/fuseki/entrypoint.sh:/entrypoint.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:3030/$$/ping"]
       interval: 5s
@@ -54,8 +56,39 @@ services:
       retries: 20
       start_period: 20s
 
-  # F-UJI (evaluador FAIR) entra en la fase 4: se añadirá aquí un servicio `fuji`
-  # con imagen fijada, sin puertos publicados, y el backend dependerá de él.
+  # F-UJI (evaluador FAIR). infra/fuji/Dockerfile parte de la imagen oficial del proyecto
+  # pangaea-data-publisher/fuji (tag 4.0.1) fijada por digest y le añade el Chromium que la
+  # imagen oficial no trae y sin el cual no arranca. Solo hay imagen linux/amd64: en arm64
+  # (Apple Silicon) corre emulada, de ahí `platform` y el start_period largo. Sin puertos en
+  # el host.
+  # Solo está en la red interna `fuji-net` (internal: true, sin salida a internet) junto al
+  # backend: ver "F-UJI y llamadas externas" en infra/README.md.
+  fuji:
+    build:
+      context: ./infra/fuji
+    image: itot-fuji:4.0.1
+    platform: linux/amd64
+    restart: unless-stopped
+    # La imagen refresca la lista de repositorios de DataCite al arrancar si su fichero tiene
+    # más de 24 h; el `touch` lo evita y usa la lista incluida (ver infra/README.md).
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - touch /usr/src/app/fuji_server/data/repodois.yaml && exec python3 -m fuji_server -c /usr/src/app/fuji_server/config/server.ini
+    environment:
+      FUJI_USERNAME: ${FUJI_USERNAME:?define FUJI_USERNAME en .env (ver .env.example)}
+      FUJI_PASSWORD: ${FUJI_PASSWORD:?define FUJI_PASSWORD en .env (ver .env.example)}
+    volumes:
+      # Sustituye a los usuarios de ejemplo de la imagen por los de FUJI_USERNAME/FUJI_PASSWORD.
+      - ./infra/fuji/users.py:/usr/src/app/fuji_server/config/users.py:ro
+    networks:
+      - fuji-net
+    healthcheck:
+      # La imagen no trae curl ni wget: se usa Python. La interfaz Swagger no pide credenciales.
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:1071/fuji/api/v1/ui/', timeout=5)"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 60s
 
   backend:
     build: ./backend
@@ -65,10 +98,10 @@ services:
     environment:
       # Ruta dentro del contenedor de los datos semánticos (montados abajo).
       SEMANTIC_DIR: /semantic
-      # Usuario y contraseña de escritura en Fuseki: la contraseña se toma de
-      # FUSEKI_ADMIN_PASSWORD para no duplicarla en .env.
-      FUSEKI_USER: ${FUSEKI_USER:-admin}
-      FUSEKI_PASSWORD: ${FUSEKI_ADMIN_PASSWORD}
+      # Usuario y contraseña de escritura en Fuseki: usuario `backend`, con su propia
+      # contraseña (FUSEKI_BACKEND_PASSWORD). `admin` queda solo para administrar Fuseki.
+      FUSEKI_USER: ${FUSEKI_USER:-backend}
+      FUSEKI_PASSWORD: ${FUSEKI_BACKEND_PASSWORD:?define FUSEKI_BACKEND_PASSWORD en .env (ver .env.example)}
     ports:
       - "127.0.0.1:${BACKEND_HOST_PORT:-8000}:8000"
     volumes:
@@ -79,6 +112,14 @@ services:
         condition: service_healthy
       fuseki:
         condition: service_healthy
+      # La API arranca y funciona aunque F-UJI no esté disponible (la evaluación queda
+      # `failed` o `pending`): `required: false` solo avisa si F-UJI no llega a estar sano.
+      fuji:
+        condition: service_healthy
+        required: false
+    networks:
+      - default
+      - fuji-net
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready')\""]
       interval: 10s
@@ -106,6 +147,12 @@ services:
       timeout: 5s
       retries: 20
       start_period: 15s
+
+networks:
+  # Red sin salida a internet (internal: true) compartida por el backend y F-UJI. F-UJI solo
+  # alcanza al backend; no puede llamar a servicios externos (ver infra/README.md).
+  fuji-net:
+    internal: true
 
 volumes:
   postgres-data:

@@ -38,8 +38,9 @@ Parar el entorno: `docker compose down`. Para borrar además los datos (PostgreS
 | `backend` | build de `./backend` | 127.0.0.1:8000 | FastAPI; `GET /health` y `GET /health/ready`; aplica las migraciones al arrancar |
 | `fuseki` | `secoresearch/fuseki:6.2.0` | 127.0.0.1:3030 | Dataset TDB2 persistente `itot`, creado desde `infra/fuseki/assembler.ttl` |
 | `postgres` | `postgres:17.6-alpine` | 127.0.0.1:5432 | Usuarios y auditoría |
+| `fuji` | build de `./infra/fuji` sobre la imagen oficial de F-UJI 4.0.1 (por digest) | ninguno | Evaluador FAIR; solo en la red interna `fuji-net`, sin salida a internet |
 
-Todos los servicios solo escuchan en localhost. Si un puerto está ocupado en tu máquina, define en `.env` (opcionales) la variable correspondiente:
+Los servicios con puerto solo escuchan en localhost; `fuji` no publica ninguno. Si un puerto está ocupado en tu máquina, define en `.env` (opcionales) la variable correspondiente:
 
 | Variable | Servicio | Por defecto |
 |---|---|---|
@@ -52,14 +53,12 @@ Si cambias `BACKEND_HOST_PORT`, ajusta también `VITE_API_BASE_URL` (por ejemplo
 
 La imagen del backend lleva un JRE (`openjdk-25-jre-headless`) para el razonador Pellet, por lo que pasa de unos 278 MB a 559 MB.
 
-F-UJI (evaluador FAIR) se añadirá en la fase 4.
-
 ## Variables del backend añadidas en la fase 2
 
 | Variable | Valor en `.env.example` | Descripción |
 |---|---|---|
-| `FUSEKI_USER` | `admin` | Usuario con el que el backend escribe en Fuseki |
-| `FUSEKI_PASSWORD` | (no se define en `.env`) | Contraseña de escritura en Fuseki. `docker-compose.yml` la toma de `FUSEKI_ADMIN_PASSWORD` para no duplicarla |
+| `FUSEKI_USER` | `backend` (hasta la fase 3 era `admin`) | Usuario con el que el backend escribe en Fuseki |
+| `FUSEKI_PASSWORD` | (no se define en `.env`) | Contraseña de escritura en Fuseki. `docker-compose.yml` la toma de `FUSEKI_BACKEND_PASSWORD` (hasta la fase 3, de `FUSEKI_ADMIN_PASSWORD`) |
 | `SEMANTIC_DIR` | `/semantic` | Carpeta con formas SHACL y datos de ejemplo. Compose monta `./semantic` en `/semantic` en solo lectura y fija este valor |
 | `REASONER_TIMEOUT_SECONDS` | `120` (comentada, opcional) | Tiempo máximo del razonador Pellet. Llega al backend por `env_file`; no hace falta tocar el Compose |
 | `REASONER_JAVA_MEMORY_MB` | `1024` (comentada, opcional) | Memoria de la JVM del razonador, en MB |
@@ -85,15 +84,94 @@ El servicio `frontend` tiene healthcheck (Vite responde en el 5173), así que `d
 Endpoints del dataset `itot`:
 
 - Anónimos (solo lectura): `http://localhost:3030/itot/sparql` y `/itot/query`.
-- Con autenticación Basic (usuario `admin`, contraseña `FUSEKI_ADMIN_PASSWORD`): `/itot/update`, `/itot/data` (también GET) y `/itot/shacl`, además de `/$/...` y el resto de rutas. Sin credenciales devuelven 401.
+- Con autenticación Basic como `backend` (contraseña `FUSEKI_BACKEND_PASSWORD`, rol `writer`): `/itot/update`, `/itot/data` (también GET) y `/itot/shacl`. Es el usuario que usa la API. No puede usar la administración de Fuseki (`/$/...` y el resto de rutas dan 403).
+- Con autenticación Basic como `admin` (contraseña `FUSEKI_ADMIN_PASSWORD`, roles `admin` y `writer`): lo anterior más `/$/...` y el resto de rutas. Es solo para administrar Fuseki.
+- Sin credenciales, o con una contraseña incorrecta, las rutas de escritura devuelven 401.
 
-Así solo el backend escribe en el triplestore. La política está en `infra/fuseki/shiro.ini` (plantilla que se copia al arrancar) y en `fuseki:allowedUsers` de `infra/fuseki/assembler.ttl`. Evita `/`, `&` y `\` en `FUSEKI_ADMIN_PASSWORD`, porque la imagen la aplica con `sed`.
+Así solo el backend escribe en el triplestore. La política está en `infra/fuseki/shiro.ini` (plantilla) y en `fuseki:allowedUsers` de `infra/fuseki/assembler.ttl`. `infra/fuseki/entrypoint.sh` genera el `shiro.ini` real al arrancar con las dos contraseñas de las variables de entorno, que no pueden llevar `,` `=` `\` `#` ni `;` (formato de Shiro): si las llevan, Fuseki no arranca. Shiro no comprueba el nombre en `user[...]` (acepta a cualquier usuario autenticado), por eso la plantilla usa `roles[...]`.
+
+### Migrar un entorno ya levantado (decisión 32)
+
+Un entorno anterior a la fase 4 tiene `FUSEKI_USER=admin` y no tiene `FUSEKI_BACKEND_PASSWORD`. Sin tocar los volúmenes (no hace falta recargar datos):
+
+1. Añade a tu `.env` las variables nuevas de `.env.example` (ver la tabla de abajo): como mínimo `FUSEKI_BACKEND_PASSWORD`, con un valor propio y sin los caracteres prohibidos de arriba, `FUJI_USERNAME` y `FUJI_PASSWORD`.
+2. Cambia `FUSEKI_USER=admin` por `FUSEKI_USER=backend`. Si lo dejas en `admin`, el backend sigue escribiendo, pero con la contraseña de `FUSEKI_BACKEND_PASSWORD`, que no es la de admin: fallaría con 401. Mejor cambiarlo.
+3. Reconstruye y recrea: `docker compose up -d --build`. Recrea `fuseki` (el `shiro.ini` se regenera en cada arranque; los datos están en el volumen `fuseki-data` y no se tocan), `backend` y construye `fuji`.
+4. Comprueba: `curl -s -o /dev/null -w '%{http_code}' -u backend:<contraseña> -X POST http://127.0.0.1:3030/itot/update --data-urlencode 'update=INSERT DATA {}'` (no escribe nada) no debe dar 401 ni 403, y la misma petición sin `-u` debe dar 401.
+
+Si `docker compose` se queja de una variable obligatoria sin definir (`FUSEKI_BACKEND_PASSWORD`, `FUJI_USERNAME`, `FUJI_PASSWORD`), falta en tu `.env`.
+
+## F-UJI
+
+Evaluador FAIR (servicio interno). Lo usa el backend; no se publica ningún puerto.
+
+- **Imagen:** la oficial del proyecto, `ghcr.io/pangaea-data-publisher/fuji`, tag `4.0.1` (publicada el 24 de septiembre de 2026), fijada por digest `sha256:2108f2e2f52fed4cc0f58f22d47644c5d015c5c66f3886e2440e216c533e6a9a`. Solo se publica para `linux/amd64`: en arm64 (Apple Silicon) corre emulada, y por eso el servicio declara `platform: linux/amd64`.
+- **Por qué se construye:** la imagen oficial 4.0.1 (y `latest`) no arranca. F-UJI 4 inicia Chromium con Playwright al arrancar y la imagen no lo incluye (`Executable doesn't exist ... chrome-headless-shell`). `infra/fuji/Dockerfile` parte del digest y solo instala ese navegador (`playwright install chromium-headless-shell`, unos 90 s en amd64). Al construir se descarga el navegador del CDN de Playwright; en ejecución no se descarga nada. Al subir de versión, cambia el digest y comprueba si la imagen oficial ya lo arregla.
+- **API:** puerto `1071`, base `/fuji/api/v1` (`FUJI_URL=http://fuji:1071/fuji/api/v1`). `POST /evaluate` evalúa; la interfaz Swagger está en `/fuji/api/v1/ui/` (la usa el healthcheck, sin credenciales). Con credenciales falsas, `/evaluate` da 401.
+- **Autenticación:** HTTP Basic. La imagen trae un usuario de ejemplo público en `fuji_server/config/users.py`; `infra/fuji/users.py` lo sustituye (montado en solo lectura) por `FUJI_USERNAME` y `FUJI_PASSWORD`. Sin esas variables F-UJI no arranca, para no dejar nunca las credenciales por defecto.
+- **Healthcheck:** Python (la imagen no trae `curl` ni `wget`) sobre la interfaz Swagger; `start_period` de 60 s.
+- **El backend no depende de que F-UJI esté sano:** `depends_on` con `condition: service_healthy` y `required: false`. Si F-UJI no llega a estar sano, Compose avisa y arranca el backend igual (comprobado con un F-UJI roto). El backend debe tratar la falta de F-UJI como evaluación `failed` o `pending`.
+- **Red:** `fuji` solo está en la red `fuji-net`, declarada `internal: true` (sin salida a internet), compartida con el backend. F-UJI alcanza al backend (`http://backend:8000/`) pero no puede salir. Con `FAIR_TARGET_BASE_URL` apuntando al backend por la red interna, una evaluación local funciona sin llamadas externas (comprobado: una evaluación de una versión de dataset tarda 1 s).
+- Evaluar con `metric_version: metrics_v0.5`, el que trae por defecto; hay más en `fuji_server/yaml/`.
+
+### Llamadas salientes de F-UJI (para validar la residencia de datos en la UE)
+
+Solo documentación: la decisión de qué se permite es del responsable. Estado actual: ninguna es posible, porque `fuji-net` no tiene salida; los fallos de red se registran en el log de F-UJI y no impiden la evaluación. Si se quita `internal: true` de `fuji-net` (por ejemplo, para evaluar URLs públicas en el despliegue), F-UJI puede llamar a lo siguiente. Resultado de leer el código de la 4.0.1:
+
+| Servicio | Cuándo | Qué envía | Se puede desactivar |
+|---|---|---|---|
+| La URL evaluada y las que descubre en ella (enlaces de signposting, vocabularios, distribuciones, `owl:imports`, contextos JSON-LD, endpoint SPARQL/OAI-PMH/CSW) | Siempre, es la evaluación | La petición HTTP normal a esas URLs; no es un servicio de terceros salvo que el dato lo esté | No: es lo que evalúa |
+| `api.datacite.org` (DataCite) | Si el identificador es un DOI y `use_datacite` es `true` (por defecto) | El DOI | Sí, enviando `use_datacite: false` en la petición (el backend debería hacerlo: nuestros identificadores no son DOI) |
+| `doi.org/ra/{prefijo}` | Solo con DOI de un prefijo no incluido en su lista local | El prefijo del DOI | No hay opción; no aplica a URI no DOI |
+| `api.datasearch.elsevier.com` (Mendeley Data) | Si el identificador no está en DataCite: **para cualquier identificador**, también URIs que no son DOI | El identificador y la URL de la página | No hay opción en la configuración ni en la petición. Solo bloqueando la red |
+| Búsqueda de Google (`google.com/search`, `customsearch.googleapis.com`) | Solo si existe la base `google_cache.db` (no viene en la imagen) o se configuran `google_custom_search_id` y `google_custom_search_api_key` (vacíos por defecto) | La URL | Sí, no configurándolo (estado por defecto): no hay llamada |
+| `re3data.org/api/beta` | Solo si el identificador es un DOI de un repositorio registrado en re3data (consulta de DataCite) | El identificador del repositorio | No hay opción; no aplica a URI no DOI |
+| `publicsuffix.org` y `raw.githubusercontent.com/publicsuffix/list` (GitHub) | La primera vez que se procesa una URL (biblioteca `tldextract`) | Ninguno de nuestros datos: descarga la lista de sufijos públicos | No por configuración; si falla, usa la copia incluida en la biblioteca (comprobado: la evaluación funciona sin salida) |
+| `api.datacite.org/repositories` | Al arrancar, si su lista local de repositorios tiene más de 24 h | Ninguno de nuestros datos | Sí: el servicio hace `touch` del fichero antes de arrancar, así que usa la lista incluida y no llama |
+| `raw.github.com/spdx/license-list-data` (GitHub) | Al arrancar, solo si `debug_mode = false` | Ninguno de nuestros datos | Sí: la imagen trae `debug_mode = true` y usa la lista SPDX incluida |
+| `raw.githubusercontent.com/jshttp/mime-db` | Código presente pero desactivado en 4.0.1 | Nada | No se ejecuta |
+| LOV y LOD Cloud (`lov_api`, `lod_cloudnet` en `server.ini`) | Definidos en la configuración pero la 4.0.1 no los lee | Nada | No se usan |
+| `f-uji.net` | Solo son identificadores de espacios de nombres en el informe | No es una llamada | No aplica |
+
+En resumen: lo que sale de verdad en una evaluación de una URI propia, si hay salida a internet, son las peticiones a la URL evaluada y, sobre todo, las consultas a Mendeley Data (Elsevier) con el identificador y la URL de la página, que no se pueden desactivar por configuración. Por eso `fuji-net` es `internal`. Si el despliegue necesita que F-UJI evalúe URLs públicas, hay que decidir si se acepta esa consulta, o se mantiene la red cerrada y se evalúa por la red interna. No se ha verificado en qué región alojan sus servidores Mendeley/Elsevier, DataCite ni Google: es lo que debe validar el responsable.
+
+## Variables nuevas de la fase 4
+
+Todas están en `.env.example` con valores ficticios o por defecto. Llegan al backend por `env_file`, salvo `FUSEKI_USER` y `FUSEKI_PASSWORD`, que `docker-compose.yml` fija en su `environment`.
+
+| Variable | Defecto | Uso |
+|---|---|---|
+| `FUSEKI_BACKEND_PASSWORD` | ficticio | Contraseña del usuario `backend` de Fuseki. Obligatoria |
+| `FUJI_URL` | `http://fuji:1071/fuji/api/v1` | Backend a F-UJI |
+| `FUJI_USERNAME`, `FUJI_PASSWORD` | `fuji-backend`, ficticia | Autenticación Basic de la API de F-UJI. Obligatorias |
+| `FUJI_TIMEOUT_SECONDS` | `300` | Tiempo máximo de una evaluación |
+| `FAIR_TARGET_BASE_URL` | `http://backend:8000/` | URL base que se pasa a F-UJI en lugar de `BASE_URI`. Vacío usa `BASE_URI` |
+| `SPARQL_TIMEOUT_SECONDS` | `10` | SPARQL público |
+| `SPARQL_MAX_ROWS` | `10000` | SPARQL público |
+| `SPARQL_RATE_ANON_PER_MIN` | `30` | Por IP |
+| `SPARQL_RATE_AUTH_PER_MIN` | `60` | Por usuario |
+| `LOGIN_MAX_FAILURES` | `5` | Bloqueo de login |
+| `LOGIN_WINDOW_MINUTES` | `15` | Ventana de recuento de fallos |
+| `LOGIN_LOCKOUT_MINUTES` | `15` | Duración del bloqueo |
+| `DOWNLOAD_LINK_TTL_SECONDS` | `60` | Validez del enlace firmado de descarga |
+| `MAX_UPLOAD_MB` | `512` | Tamaño máximo de un fichero de distribución |
+| `SAVED_QUERIES_MAX_PER_USER` | `50` | Consultas SPARQL guardadas por usuario |
+
+`FUJI_USERNAME`, `FUJI_PASSWORD` y `FUSEKI_BACKEND_PASSWORD` no tienen valor por defecto en el Compose: si faltan en `.env`, `docker compose` se detiene con un mensaje claro.
 
 ## CI
 
 `.github/workflows/ci.yml` se ejecuta en cada PR y en cada push a `main`. Los jobs `backend`, `frontend` y `semantic` se saltan si la carpeta de su capa aún no existe. El job `compose` valida `docker compose config` con un `.env` copiado de `.env.example`. Las acciones están fijadas por SHA de commit.
 
-El job `e2e` (propuesta pendiente de decisión del responsable) ejecuta `uv run --project backend pytest tests/e2e -v` con `E2E_REQUIRE_DOCKER=1`: levanta el Compose real con puertos y secretos aleatorios (ver `tests/e2e/README.md`). Tiene un límite de 30 minutos porque construye las imágenes del backend y del frontend.
+El job `e2e` (propuesta pendiente de decisión del responsable) ejecuta `uv run --project backend pytest tests/e2e -v` con `E2E_REQUIRE_DOCKER=1`: levanta el Compose real con puertos y secretos aleatorios (ver `tests/e2e/README.md`). Tiene un límite de 30 minutos porque construye las imágenes del backend, del frontend y de F-UJI; desde la fase 4 el Compose incluye F-UJI y la e2e lo levanta con el resto.
+
+El job `browser` (decisión 34) ejecuta las pruebas de pantallas con Playwright y Chromium:
+
+1. Se salta, y pasa en verde, mientras no exista `tests/browser/package.json`. Se eligió esto en lugar de dejarlo desactivado a mano para que se active solo al integrar las pruebas de `qa`, sin otra PR de CI.
+2. Si existe: genera un `.env` desde `.env.example` con secretos aleatorios, levanta el Compose (con F-UJI) con `docker compose up -d --build --wait`, carga los datos con `load-semantic`, instala las dependencias de `tests/browser/` con `npm ci` y Chromium con `npx playwright install --with-deps chromium`, y ejecuta `npx playwright test` desde esa carpeta.
+3. Contrato con `qa`: `tests/browser/` es un proyecto npm con `package.json`, `package-lock.json` y `playwright.config.*`. Las pruebas reciben `BASE_URL` (`http://localhost:5173`) y `API_URL` (`http://localhost:8000`), y `CI=true`. Cualquier cuenta de prueba la crean ellas (por ejemplo, con `docker compose exec backend python -m app.cli create-admin`). El informe HTML debe quedar en `tests/browser/playwright-report/` y las trazas en `tests/browser/test-results/`.
+4. Sube ese informe y las trazas como artefacto (7 días) solo si falla, y siempre apaga el Compose con `docker compose down -v`.
+5. Permisos mínimos (`contents: read` para todo el workflow) y acciones fijadas por commit.
 
 ### Excepción de Trivy
 
