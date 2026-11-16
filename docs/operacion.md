@@ -109,9 +109,13 @@ Pasos:
 
 El límite de frecuencia de SPARQL anónimo (`SPARQL_RATE_ANON_PER_MIN`, por IP) y el bloqueo de login (por usuario e IP) usan la IP de la conexión (`request.client.host`) y nunca leen `X-Forwarded-For` por su cuenta. Detrás de un proxy inverso, si uvicorn no confía en el proxy, todas las peticiones llegan con la IP del proxy: todos los clientes comparten el mismo cupo y un solo cliente puede bloquear el login de los demás.
 
-Qué hace hoy el repositorio: `backend/docker-entrypoint.sh` arranca `uvicorn app.main:app --host 0.0.0.0 --port 8000` sin pasar `--forwarded-allow-ips`, y ni `docker-compose.yml` ni `.env.example` mencionan `FORWARDED_ALLOW_IPS`. Según `backend/README.md`, uvicorn solo reescribe la IP con esa cabecera si la conexión viene de una IP de `FORWARDED_ALLOW_IPS` (por defecto `127.0.0.1`).
+Qué hace hoy el repositorio: `backend/docker-entrypoint.sh` arranca `uvicorn app.main:app --host 0.0.0.0 --port 8000` sin pasar `--forwarded-allow-ips`, (más `--log-config app/log_config.json`, ver «Registro de accesos del backend»), y ni `docker-compose.yml` ni `.env.example` mencionan `FORWARDED_ALLOW_IPS`. Según `backend/README.md`, uvicorn solo reescribe la IP con esa cabecera si la conexión viene de una IP de `FORWARDED_ALLOW_IPS` (por defecto `127.0.0.1`).
 
 **Tarea pendiente del despliegue (fase 5):** configurar uvicorn para que confíe en `X-Forwarded-For` solo del proxy, con la variable `FORWARDED_ALLOW_IPS` (o `--forwarded-allow-ips`) apuntando a la IP o red del proxy. No uses `*` si el backend es alcanzable sin pasar por el proxy, porque cualquiera podría falsear su IP. [PENDIENTE] No hay configuración probada en el repositorio: el valor concreto depende del proxy elegido en el despliegue.
+
+## Registro de accesos del backend
+
+`backend/docker-entrypoint.sh` arranca uvicorn con `--log-config app/log_config.json`. Ese fichero aplica el filtro de `app/log_filters.py`, que oculta el valor de `token=` en el log de acceso. Los enlaces de descarga firmados (`/dataset/.../fichero?token=...`) son credenciales de corta vida y no deben quedar en los logs. Si arrancas el backend a mano con otro comando de uvicorn, añade ese mismo `--log-config`.
 
 ## Recursos de Docker
 
