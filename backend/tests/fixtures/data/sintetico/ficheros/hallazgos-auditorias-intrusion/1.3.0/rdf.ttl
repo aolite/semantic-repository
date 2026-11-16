@@ -1,0 +1,7 @@
+# SINTETICO: distribución hallazgos-auditorias-intrusion/1.3.0/rdf.
+# SINTETICO: fichero de prueba generado por semantic/scripts/ficheros_sinteticos.py. No contiene datos reales.
+
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+[] rdfs:label "SINTETICO hallazgos-auditorias-intrusion/1.3.0/rdf" ;
+   rdfs:comment "SINTETICO: fichero de prueba generado por semantic/scripts/ficheros_sinteticos.py. No contiene datos reales."@es .
