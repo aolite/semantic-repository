@@ -3,6 +3,7 @@
 # dependencies = [
 #     "rdflib==7.6.0",
 #     "pyshacl==0.40.2",
+#     "pyarrow==26.0.0",
 # ]
 # ///
 """Valida el RDF de semantic/.
@@ -38,7 +39,7 @@ Comprueba:
      externas catalogadas y dct:subject hacia conceptos existentes.
   9. Que semantic/data/sintetico/ficheros/ tiene un fichero por cada
      distribución PUBLIC o RESTRICTED (salvo los formatos pendientes de
-     ficheros_sinteticos.PENDIENTES) y ninguno para las NON_PUBLIC, y que
+     ficheros_sinteticos.PENDIENTES, hoy ninguno) y ninguno para las NON_PUBLIC, y que
      cada fichero es exactamente el que genera
      semantic/scripts/ficheros_sinteticos.py: tipo según dcat:mediaType,
      marca SINTETICO y como mucho 64 KB.

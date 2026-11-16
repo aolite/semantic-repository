@@ -2,6 +2,7 @@
 # requires-python = ">=3.11"
 # dependencies = [
 #     "rdflib==7.6.0",
+#     "pyarrow==26.0.0",
 # ]
 # ///
 """Genera los ficheros SINTÉTICOS de distribución (decisión 41, fase 4).
@@ -30,7 +31,13 @@ columnas del prototipo, que siguen como placeholder.
 El tipo de fichero sale del dcat:mediaType de la distribución (MEDIA_EXT).
 Las distribuciones sin dcat:mediaType (NPZ, que no tiene tipo IANA) se
 resuelven por el slug de la distribución (DIST_EXT_SIN_MEDIA). Los formatos
-que exigirían una dependencia nueva quedan en PENDIENTES y no se generan.
+que exigirían una dependencia nueva quedan en PENDIENTES y no se generan
+(hoy ninguno).
+
+Parquet se escribe con pyarrow, fijado a PYARROW_VERSION: el pie del
+fichero guarda «created_by» con la versión de pyarrow, así que otra versión
+daría otros bytes. Con otra versión instalada, el generador falla en lugar
+de producir un fichero distinto.
 
 semantic/scripts/validate.py importa este módulo para comprobar que los
 ficheros del repositorio son exactamente los que genera.
@@ -81,10 +88,11 @@ MEDIA_EXT = {
 }
 # Distribuciones sin dcat:mediaType: slug de la distribución -> extensión.
 DIST_EXT_SIN_MEDIA = {"npz": "npz"}
-# Formatos que no se generan todavía, con el motivo.
-PENDIENTES = {
-    "parquet": "escribir Parquet exige una dependencia nueva (p. ej. pyarrow); pendiente de decisión",
-}
+# Formatos que no se generan todavía, con el motivo (hoy ninguno).
+PENDIENTES: dict[str, str] = {}
+# Versión exacta de pyarrow (la misma de la cabecera PEP 723 de este script y
+# de validate.py). Forma parte de los bytes del Parquet («created_by»).
+PYARROW_VERSION = "26.0.0"
 
 
 def base_uri() -> str:
@@ -245,7 +253,61 @@ def _npz(d: Distribution) -> bytes:
     return buffer.getvalue()
 
 
-GENERATORS = {"csv": _csv, "json": _json, "ttl": _turtle, "pcap": _pcap, "npz": _npz}
+def _parquet(d: Distribution) -> bytes:
+    """Parquet (application/vnd.apache.parquet) con la misma tabla que el CSV.
+
+    Columnas «sintetico» (booleano), «distribucion» y «nota» (texto), una
+    fila. La marca va también en los metadatos clave-valor del esquema.
+
+    Determinista: Parquet no guarda fechas de escritura, y se fijan todas las
+    opciones que afectan a los bytes (formato 2.6, páginas de datos v1, sin
+    compresión, sin diccionario, sin estadísticas, sin índice de páginas ni
+    sumas de comprobación, sin el esquema Arrow serializado, un único grupo
+    de filas). Lo único que depende del entorno es «created_by», que lleva la
+    versión de pyarrow; por eso se exige PYARROW_VERSION.
+    """
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    if pa.__version__ != PYARROW_VERSION:
+        raise RuntimeError(
+            f"el Parquet sintético exige pyarrow=={PYARROW_VERSION} (hay {pa.__version__}); "
+            "ejecuta el script con uv run para usar la versión fijada"
+        )
+    schema = pa.schema(
+        [
+            pa.field("sintetico", pa.bool_(), nullable=False),
+            pa.field("distribucion", pa.string(), nullable=False),
+            pa.field("nota", pa.string(), nullable=False),
+        ],
+        metadata={"sintetico": NOTE, "distribucion": d.key},
+    )
+    table = pa.table({"sintetico": [True], "distribucion": [d.key], "nota": [NOTE]}, schema=schema)
+    sink = pa.BufferOutputStream()
+    pq.write_table(
+        table,
+        sink,
+        row_group_size=1,
+        version="2.6",
+        data_page_version="1.0",
+        compression="NONE",
+        use_dictionary=False,
+        write_statistics=False,
+        write_page_index=False,
+        write_page_checksum=False,
+        store_schema=False,
+    )
+    return sink.getvalue().to_pybytes()
+
+
+GENERATORS = {
+    "csv": _csv,
+    "json": _json,
+    "ttl": _turtle,
+    "pcap": _pcap,
+    "npz": _npz,
+    "parquet": _parquet,
+}
 
 
 def content(d: Distribution) -> bytes | None:
