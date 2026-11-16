@@ -29,7 +29,25 @@
 
 La prueba crea sus propias cuentas de editor y miembro: las de G1 terminan con el rol cambiado o dadas de baja.
 
-Lo que esta prueba no cubre: el contenido que pinta el navegador en las pantallas Catálogo y Ficha. Solo comprueba que el frontend sirve la aplicación en esas rutas y que la API le da los datos. Comprobar las pantallas en un navegador real necesitaría una herramienta nueva (por ejemplo, Playwright), que no está decidida en `Plan.md`.
+Lo que esta prueba no cubre: el contenido que pinta el navegador en las pantallas Catálogo y Ficha. Solo comprueba que el frontend sirve la aplicación en esas rutas y que la API le da los datos. Las pantallas en un navegador real están en `tests/browser/` (Playwright, decisión 34).
+
+## Puerta G4 · FAIR y versiones
+
+`test_g4_fair_versiones.py` usa el mismo entorno, con F-UJI real dentro del Compose (red interna `fuji-net`), y se ejecuta después de G3. Recorre el criterio de la puerta:
+
+1. Los cinco servicios están sanos; F-UJI no publica ningún puerto y no tiene salida a internet. El usuario `backend` escribe en Fuseki, `admin` administra, y las contraseñas no son intercambiables ni valen las de `.env.example`.
+2. Cada versión actual de los tres datasets sintéticos recibe una evaluación F-UJI real (`done`) visible en `/datasets/{slug}` y en la tarjeta del catálogo, con su informe en `report_url`. Las puntuaciones y el nivel de madurez son los del `summary` del informe, sin cambios. Reevaluar exige editor y deja `fair_evaluated`; recargar los datos no reevalúa lo ya evaluado.
+3. Una versión nueva se añade y se evalúa; las anteriores no cambian (mismo RDF, misma evaluación). Alterar una versión publicada, abrir sus `accessRights` o quitarla da 409 y no escribe nada, ni en el triplestore ni en la auditoría ni en la cola FAIR.
+4. Descargas: las 8 distribuciones sintéticas son `RESTRICTED` y todas tienen fichero. Una distribución sin fichero sale como `unavailable` y da 404 (serie de prueba propia). Un miembro las descarga byte a byte con enlace firmado (un solo uso, que caduca de verdad y no vale para otro fichero ni si está manipulado) o con sesión; un anónimo no. Una serie nueva cubre `PUBLIC` (cualquiera), `RESTRICTED` y `NON_PUBLIC` (nunca admite fichero). Path traversal, subida por rol e inmutabilidad de los ficheros.
+5. Negociación (decisión 31): sin `Accept`, con `*/*` o con el `Accept` de un navegador, 303 a la ficha del frontend; RDF solo con un `Accept` de RDF.
+6. Login: 5 fallos dan 401 y el siguiente intento 429 con `Retry-After`, aunque la contraseña sea correcta; una baja invalida los tokens y reactivar no los revive.
+7. SPARQL público: consultas `SELECT`, `ASK`, `CONSTRUCT` y `DESCRIBE`, las tres de referencia, y rechazo de actualizaciones, `SERVICE`, `FROM` ajeno y consultas de más de 20 KB; una consulta costosa da 504 y una grande se trunca con `X-Result-Truncated`. Un miembro guarda una consulta personal que otro no ve (404 al tocarla) y tiene un límite por usuario.
+8. Límite de frecuencia por IP (anónimo) y por usuario, sin burlarlo con cabeceras de proxy. Va la última y espera al inicio de un minuto, porque agota el cupo.
+9. Ni la auditoría ni los logs de ningún servicio contienen secretos.
+
+La prueba de caducidad espera de verdad `DOWNLOAD_LINK_TTL_SECONDS` y la de límites espera al inicio de un minuto: G4 tarda unos tres minutos más que G3.
+
+Puntuación real de F-UJI 4.0.1 con los datos sintéticos (versión actual de cada dataset): total 52.08 (F 35.71, A 100, I 50, R 50), con madurez 2.0 en `modbus-tcp-testbed` y 1.75 en los otros dos.
 
 ## Puerta G3 · vocabularios cargados
 
@@ -49,7 +67,7 @@ Lo que esta prueba no cubre: el contenido que pinta el navegador en las pantalla
 
 Lo que esta prueba no cubre:
 
-- El contenido que pinta el navegador en las pantallas Vocabularios, Ficha de ontología y Navegador SKOS (misma limitación que en G2; decisión abierta 34).
+- El contenido que pinta el navegador en las pantallas Vocabularios, Ficha de ontología y Navegador SKOS: está en `tests/browser/` (Playwright, decisión 34).
 - El tiempo máximo del razonador y sus fallos: cambiar `REASONER_TIMEOUT_SECONDS` exigiría otro entorno. Están en `backend/tests/test_security_g3.py`, con el Pellet real si hay Java 25 o superior.
 - El workflow `publicar.yml`: no se empuja ninguna etiqueta. Su revisión estática y `publicar.py` con etiquetas hostiles están en `backend/tests/test_publicar_pipeline.py`.
 
@@ -59,26 +77,19 @@ Para comprobar que el backend no sale a buscar una URL que viene en el RDF (un `
 
 ### Defectos conocidos
 
-En estas pruebas de extremo a extremo no hay ninguna marcada como `xfail`. Los hallazgos QA-G2-01 a QA-G2-04 de la revisión de la fase 2 (IRIs no válidas, anidamiento extremo, autenticación antes del cuerpo y lectura limitada a los grafos publicados) están corregidos y sus pruebas pasan, aquí y en `backend/tests/test_security_fase2.py`.
+Los hallazgos de las fases 2 y 3 (QA-G2-01 a QA-G2-07 y QA-G3-01 a QA-G3-13) están corregidos: sus pruebas pasan sin marca, aquí y en `backend/tests/`. En la fase 4 lo corrigieron las decisiones 28 a 30 y 44 (versiones inmutables, `q` por URI, catálogo en `dcat:dataset` y `IED ⊑ ActivoIndustrial`), con pruebas en `test_g4_fair_versiones.py`.
 
-Los hallazgos QA-G3-01 a QA-G3-10 de la revisión de la fase 3 están corregidos y sus pruebas pasan sin marca, en `backend/tests/test_security_g3.py`, `test_contracts_fase3.py` y `test_publicar_pipeline.py`:
+Hallazgos de la fase 4: **todos cerrados** y sus pruebas pasan sin marca (reverificación sobre `integracion/fase4`).
 
-| Id | Defecto | Cómo quedó |
-|---|---|---|
-| QA-G3-01 | Un literal mal tipado hacía fallar a owlready2 y `POST /ontologies` respondía 500 | 422 `syntax`; el análisis va antes de escribir, también en `load-semantic`; cualquier excepción del razonador deja `consistent: null` |
-| QA-G3-02 | El detalle de un fallo de Pellet publicaba una línea de la traza de Java | Detalle genérico |
-| QA-G3-03 | Un prefijo largo repetido expandía el RDF unas 590 veces en memoria | Límites durante el análisis; 422 `limit` en las tres ingestas |
-| QA-G3-04 | Una jerarquía `skos:broader` de 300 niveles rompía `GET /schemes/{slug}` | Profundidad máxima de 64 en la ingesta y árbol sin recursión |
-| QA-G3-05 | Un predicado que RDF/XML no puede abreviar daba 500 al descargar en RDF/XML | 406 en RDF/XML; Turtle y JSON-LD siguen disponibles |
-| QA-G3-06 | `POST /schemes` admitía los slugs `dominio` y `tipo-dataset` | 422 `uri`; solo los carga `load-semantic` |
-| QA-G3-07 | Quedaba en `/tmp` una copia de la ontología si el razonamiento no terminaba bien | Directorio temporal propio que se borra siempre |
-| QA-G3-08 | `publicar.py` admitía una etiqueta con salto de línea final | `fullmatch` |
-| QA-G3-09 | `semantic/uris.md` documentaba otro grafo para los esquemas auxiliares | Documento corregido |
-| QA-G3-10 | La validación SHACL no tenía límite de tiempo | Proceso hijo con `SHACL_TIMEOUT_SECONDS` y `SHACL_MEMORY_MB`; 422 `limit` |
+| Id | Capa | Defecto | Estado |
+|---|---|---|---|
+| QA-G4-01 | `backend` | F-UJI no llegaba a los metadatos (8.33 sobre 100) | Cerrado: evalúa la URL del RDF; 52.08 con los datos sintéticos (madurez 1.75 o 2.0). El informe público muestra la URI persistente y no el host interno |
+| QA-G4-02 | `backend` | El log de acceso escribía el `?token=` firmado | Cerrado: `token=[oculto]` |
+| QA-G4-03 | `backend` | Un `SELECT` de más de 32 MB daba 400 en vez de truncarse | Cerrado: truncado en streaming con `X-Result-Truncated` |
+| QA-G4-04 | `frontend` | Se perdía lo escrito en el editor antes de cargar las consultas guardadas | Cerrado (`tests/browser/`) |
+| QA-G4-05 | `backend` | Subidas simultáneas del mismo fichero daban 500 | Cerrado: 200 idempotente o 409 `file_exists` |
 
-QA-G3-13 también está corregido: el contrato añadió `auxiliary` a `SchemeDetail.kind` y el Navegador SKOS se quedaba en blanco en `/vocabularios/dominio`, adonde redirige (303) la URI de dominio de un dataset. El frontend ya contempla ese valor, muestra tal cual cualquier valor desconocido de un enumerado y tiene un error boundary. Lo cubren `test_frontend_scheme_kind_matches_the_contract`, las pruebas del propio frontend y, aquí, el caso que sigue la URI de dominio de un dataset hasta el esquema auxiliar.
-
-No queda ningún defecto abierto de la fase 3: no hay pruebas marcadas como `xfail`.
+Un hallazgo nuevo se marca con `xfail(strict=True)` y su `QA-G4-NN` hasta que se corrija.
 
 ### Requisitos
 
@@ -100,6 +111,7 @@ La primera vez construye las imágenes del backend y del frontend, así que tard
 | `E2E_REQUIRE_DOCKER=1` | Falla si no hay Docker (para CI o para validar la puerta) |
 | `E2E_KEEP=1` | No apaga el entorno al terminar, para inspeccionarlo. El nombre del proyecto se imprime al final; se apaga con `docker compose -p <proyecto> down -v --rmi local` |
 | `E2E_UP_TIMEOUT` | Segundos de espera a que los servicios estén sanos (por defecto, 900) |
+| `E2E_ATTACH_PROJECT` y `E2E_ATTACH_ENV_FILE` | Solo para desarrollar las pruebas: usan un entorno ya levantado (nombre del proyecto de Compose y su fichero de entorno) en vez de levantar otro. No lo apagan |
 
 ### Aislamiento
 
@@ -115,14 +127,5 @@ Estos puntos no son defectos ni llevan `xfail`: son decisiones que `Plan.md` no 
 
 | Punto | Situación actual | Dueño cuando se decida |
 |---|---|---|
-| Límite de intentos de login | No hay bloqueo ni límite de frecuencia en `POST /auth/token` | `backend` |
 | `/docs` y `/redoc` en el despliegue | Son públicos y cargan recursos de un CDN externo | `backend`, `infra` |
-| Revocación de tokens | Una cuenta reactivada vuelve a aceptar los tokens emitidos antes de la baja, hasta que caducan | `backend` |
-| Pantallas en un navegador real | No hay herramienta decidida (decisión abierta 34); la prueba no ejecuta el JavaScript del frontend | `qa`, `frontend` |
-| Versiones de ontología inmutables | Republicar una versión ya publicada con otro contenido la sustituye y recalcula sus métricas (para los datasets es la decisión abierta 28) | `backend` |
-| QA-G3-11 · Búsqueda `q` de vocabularios | Busca también en el espacio de nombres, que contiene `BASE_URI`: con el valor por defecto, `q=itot` devuelve todo lo propio | `backend`, `frontend` |
 | QA-G3-12 · Dependencias Java de Pellet | pip-audit no cubre los JAR que incluye owlready2. `infra` propone un job `imagen-backend` con Trivy en `ci.yml` (falla con hallazgos críticos, sin subir resultados); está pendiente de que el responsable lo acepte. Si se queda, `test_publicar_pipeline.py` comprueba que va fijado por commit y sin permisos de más | `infra`, `qa` |
-| Jerarquía de `itot` · `IED ⊑ ActivoIndustrial` | Tras la decisión 38 la ontología solo lleva la jerarquía que cita el prototipo; esta relación la decide el responsable | `semantico` |
-| QA-G2-05 · El catálogo RDF tras publicar por la API | `POST /datasets` no añade la serie a `dcat:dataset` del grafo del catálogo, que solo cambia con `load-semantic` | `backend`, `semantico` |
-| QA-G2-06 · Búsqueda por URI | El campo de búsqueda dice «Título, concepto o URI», pero `q` solo busca en título, descripción y temas | `frontend`, `backend` |
-| QA-G2-07 · Paginación del catálogo | La pantalla pide una sola página de 100 recursos; con más, el contador muestra el total pero faltan tarjetas | `frontend` |

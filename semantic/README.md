@@ -32,7 +32,7 @@ Desde la raíz del repositorio:
 uv run semantic/scripts/validate.py
 ```
 
-El script declara sus dependencias con metadatos PEP 723, así que no hace falta instalar nada aparte de uv. Las versiones están fijadas (`rdflib==7.6.0` y `pyshacl==0.40.2`) y son las mismas del `uv.lock` del backend, para que el CI, el workflow de publicación y la ingesta validen igual. Si el backend las actualiza, hay que cambiarlas aquí también. Comprueba la sintaxis de todos los `.ttl`, que las formas sean SHACL válido, que los ejemplos válidos las cumplan y que cada ejemplo inválido falle exactamente en las formas que indican sus líneas `# expect-violation: <NombreLocal>`. Sale con código 1 si algo falla. El CI usa este mismo comando.
+El script declara sus dependencias con metadatos PEP 723, así que no hace falta instalar nada aparte de uv. Las versiones están fijadas (`rdflib==7.6.0` y `pyshacl==0.40.2`) y son las mismas del `uv.lock` del backend, para que el CI, el workflow de publicación y la ingesta validen igual. Si el backend las actualiza, hay que cambiarlas aquí también. Además fija `pyarrow==26.0.0`, que el backend no usa: `validate.py` regenera en memoria los ficheros sintéticos de distribución para compararlos, y el Parquet se escribe con pyarrow (ver más abajo). Comprueba la sintaxis de todos los `.ttl`, que las formas sean SHACL válido, que los ejemplos válidos las cumplan y que cada ejemplo inválido falle exactamente en las formas que indican sus líneas `# expect-violation: <NombreLocal>`. Sale con código 1 si algo falla. El CI usa este mismo comando.
 
 Para `data/`, valida cada fichero de `data/sintetico/` por separado (tal como lo ingesta el backend) y después todo `data/**/*.ttl` en un grafo. Sobre ese grafo conjunto hace además comprobaciones de coherencia que no son SHACL, porque cruzan datos y vocabulario: cada tema es un concepto de un esquema de `vocabularios/` con dominio (`dct:subject`) y los de una versión son de un solo dominio; las series y versiones de `data/sintetico/` llevan la marca de sintético; `dcat:inSeries`, `dcat:previousVersion`, `dcat:first` y `dcat:last` apuntan a recursos descritos de la misma serie; las URIs de versiones y distribuciones siguen `uris.md`; `dcat:accessURL` es la URI de la propia distribución, y el catálogo lista todas las series. Son reglas de los datos de este repositorio, no del contrato de ingesta: el backend puede recibir versiones cuyos conceptos están en otro grafo.
 
@@ -43,7 +43,7 @@ Para `vocabularios/` y `ontologias/`, valida cada fichero por separado (un fiche
 - **Externas:** IRI fuera de `BASE_URI`, sin `owl:versionIRI` ni `adms:status`.
 - **Prefijos VANN** únicos entre todos los esquemas y ontologías.
 
-Para `data/sintetico/ficheros/`, comprueba que hay un fichero por cada distribución `PUBLIC` o `RESTRICTED`, ninguno para las `NON_PUBLIC` ni ninguno que no corresponda a una distribución, y que cada uno es byte a byte el que genera `scripts/ficheros_sinteticos.py` (≤ 64 KB, con la marca `SINTETICO`). Los formatos pendientes (hoy Parquet) se informan como `PENDIENTE` sin fallar.
+Para `data/sintetico/ficheros/`, comprueba que hay un fichero por cada distribución `PUBLIC` o `RESTRICTED`, ninguno para las `NON_PUBLIC` ni ninguno que no corresponda a una distribución, y que cada uno es byte a byte el que genera `scripts/ficheros_sinteticos.py` (≤ 64 KB, con la marca `SINTETICO`). Si algún formato quedara pendiente (`PENDIENTES` del generador, hoy vacío), se informaría como `PENDIENTE` sin fallar.
 
 Para `consultas/`, comprueba la cabecera `# title:` / `# hint:`, que no escriban el dominio ni otro marcador que `{BASE_URI}` y que, sustituido el marcador, cada consulta se analiza y se ejecuta con rdflib sobre `data/` (sin los ficheros de distribución), `vocabularios/` y `ontologias/` juntos. Informa del número de filas: son las de los datos sintéticos, no las del prototipo. Con los datos actuales, `mapeos` devuelve 0 filas, porque todos los destinos de los mapeos de `ot` son placeholders comentados.
 
@@ -62,7 +62,9 @@ Escribe `data/sintetico/ficheros/{slug}/{version}/{dist}.{ext}` para cada distri
 | `application/json` | `.json` | Objeto con `sintetico: true`, `distribucion` y `nota` |
 | `text/turtle` | `.ttl` | Comentario con la marca y un nodo en blanco con `rdfs:label` y `rdfs:comment`, sin IRIs propias |
 | sin tipo IANA (NPZ, distribución `npz`) | `.npz` | Zip sin comprimir, como `numpy.savez`, con un array `SINTETICO` de `uint8` y la marca como comentario del zip. Se escribe sin NumPy |
-| `application/vnd.apache.parquet` | `.parquet` | **Pendiente**: escribirlo exige una dependencia nueva (p. ej. `pyarrow`) |
+| `application/vnd.apache.parquet` | `.parquet` | La misma tabla que el CSV (`sintetico` booleano, `distribucion` y `nota` texto, una fila) y la marca también en los metadatos clave-valor del esquema. Se escribe con `pyarrow==26.0.0` |
+
+El Parquet es reproducible byte a byte porque el formato no guarda fechas de escritura y el generador fija todas las opciones que afectan a los bytes: formato 2.6, páginas de datos v1, sin compresión, sin diccionario, sin estadísticas, sin índice de páginas ni sumas de comprobación, sin el esquema Arrow serializado (`store_schema=False`) y un único grupo de filas. Lo único que depende del entorno es el campo `created_by` del pie (`parquet-cpp-arrow version 26.0.0`), así que el generador falla si la versión de pyarrow instalada no es la fijada (`PYARROW_VERSION`). Para cambiar de versión hay que actualizar a la vez las cabeceras PEP 723 de los dos scripts y `PYARROW_VERSION`, y regenerar.
 
 `load-semantic` del backend los sube con la misma lógica que la API (`PUT …/distributions/{dist}/file`), con actor `cli`. El tipo de medio de la descarga sale del RDF, no del fichero.
 

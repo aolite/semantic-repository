@@ -134,7 +134,13 @@ def test_compose_passes_the_phase_2_variables_the_backend_reads() -> None:
 def test_env_example_matches_backend_settings() -> None:
     example = _env_example()
     # Variables de otros servicios (PostgreSQL, Fuseki, frontend) y puertos del host.
-    not_backend = {"POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB", "FUSEKI_ADMIN_PASSWORD"}
+    not_backend = {
+        "POSTGRES_USER",
+        "POSTGRES_PASSWORD",
+        "POSTGRES_DB",
+        "FUSEKI_ADMIN_PASSWORD",
+        "FUSEKI_BACKEND_PASSWORD",  # la lee Fuseki; el backend recibe su valor como FUSEKI_PASSWORD
+    }
     backend_keys = {
         key
         for key in example

@@ -51,7 +51,8 @@ def _ps(stack: Stack) -> dict[str, dict]:
 
 def test_los_cuatro_servicios_de_la_fase_1_estan_en_marcha(stack: Stack) -> None:
     services = _ps(stack)
-    assert set(services) == PHASE_1_SERVICES
+    # Desde la fase 4 el Compose lleva además F-UJI (su estado se comprueba en G4).
+    assert set(services) == PHASE_1_SERVICES | {"fuji"}
     for name, row in services.items():
         assert row["State"] == "running", f"{name}: {row['State']}"
     for name in ("postgres", "fuseki", "backend"):
@@ -298,8 +299,10 @@ def test_no_hay_usuarios_por_defecto(stack: Stack) -> None:
     assert stack.psql("select count(*) from users") == ["0"]
     guesses = ["admin", "administrator", "root", "itot", "password", "change-me", "admin1234567"]
     for username in ("admin", "root", "itot"):
-        for password in guesses:
-            assert login(stack, username, password).status == 401
+        statuses = [login(stack, username, password).status for password in guesses]
+        # Nunca entra. Desde la fase 4 (decisión 18), tras 5 fallos del mismo par (usuario, IP)
+        # el siguiente intento es un 429 aunque la contraseña fuera buena.
+        assert statuses == [401] * 5 + [429] * (len(guesses) - 5), (username, statuses)
     assert http("GET", f"{stack.api}/users").status == 401
 
 
@@ -383,10 +386,10 @@ def test_login_con_byte_nulo_es_el_401_generico(stack: Stack, admin: Account) ->
     before = int(stack.psql("select count(*) from audit_events")[0])
 
     bodies = [
-        b"username=admin%00x&password=" + password.encode(),
+        b"username=e2e-nulo%00x&password=" + password.encode(),
         b"username=%00&password=" + password.encode(),
         admin.username.encode() + b"%00&password=" + password.encode(),
-        b"username=ad%09min%0D%0A&password=" + password.encode(),
+        b"username=e2e-%09nulo%0D%0A&password=" + password.encode(),
     ]
     for body in bodies:
         response = http(
@@ -415,7 +418,11 @@ def test_login_con_byte_nulo_es_el_401_generico(stack: Stack, admin: Account) ->
     assert len(invalid) == len(bodies)
     for row in invalid:
         assert row["action"] == "login_failure"
-        assert row["target_username"] is None
+        # Desde la fase 4 (decisión 18) se guarda el nombre intentado, sin caracteres de
+        # control y truncado a 64; nunca el valor bruto ni una cuenta enlazada.
+        attempted = row["target_username"]
+        assert attempted is None or (attempted.isprintable() and len(attempted) <= 64)
+        assert "\x00" not in json.dumps(row)
         assert row["target_user_id"] is None
     assert http("GET", f"{stack.api}/health/ready").status == 200
 
@@ -573,7 +580,8 @@ def test_openapi_publicado_coincide_con_el_contrato_versionado(stack: Stack) -> 
 def test_cambio_de_rol_y_baja_con_el_token_vigente(
     stack: Stack, admin: Account, member: Account, editor: Account
 ) -> None:
-    # El editor pasa a miembro: su token sigue valiendo, pero con el rol nuevo.
+    # El editor pasa a miembro. Desde la fase 4 (decisión 18) el cambio de rol invalida los
+    # tokens emitidos antes: el viejo da 401 y el login nuevo ya trae el rol nuevo.
     changed = http(
         "PATCH",
         f"{stack.api}/users/{editor.id}",
@@ -581,7 +589,11 @@ def test_cambio_de_rol_y_baja_con_el_token_vigente(
         token=admin.token,
     )
     assert changed.status == 200, changed.text
-    me = http("GET", f"{stack.api}/auth/me", token=editor.token)
+    assert http("GET", f"{stack.api}/auth/me", token=editor.token).status == 401
+    relogin = login(stack, editor.username, editor.password)
+    assert relogin.status == 200, relogin.text
+    fresh = stack.remember("token del editor tras el cambio", relogin.json()["access_token"])  # type: ignore[index]
+    me = http("GET", f"{stack.api}/auth/me", token=fresh)
     assert (me.status, me.json()["role"]) == (200, "miembro")
 
     # El miembro se da de baja: su token deja de valer y no puede volver a entrar.
