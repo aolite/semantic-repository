@@ -278,7 +278,7 @@ function DatasetCardView({ item }: { item: DatasetCard }) {
             <span className="card__fair">
               <span className="card__fair-label">FAIR {item.fair_total}</span>
               <span className="card__fair-bar" aria-hidden="true">
-                <span className="card__fair-fill" style={{ width: fairWidth(item.fair_total) }} />
+                <span className="card__fair-fill" style={{ width: fairWidth(item.fair_total ?? null) }} />
               </span>
             </span>
           )}
