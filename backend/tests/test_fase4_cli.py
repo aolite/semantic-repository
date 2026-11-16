@@ -29,6 +29,8 @@ def semantic_copy(
 ) -> Path:
     root = tmp_path / "semantic"
     shutil.copytree(semantic_dir, root)
+    # Parte de cero: ``semantic/`` ya trae ficheros sintéticos reales.
+    shutil.rmtree(root / "data" / "sintetico" / "ficheros", ignore_errors=True)
     files = root / "data" / "sintetico" / "ficheros" / "modbus-tcp-testbed"
     (files / "2.1.0").mkdir(parents=True)
     (files / "1.0.0").mkdir(parents=True)
