@@ -30,7 +30,7 @@ test('la sección FAIR muestra la evaluación real de F-UJI y enlaza el informe 
   const section = page.locator('section.fair')
   await expect(section.getByRole('heading', { level: 2, name: 'Evaluación FAIR' })).toBeVisible()
   await expect(section.locator('.fair__total')).toHaveText(String(fair.total))
-  await expect(section.locator('.fair__maturity')).toHaveText(fair.maturity)
+  await expect(section.locator('.fair__maturity')).toHaveText(`Madurez ${fair.maturity} / 3`)
   const scores: [string, number][] = [
     ['F · Findable', fair.findable],
     ['A · Accessible', fair.accessible],
