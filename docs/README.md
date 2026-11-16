@@ -4,7 +4,7 @@
 |---|---|---|
 | [arquitectura.md](arquitectura.md) | Componentes, flujos y contratos entre capas | Escrito (fase 1) |
 | [adr/](adr/README.md) | Registro de decisiones (ADR) | Escrito (fase 1) |
-| Operación | Arranque, variables de entorno, copias de seguridad, restauración y despliegue | Pendiente (entregable de la fase 5) |
+| [operacion.md](operacion.md) | Procedimientos de operación del entorno local de la fase 4: recarga desde cero, usuario de Fuseki y excepción de Trivy | Parcial (fase 4). Arranque, copias de seguridad, restauración y despliegue: pendiente (entregable de la fase 5) |
 | Guía de publicación de datasets | Pasos para que el equipo publique un dataset | Pendiente |
 | Plantillas de metadatos | Metadatos precargados, con placeholders donde falte el valor real | Pendiente |
 
