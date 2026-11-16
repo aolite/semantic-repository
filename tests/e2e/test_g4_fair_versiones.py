@@ -757,19 +757,24 @@ def test_subidas_simultaneas_del_mismo_fichero_son_idempotentes(
     from concurrent.futures import ThreadPoolExecutor
 
     slug = f"e2e-g4-carrera-{secrets.token_hex(3)}"
-    versions = {"1.0.0": {"access": "PUBLIC", "dists": {"abierta": "PUBLIC"}}}
+    names = [f"d{n}" for n in range(8)]
+    versions = {"1.0.0": {"access": "PUBLIC", "dists": {name: "PUBLIC" for name in names}}}
     assert _publish(stack, _series_ttl(slug, versions), g4_editor.token).status == 201
     data = b"a,b\n1,2\n"
-    with ThreadPoolExecutor(12) as pool:
-        statuses = list(
-            pool.map(
-                lambda _: _put_file(stack, slug, "1.0.0", "abierta", data, g4_editor.token).status,
-                range(12),
-            )
-        )
-    assert set(statuses) <= {200, 201}, statuses
-    assert statuses.count(201) == 1, statuses
-    assert http("GET", _file_url(stack, slug, "1.0.0", "abierta")).content == data
+    # Varias distribuciones y muchas subidas a la vez: la carrera no sale en todas las pasadas.
+    with ThreadPoolExecutor(32) as pool:
+        futures = {
+            name: [
+                pool.submit(_put_file, stack, slug, "1.0.0", name, data, g4_editor.token)
+                for _ in range(10)
+            ]
+            for name in names
+        }
+        statuses = {name: [f.result().status for f in jobs] for name, jobs in futures.items()}
+    flat = [status for values in statuses.values() for status in values]
+    assert set(flat) <= {200, 201}, statuses
+    assert all(values.count(201) == 1 for values in statuses.values()), statuses
+    assert http("GET", _file_url(stack, slug, "1.0.0", "d0")).content == data
 
 
 def test_dos_enlaces_simultaneos_del_mismo_token_solo_descargan_una_vez(

@@ -32,6 +32,8 @@ test('sin sesión: ejecuta una consulta de referencia y ve el resultado en tabla
 
 test('los errores de validación se muestran con un mensaje claro', async ({ page }) => {
   await page.goto('/sparql')
+  // Espera a las consultas guardadas: si no, se pisa lo escrito (QA-G4-04, más abajo).
+  await expect(page.getByRole('region', { name: 'Consultas guardadas' }).getByRole('button', { name: /Datasets clasificados en OT/ })).toBeVisible()
   const editor = page.getByRole('textbox', { name: 'Consulta' })
   for (const query of ['DROP ALL', 'SELECT * { SERVICE <http://ejemplo.org/> { ?s ?p ?o } }', 'SELECT ?s WHERE { ?s ?p ']) {
     await editor.fill(query)
