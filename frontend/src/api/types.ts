@@ -3,9 +3,13 @@
  *
  * Copiados a mano del contrato `backend/openapi.json` (versión 0.1.0, con las
  * rutas del catálogo de la fase 2 y las de vocabularios y ontologías de la
- * fase 3). Si el
- * contrato cambia, hay que actualizarlos aquí. Cada tipo indica el esquema
- * de `components.schemas` del que sale.
+ * fase 3). Si el contrato cambia, hay que actualizarlos aquí. Cada tipo indica
+ * el esquema de `components.schemas` del que sale.
+ *
+ * Los tipos de la fase 4 (FAIR, descargas, SPARQL y consultas guardadas) salen
+ * del contrato de la fase (sección 5) y se escribieron antes de que el backend
+ * regenerase `openapi.json`: la prueba de contrato de `qa` los contrasta con el
+ * OpenAPI real en la integración.
  */
 
 /** Esquema `Role`: roles con cuenta. El lector es anónimo y no tiene token. */
@@ -120,6 +124,8 @@ export interface DatasetCard {
   formats: string[]
   current_version: string | null
   synthetic: boolean
+  /** `total` de la última evaluación FAIR `done` de la versión actual (fase 4). */
+  fair_total: number | null
 }
 
 /** Esquema `DatasetPage`: respuesta de `GET /datasets`. */
@@ -145,6 +151,54 @@ export interface DistributionRead {
   access_url: string | null
   /** De la distribución o, si no tiene, de la versión. */
   access_rights: AccessRights | null
+  /** Cómo se descarga (fase 4, decisión 40). */
+  download: DistributionDownload
+  /** Ruta del fichero (`{BASE_URI}dataset/{slug}/{version}/{dist}/fichero`) si `download` es `open` o `authenticated`. */
+  download_url: string | null
+  byte_size: number | null
+  sha256: string | null
+}
+
+/**
+ * Descarga de una distribución: `open` (PUBLIC con fichero), `authenticated`
+ * (RESTRICTED con fichero, miembro o superior), `metadata_only` (NON_PUBLIC,
+ * defensa) o `unavailable` (sin fichero).
+ */
+export type DistributionDownload = 'open' | 'authenticated' | 'metadata_only' | 'unavailable'
+
+/**
+ * Respuesta de `POST /datasets/{slug}/versions/{version}/distributions/{dist}/download-link`:
+ * enlace firmado y de vida corta. El contrato de la fase da los campos
+ * `{url, expires_at}`; el nombre del esquema se confirma con el OpenAPI.
+ */
+export interface DownloadLink {
+  url: string
+  /** Fecha y hora ISO 8601. */
+  expires_at: string
+}
+
+/** Estado de la evaluación FAIR de una versión. */
+export type FairStatus = 'pending' | 'running' | 'done' | 'failed' | 'not_evaluated'
+
+/**
+ * Esquema `FairSummary`: resumen de la evaluación de F-UJI. Las puntuaciones
+ * (0-100) y el nivel de madurez salen tal cual de F-UJI.
+ */
+export interface FairSummary {
+  status: FairStatus
+  total: number | null
+  findable: number | null
+  accessible: number | null
+  interoperable: number | null
+  reusable: number | null
+  /** Nivel de madurez que devuelve F-UJI, sin umbrales propios (decisión 45). */
+  maturity: string | null
+  /** Nombre y versión del evaluador. */
+  evaluator: string | null
+  /** Fecha y hora ISO 8601. */
+  evaluated_at: string | null
+  /** Informe completo (`GET /datasets/{slug}/versions/{version}/fair/report`). */
+  report_url: string | null
 }
 
 /** Esquema `ProvenanceStep`: paso PROV-O, del origen a la actividad que generó la versión. */
@@ -184,6 +238,8 @@ export interface VersionDetail {
   distributions: DistributionRead[]
   provenance: ProvenanceStep[]
   metadata: DcatMetadata
+  /** Evaluación FAIR (fase 4); null si no aplica. */
+  fair: FairSummary | null
 }
 
 /** Esquema `VersionSummary`: entrada del historial (de la más reciente a la más antigua). */
@@ -563,3 +619,47 @@ export interface ConceptDetail {
 
 /** Valores de `?format=` de `/ontologies/{slug}/rdf` y `/schemes/…/rdf`. */
 export type VocabRdfFormat = 'turtle' | 'rdfxml' | 'jsonld'
+
+/* ------------------------------------------------------------------------ */
+/* Consola SPARQL (fase 4).                                                  */
+/* ------------------------------------------------------------------------ */
+
+/**
+ * Esquema `SavedQuery`: consulta de referencia (de `semantic/consultas/`,
+ * visible para todos, `id` es su slug y `{BASE_URI}` ya va sustituido) o
+ * personal (de su dueño).
+ */
+export interface SavedQuery {
+  id: string
+  title: string
+  hint: string | null
+  query: string
+  kind: 'reference' | 'personal'
+  created_at: string | null
+  updated_at: string | null
+}
+
+/** Cuerpo de `POST /sparql/queries` (miembro). */
+export interface SavedQueryCreate {
+  /** 1-120 caracteres. */
+  title: string
+  /** 0-200 caracteres. */
+  hint?: string | null
+  /** 1 byte a 20 KB. */
+  query: string
+}
+
+/** Término RDF de un resultado SPARQL (formato `application/sparql-results+json` del W3C). */
+export interface SparqlTerm {
+  type: 'uri' | 'literal' | 'typed-literal' | 'bnode' | 'triple'
+  value: string
+  'xml:lang'?: string
+  datatype?: string
+}
+
+/** Respuesta `application/sparql-results+json` de `/sparql` (SELECT o ASK). */
+export interface SparqlJsonResults {
+  head: { vars?: string[]; link?: string[] }
+  results?: { bindings: Record<string, SparqlTerm>[] }
+  boolean?: boolean
+}

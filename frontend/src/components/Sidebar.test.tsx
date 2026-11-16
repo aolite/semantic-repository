@@ -30,10 +30,10 @@ describe('Navegación lateral', () => {
     }
   })
 
-  it('muestra la página provisional de cada ruta sin datos', () => {
+  it('lleva a la consola SPARQL, que ya no es una página provisional', () => {
     renderApp('/sparql')
     expect(screen.getByRole('heading', { level: 1, name: 'Consulta SPARQL' })).toBeInTheDocument()
-    expect(screen.getByText('Disponible en la fase 4')).toBeInTheDocument()
+    expect(screen.queryByText('Disponible en la fase 4')).not.toBeInTheDocument()
   })
 
   it('enlaza «Esquemas de conceptos» a los esquemas de dominio en el navegador SKOS', () => {

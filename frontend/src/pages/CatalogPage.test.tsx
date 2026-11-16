@@ -1,4 +1,5 @@
 import { screen, waitFor, within } from '@testing-library/react'
+import { useLocation, useNavigate } from 'react-router'
 import { describe, expect, it } from 'vitest'
 import type { DatasetPage, VocabularyPage } from '../api'
 import { cardFixture, pageFixture } from '../test/fixtures'
@@ -47,7 +48,7 @@ describe('Catálogo', () => {
     expect(screen.queryByRole('button', { name: 'Publicar recurso' })).not.toBeInTheDocument()
   })
 
-  it('pinta la tarjeta con tipo, dominio, acceso, temas, formatos y versión, sin FAIR', async () => {
+  it('pinta la tarjeta con tipo, dominio, acceso, temas, formatos y versión, sin FAIR si fair_total es null', async () => {
     mockCatalog()
     renderApp('/')
     const link = await screen.findByRole('link', { name: 'Dataset de prueba' })
@@ -219,5 +220,156 @@ describe('Catálogo', () => {
     mockCatalog(undefined, () => jsonResponse({ detail: 'Service Unavailable' }, 503))
     renderApp('/')
     expect(await screen.findByRole('alert')).toHaveTextContent('No se ha podido cargar el catálogo.')
+  })
+})
+
+/** Muestra la URL actual y ofrece «atrás», como el navegador. */
+function RouterProbe() {
+  const location = useLocation()
+  const navigate = useNavigate()
+  return (
+    <>
+      <output data-testid="url">{`${location.pathname}${location.search}`}</output>
+      <button type="button" onClick={() => navigate(-1)}>
+        Atrás de prueba
+      </button>
+    </>
+  )
+}
+
+describe('Catálogo · URL y paginación (fase 4)', () => {
+  it('pinta «FAIR {fair_total}» con su barra solo en los datasets que lo tienen', async () => {
+    mockCatalog(() =>
+      pageFixture([cardFixture({ fair_total: 37 }), cardFixture({ slug: 'otro', title: 'Otro de prueba' })], { total: 2 }),
+    )
+    renderApp('/')
+    const card = (await screen.findByRole('link', { name: 'Dataset de prueba' })).closest('article')!
+    const fair = within(card).getByText('FAIR 37')
+    const bar = fair.nextElementSibling as HTMLElement
+    expect(bar).toHaveAttribute('aria-hidden', 'true')
+    expect(bar.firstElementChild).toHaveStyle({ width: '37%' })
+    const other = screen.getByRole('link', { name: 'Otro de prueba' }).closest('article')!
+    expect(within(other).queryByText(/FAIR/)).not.toBeInTheDocument()
+  })
+
+  it('lee q, dominio, tipo y página de un enlace compartido', async () => {
+    const fetchMock = mockCatalog(() => pageFixture([cardFixture()], { total: 45, page: 2, page_size: 20 }))
+    renderApp('/?q=modbus&dominio=ot&tipo=datasets&pagina=2')
+    await screen.findByRole('link', { name: 'Dataset de prueba' })
+
+    const call = datasetsCalls(fetchMock).at(-1)!
+    expect(call.searchParams.get('q')).toBe('modbus')
+    expect(call.searchParams.get('domain')).toBe('ot')
+    expect(call.searchParams.get('page')).toBe('2')
+    expect(call.searchParams.get('page_size')).toBe('20')
+    expect(callsTo(fetchMock, '/vocabularies')).toHaveLength(0)
+
+    expect(screen.getByLabelText('Buscar en el catálogo')).toHaveValue('modbus')
+    expect(within(screen.getByRole('group', { name: 'Dominio' })).getByRole('button', { name: 'OT / ICS' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    expect(
+      within(screen.getByRole('group', { name: 'Tipo de recurso' })).getByRole('button', { name: 'Datasets' }),
+    ).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('ignora valores desconocidos en la URL', async () => {
+    const fetchMock = mockCatalog()
+    renderApp('/?dominio=xx&tipo=otro&pagina=-3')
+    await screen.findByRole('link', { name: 'Dataset de prueba' })
+    const call = datasetsCalls(fetchMock).at(-1)!
+    expect(call.searchParams.has('domain')).toBe(false)
+    expect(call.searchParams.get('page')).toBe('1')
+    expect(callsTo(fetchMock, '/vocabularies')).toHaveLength(1)
+  })
+
+  it('pagina con enlaces Anterior/Siguiente que conservan los filtros', async () => {
+    const fetchMock = mockCatalog((url) =>
+      pageFixture([cardFixture({ title: `Página ${url.searchParams.get('page')}` })], {
+        total: 45,
+        page: Number(url.searchParams.get('page')),
+        page_size: 20,
+      }),
+    )
+    const { user } = renderApp('/?dominio=it&tipo=datasets', <RouterProbe />)
+    await screen.findByRole('link', { name: 'Página 1' })
+
+    const pager = screen.getByRole('navigation', { name: 'Paginación' })
+    expect(within(pager).getByText('Página 1 de 3')).toBeInTheDocument()
+    expect(within(pager).queryByRole('link', { name: 'Anterior' })).not.toBeInTheDocument()
+    const next = within(pager).getByRole('link', { name: 'Siguiente' })
+    expect(next).toHaveAttribute('href', '/?dominio=it&tipo=datasets&pagina=2')
+
+    await user.click(next)
+    await screen.findByRole('link', { name: 'Página 2' })
+    expect(screen.getByTestId('url')).toHaveTextContent('/?dominio=it&tipo=datasets&pagina=2')
+    expect(datasetsCalls(fetchMock).at(-1)!.searchParams.get('page')).toBe('2')
+    expect(screen.getByRole('link', { name: 'Anterior' })).toHaveAttribute('href', '/?dominio=it&tipo=datasets')
+
+    // El botón atrás vuelve a la página anterior.
+    await user.click(screen.getByRole('button', { name: 'Atrás de prueba' }))
+    await screen.findByRole('link', { name: 'Página 1' })
+    expect(screen.getByTestId('url')).toHaveTextContent('/?dominio=it&tipo=datasets')
+  })
+
+  it('no muestra la paginación con una sola página', async () => {
+    mockCatalog()
+    renderApp('/')
+    await screen.findByRole('link', { name: 'Dataset de prueba' })
+    expect(screen.queryByRole('navigation', { name: 'Paginación' })).not.toBeInTheDocument()
+  })
+
+  it('en «Todo», los vocabularios van tras la última página de datasets', async () => {
+    mockCatalog(
+      (url) =>
+        pageFixture([cardFixture({ title: `Página ${url.searchParams.get('page')}` })], {
+          total: 21,
+          page: Number(url.searchParams.get('page')),
+          page_size: 20,
+        }),
+      () => vocabPageFixture(vocabCardsFixture().slice(0, 1)),
+    )
+    const { user } = renderApp('/')
+    await screen.findByRole('link', { name: 'Página 1' })
+    expect(screen.queryByRole('link', { name: 'Ontología de prueba' })).not.toBeInTheDocument()
+    expect(screen.getByText('22 recursos')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('link', { name: 'Siguiente' }))
+    expect(await screen.findByRole('link', { name: 'Ontología de prueba' })).toBeInTheDocument()
+  })
+
+  it('los filtros escriben la URL, vuelven a la página 1 y se deshacen con atrás', async () => {
+    mockCatalog()
+    const { user } = renderApp('/?pagina=3', <RouterProbe />)
+    await screen.findByRole('link', { name: 'Dataset de prueba' })
+
+    await user.click(within(screen.getByRole('group', { name: 'Dominio' })).getByRole('button', { name: 'IA adversaria' }))
+    expect(screen.getByTestId('url')).toHaveTextContent(/^\/\?dominio=ia$/)
+    await user.click(
+      within(screen.getByRole('group', { name: 'Tipo de recurso' })).getByRole('button', { name: 'Vocabularios y ontologías' }),
+    )
+    expect(screen.getByTestId('url')).toHaveTextContent('/?dominio=ia&tipo=vocabularios')
+
+    await user.click(screen.getByRole('button', { name: 'Atrás de prueba' }))
+    expect(screen.getByTestId('url')).toHaveTextContent(/^\/\?dominio=ia$/)
+    expect(
+      within(screen.getByRole('group', { name: 'Tipo de recurso' })).getByRole('button', { name: 'Todo' }),
+    ).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('la búsqueda llega a la URL con debounce, sin crear una entrada por pulsación, y el campo sigue a «atrás»', async () => {
+    mockCatalog()
+    const { user } = renderApp('/', <RouterProbe />)
+    await screen.findByRole('link', { name: 'Dataset de prueba' })
+
+    await user.click(within(screen.getByRole('group', { name: 'Dominio' })).getByRole('button', { name: 'OT / ICS' }))
+    await user.type(screen.getByLabelText('Buscar en el catálogo'), 'modbus')
+    await waitFor(() => expect(screen.getByTestId('url')).toHaveTextContent('/?dominio=ot&q=modbus'))
+
+    // Atrás vuelve al estado anterior al filtro de dominio: la búsqueda sustituyó su entrada.
+    await user.click(screen.getByRole('button', { name: 'Atrás de prueba' }))
+    await waitFor(() => expect(screen.getByTestId('url')).toHaveTextContent(/^\/$/))
+    expect(screen.getByLabelText('Buscar en el catálogo')).toHaveValue('')
   })
 })

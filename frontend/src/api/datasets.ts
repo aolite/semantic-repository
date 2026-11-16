@@ -1,5 +1,5 @@
 import { apiRequest, apiRequestText, withQuery } from './client'
-import type { DatasetDetail, DatasetPage, DomainSlug, RdfFormat } from './types'
+import type { DatasetDetail, DatasetPage, DomainSlug, DownloadLink, RdfFormat } from './types'
 
 export interface ListDatasetsParams {
   /** Texto libre: título, descripción y temas. */
@@ -41,4 +41,22 @@ export function fetchDatasetRdf(
 ): Promise<string> {
   const path = withQuery(`/datasets/${encodeURIComponent(slug)}/rdf`, { format, version })
   return apiRequestText(path, RDF_MEDIA_TYPES[format], { signal })
+}
+
+/**
+ * `POST /datasets/{slug}/versions/{version}/distributions/{dist}/download-link`
+ * (miembro o superior): enlace firmado de vida corta para descargar una
+ * distribución `authenticated` sin poner el JWT en la URL.
+ */
+export function requestDownloadLink(slug: string, version: string, dist: string, token: string): Promise<DownloadLink> {
+  const path = [
+    '/datasets',
+    encodeURIComponent(slug),
+    'versions',
+    encodeURIComponent(version),
+    'distributions',
+    encodeURIComponent(dist),
+    'download-link',
+  ].join('/')
+  return apiRequest<DownloadLink>(path, { method: 'POST', token })
 }

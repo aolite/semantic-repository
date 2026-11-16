@@ -111,19 +111,6 @@ describe('Ficha de dataset', () => {
     expect(within(versioning).getAllByText('Sustituida')).toHaveLength(2)
   })
 
-  it('pinta las distribuciones en una tabla con encabezados y sin columna Acción', async () => {
-    mockDataset()
-    await renderDataset()
-
-    const table = within(section('Distribuciones')).getByRole('table')
-    const headers = within(table).getAllByRole('columnheader').map((h) => h.textContent)
-    expect(headers).toEqual(['Distribución', 'dcat:mediaType', 'Acceso'])
-    const row = within(table).getByRole('row', { name: /Distribución A/ })
-    expect(within(row).getByRole('rowheader')).toHaveTextContent('Distribución A')
-    expect(within(row).getByText('text/csv')).toBeInTheDocument()
-    expect(within(row).getByText('Restringido')).toBeInTheDocument()
-  })
-
   it('muestra la cadena PROV-O del origen a la versión', async () => {
     mockDataset()
     await renderDataset()
@@ -158,14 +145,6 @@ describe('Ficha de dataset', () => {
     expect(rdfCalls.map((u) => u.searchParams.get('format'))).toEqual(['turtle', 'jsonld'])
     // La pestaña muestra el RDF en la página: sin download=1.
     expect(rdfCalls.every((u) => !u.searchParams.has('download'))).toBe(true)
-  })
-
-  it('muestra la Evaluación FAIR como disponible en la fase 4, sin puntuaciones', async () => {
-    mockDataset()
-    await renderDataset()
-    const fair = section('Evaluación FAIR')
-    expect(within(fair).getByText('Disponible en la fase 4')).toBeInTheDocument()
-    expect(within(fair).queryByText(/\/ 100/)).not.toBeInTheDocument()
   })
 
   it('muestra los placeholders del prototipo cuando los metadatos llegan null', async () => {
