@@ -18,7 +18,7 @@ Las referencias son `fichero:línea` del repositorio en la rama `main`. Donde el
 
 | Aspecto | Dato | Fuente |
 |---|---|---|
-| Imagen y runtime | `node:26.13.0-alpine`; ejecuta el servidor de desarrollo de Vite (`npm run dev --host 0.0.0.0 --port 5173`) | `frontend/Dockerfile:3`, `:19` |
+| Imagen y runtime | `node:26.13.0-alpine`; ejecuta el servidor de desarrollo de Vite (`npm run dev -- --host 0.0.0.0 --port 5173`) | `frontend/Dockerfile:3`, `:19` |
 | Producción | **No hay imagen ni build de producción** en el repositorio: la imagen es de desarrollo con recarga en caliente | `frontend/Dockerfile:1`, `infra/README.md:37` |
 | Larga duración / segundo plano | Proceso de larga duración (servidor de Vite); sin tareas propias | `frontend/Dockerfile:19` |
 | Persistencia | Ninguna | `docker-compose.yml:130-149` (sin `volumes`) |
@@ -32,12 +32,12 @@ Las referencias son `fichero:línea` del repositorio en la rama `main`. Donde el
 | Aspecto | Dato | Fuente |
 |---|---|---|
 | Imagen y runtime | Multietapa: `python:3.15.2-slim` + uv `0.13.6`; dependencias desde `uv.lock`; usuario sin privilegios (uid 10001) | `backend/Dockerfile:4-6`, `:16`, `:32-35` |
-| Java | Incluye `openjdk-25-jre-headless` para el razonador Pellet; la imagen pasa de unos 278 MB a 559 MB | `backend/Dockerfile:20-31`, `infra/README.md:72` |
+| Java | Incluye `openjdk-25-jre-headless` para el razonador Pellet; la imagen pasa de unos 278 MB a 559 MB | `backend/Dockerfile:20-31`, `infra/README.md:54` |
 | Arranque | Valida la configuración, aplica `alembic upgrade head` y lanza `uvicorn app.main:app --host 0.0.0.0 --port 8000` (un solo proceso, sin `--workers`) | `backend/docker-entrypoint.sh:12-16` |
 | Larga duración | Sí. Es un proceso de larga duración | `backend/docker-entrypoint.sh:16` |
 | Segundo plano: trabajador FAIR | Hilo demonio `fair-worker` que arranca en el `lifespan` de la API y consulta las evaluaciones pendientes cada `FAIR_WORKER_POLL_SECONDS` (10 s por defecto; 0 lo desactiva) | `backend/app/main.py:78-89`, `backend/app/fair.py:479`, `:494`, `backend/app/config.py:95-96` |
 | Segundo plano: purga de login | **No es una tarea periódica**: `purge_expired` se ejecuta en la petición, al registrar cada fallo de login (un `DELETE`) | `backend/app/login_guard.py:50-56` |
-| Segundo plano: procesos auxiliares | La validación SHACL corre en procesos de un *forkserver* de `multiprocessing`, con tiempo (`SHACL_TIMEOUT_SECONDS`, 60) y memoria (`SHACL_MEMORY_MB`, 2048, `RLIMIT_AS`, solo Linux); Pellet corre en una JVM aparte (`REASONER_TIMEOUT_SECONDS` 120, `REASONER_JAVA_MEMORY_MB` 1024) | `backend/app/config.py:59-67`, `backend/README.md:49-51`, `:249` |
+| Segundo plano: procesos auxiliares | La validación SHACL corre en procesos de un *forkserver* de `multiprocessing`, con tiempo (`SHACL_TIMEOUT_SECONDS`, 60) y memoria (`SHACL_MEMORY_MB`, 2048, `RLIMIT_AS`, solo Linux); Pellet corre en una JVM aparte (`REASONER_TIMEOUT_SECONDS` 120, `REASONER_JAVA_MEMORY_MB` 1024) | `backend/app/config.py:59-67`, `backend/README.md:48-51`, `:249` |
 | Persistencia | Volumen `distributions` en `/data/distributions` (distribuciones) y `./semantic` montado en `/semantic` solo lectura (formas SHACL y datos de ejemplo). El propio backend no guarda más estado | `docker-compose.yml:107-109` |
 | Memoria | Sin límite de contenedor en el repositorio. Cifras de procesos internos: SHACL hasta 2048 MB y Pellet 1024 MB (`-Xmx`) por ejecución | `docker-compose.yml:93-128`, `backend/app/config.py:63`, `:67` |
 | Puertos y red | 8000 (127.0.0.1 en el host); redes `default` y `fuji-net`. Habla con PostgreSQL, Fuseki y F-UJI, y recibe las llamadas de F-UJI | `docker-compose.yml:105-122` |
@@ -81,7 +81,7 @@ Las referencias son `fichero:línea` del repositorio en la rama `main`. Donde el
 | Larga duración | Sí. En el arranque ejecuta `touch` sobre `repodois.yaml` para evitar refrescar la lista de DataCite; arranca Chromium con Playwright | `docker-compose.yml:72-76`, `infra/fuji/Dockerfile:4-7` |
 | Persistencia | Ninguna; solo monta `infra/fuji/users.py` en solo lectura | `docker-compose.yml:80-82` |
 | Memoria | Sin cifra en el repositorio. El `start_period` del healthcheck es de 60 s | `docker-compose.yml:66-91` |
-| Puertos y red | 1071 (API, base `/fuji/api/v1`); **sin puerto en el host**; solo en `fuji-net` (`internal: true`, sin salida a internet) junto al backend. Alcanza al backend en `http://backend:8000/` | `docker-compose.yml:83-84`, `:151-155`, `infra/README.md:112-114` |
+| Puertos y red | 1071 (API, base `/fuji/api/v1`); **sin puerto en el host**; solo en `fuji-net` (`internal: true`, sin salida a internet) junto al backend. Alcanza al backend en `http://backend:8000/` | `docker-compose.yml:83-84`, `:151-155`, `infra/README.md:114` |
 | Internet | **No lo tiene ni lo necesita** en la configuración actual. Si se abriera, F-UJI haría consultas externas (Mendeley Data/Elsevier, DataCite, Google, `publicsuffix.org`, GitHub) y algunas no se pueden desactivar por configuración; no se ha verificado la región de esos servidores | `infra/README.md:117-136` |
 | Variables | `FUJI_USERNAME`, `FUJI_PASSWORD` (Basic; sin ellas no arranca); del lado del backend `FUJI_URL`, `FUJI_TIMEOUT_SECONDS` (300), `FAIR_TARGET_BASE_URL` (en local `http://backend:8000/`; vacío = `BASE_URI`) | `docker-compose.yml:77-79`, `.env.example:26-38`, `backend/app/config.py:89-96` |
 | Detalle a decidir en despliegue | F-UJI necesita llegar a la URL que evalúa. En local es el backend por red interna; en el despliegue habrá que decidir si mantiene `FAIR_TARGET_BASE_URL` interna o evalúa `BASE_URI` pública (lo segundo implica salida a internet) | `.env.example:36-38`, `infra/README.md:136` |
@@ -159,11 +159,13 @@ Fuentes: `docker-compose.yml:20`, `:45`, `:105`, `:120-122`, `:137`, `:151-155`;
 
 Conclusión del apartado: con la documentación consultada, solo R2 con jurisdicción `eu` y, con las salvedades indicadas, el frontend estático encajan en Cloudflare. Backend, F-UJI, Fuseki y PostgreSQL no encajan.
 
+Dar por buenos R2 y el frontend depende de la respuesta a la pregunta 2 del apartado 6: si basta con que los datos se guarden en la UE o también hay que procesarlos allí. El criterio se aplica igual a todos los componentes.
+
 ## 4. Opciones de arquitectura
 
 El proveedor de la máquina virtual en la UE **no está elegido** y no se propone ninguno: es decisión del responsable.
 
-**Decisión 47 y F-UJI.** El encargo indica que, según la decisión 47, F-UJI evalúa por la red interna y sigue sin internet. Esa decisión no figura en `Plan.md` ni en `docs/` en esta rama; se cita tal como se recibió. Implicación: en las opciones B y C F-UJI se mantiene en `fuji-net` (`internal: true`) con `FAIR_TARGET_BASE_URL` apuntando al backend por la red interna (`.env.example:36-38`), de modo que no se abre salida a internet y no se aplican las consultas externas de `infra/README.md:117-136`. Si se quisiera evaluar la `BASE_URI` pública, habría que quitar `internal: true` y decidir sobre esas llamadas.
+**Decisión 47 y F-UJI.** Según la decisión 47 (PR #36, pendiente de fusionar), F-UJI evalúa por la red interna y sigue sin internet. Implicación: en las opciones B y C F-UJI se mantiene en `fuji-net` (`internal: true`) con `FAIR_TARGET_BASE_URL` apuntando al backend por la red interna (`.env.example:36-38`), de modo que no se abre salida a internet y no se aplican las consultas externas de `infra/README.md:117-136`. Si se quisiera evaluar la `BASE_URI` pública, habría que quitar `internal: true` y decidir sobre esas llamadas.
 
 ### A) Todo en Cloudflare: descartada
 
@@ -177,6 +179,7 @@ El proveedor de la máquina virtual en la UE **no está elegido** y no se propon
 - R2 con jurisdicción `eu` para las distribuciones (`STORAGE_BACKEND=r2`).
 - Frontend en Workers Static Assets.
 - Tunnel para exponer el backend sin abrir puertos en la máquina virtual.
+- Access (Zero Trust Free) puede formar parte de B como opción para proteger el acceso, pero no es imprescindible.
 
 ### C) Mínima
 
@@ -189,29 +192,29 @@ El proveedor de la máquina virtual en la UE **no está elegido** y no se propon
 |---|---|---|---|
 | `R2Storage` (cliente y variables de credenciales, hoy sin implementar) | Sí (`backend`) | Sí (`backend`) | Sí (`backend`) |
 | Build de producción del frontend (hoy solo servidor de desarrollo de Vite) | Sí (`frontend`, `infra`) | Sí (`frontend`, `infra`): `vite build` y publicación como assets | Sí si se sirve desde la máquina virtual (`frontend`, `infra`: imagen o servidor estático); el servidor de desarrollo de Vite no es una configuración de producción |
-| `FORWARDED_ALLOW_IPS` (hoy fuera de `.env.example` y Compose) | No evaluado | Sí: con Tunnel el backend recibe las conexiones desde el agente del túnel; hay que fijar las IP de confianza para el límite de SPARQL y el bloqueo de login (`backend/README.md:343`) | Sí, si hay un proxy inverso delante; si no, se deja el valor por defecto |
+| `FORWARDED_ALLOW_IPS` (hoy fuera de `.env.example` y Compose) | No evaluado | Sí: con Tunnel el backend recibe las conexiones desde el agente del túnel; hay que fijar las IP de confianza para el límite de SPARQL y el bloqueo de login (`backend/README.md:343`). No usar `*` si el backend es accesible sin pasar por el túnel o el proxy | Sí, si hay un proxy inverso delante; si no, se deja el valor por defecto. No usar `*` si el backend es accesible sin pasar por el proxy |
 | Copias de seguridad (Fuseki, PostgreSQL, distribuciones; hoy inexistentes) | Sin solución documentada para Fuseki y PostgreSQL | Sí: en la máquina virtual para Fuseki y PostgreSQL; las distribuciones están en R2 | Sí: igual que B |
 | Límites de memoria (hoy sin cifra en ningún servicio) | Necesario para elegir instancia de Containers | Necesario para dimensionar la máquina virtual | Necesario para dimensionar la máquina virtual |
 | Dominio y `BASE_URI` | Sí | Sí: apuntará al frontend y al backend según el reparto | Sí |
 | Cuenta y aprobación de costes en Cloudflare | Sí | Sí | Sí (R2) |
 
-Otros puntos: en B y C hay que añadir las variables de R2 a `.env.example`, lo que afecta a todas las capas (aviso para el orquestador). En B hay que decidir cómo llega `VITE_API_BASE_URL` al build estático, porque se resuelve en el navegador (`.env.example:80-83`). Una tarea programada con actividad real (`Plan.md:142`) solo es necesaria si el proveedor de la máquina virtual pausa máquinas inactivas.
+Otros puntos: en B y C hay que añadir las variables de R2 a `.env.example`, lo que afecta a todas las capas (aviso para el orquestador). En B, `VITE_API_BASE_URL` se fija al ejecutar `vite build` (`frontend/src/config.ts:15`): cambiar la URL del backend exige reconstruir y volver a publicar los assets. Además, `CORS_ORIGINS` y `FRONTEND_BASE_URL` deben apuntar al origen del frontend estático. Una tarea programada con actividad real (`Plan.md:142`) solo es necesaria si el proveedor de la máquina virtual pausa máquinas inactivas.
 
 ## 5. Coste estimado
 
 Solo la parte de Cloudflare, para la evaluación con datos sintéticos (unos pocos GB y poco tráfico). Las cifras proceden del apartado 3.1 y hay que contrastarlas con la página original.
 
-| Concepto | Opciones B y C | Opción A |
-|---|---|---|
-| R2 | Unos pocos GB caben en la capa gratuita (10 GB-mes, 1 millón de operaciones clase A y 10 millones de clase B al mes). Fuera de la capa: 0,015 USD/GB-mes; egress gratis | Igual |
-| Workers Static Assets (frontend) | Plan Free: 100.000 peticiones al día; las de assets estáticos son «free and unlimited», salvo las que invocan el Worker. Con poco tráfico, 0 USD | Igual, más Workers Paid |
-| Zero Trust (Access) | Plan Free: 0 USD, hasta 50 usuarios | Igual |
-| Tunnel | [PENDIENTE: verificar] (no figura de forma explícita como gratuito) | No aplica |
-| Containers | No se usa | Exige Workers Paid (5 USD al mes) más el uso por encima de lo incluido (25 GiB-h de memoria, 375 vCPU-min y 200 GB-h de disco al mes). Descartada por encaje, no por coste; no se calcula |
-| Regional Services (Enterprise) | No incluido; precio no documentado en lo consultado | Igual |
-| Máquina virtual en la UE | [PENDIENTE: proveedor sin elegir] | No aplica |
+| Concepto | Opción B | Opción C | Opción A |
+|---|---|---|---|
+| R2 | Unos pocos GB caben en la capa gratuita (10 GB-mes, 1 millón de operaciones clase A y 10 millones de clase B al mes). Fuera de la capa: 0,015 USD/GB-mes; egress gratis | Igual que B | Igual |
+| Workers Static Assets (frontend) | Plan Free: 100.000 peticiones al día; las de assets estáticos son «free and unlimited», salvo las que invocan el Worker. Con poco tráfico, 0 USD | No se usa | Igual, más Workers Paid |
+| Zero Trust (Access) | Plan Free: 0 USD, hasta 50 usuarios (solo si se elige como protección opcional del acceso) | No se usa | Igual |
+| Tunnel | [PENDIENTE: verificar] (no figura de forma explícita como gratuito) | No se usa | No aplica |
+| Containers | No se usa | No se usa | Exige Workers Paid (5 USD al mes) más el uso por encima de lo incluido (25 GiB-h de memoria, 375 vCPU-min y 200 GB-h de disco al mes). Descartada por encaje, no por coste; no se calcula |
+| Regional Services (Enterprise) | No incluido; precio no documentado en lo consultado | Igual que B | Igual |
+| Máquina virtual en la UE | [PENDIENTE: proveedor sin elegir] | [PENDIENTE: proveedor sin elegir] | No aplica |
 
-Estimación para B y C: probablemente 0 USD en Cloudflare, siempre que se mantenga dentro de las capas gratuitas y esté verificado el coste de Tunnel (opción B). Es una estimación, no una comprobación; no se ha creado ninguna cuenta ni se ha ejecutado ninguna operación.
+Estimación: la opción C usa solo R2, probablemente 0 USD dentro de la capa gratuita. La opción B añade Static Assets, Tunnel y, si se elige, Access: probablemente 0 USD si se mantiene dentro de las capas gratuitas y se verifica el coste de Tunnel. Es una estimación, no una comprobación; no se ha creado ninguna cuenta ni se ha ejecutado ninguna operación.
 
 ## 6. Riesgos y preguntas para el responsable
 
