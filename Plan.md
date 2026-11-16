@@ -243,8 +243,8 @@ Las fases y las puertas son las del plan de implementación. Las semanas son ori
 |---|---|---|---|
 | G1 · Entorno local listo | Cerrada, validada por el responsable | 2026-11-14 | PR #1 a #7; CI en verde en `main`; e2e de G1 (`tests/e2e/`) con 33 casos; entorno levantado y revisado en local |
 | G2 · Primer dataset publicado | Cerrada, validada por el responsable | 2026-11-15 | PR #9 a #15; CI en verde en `main`; e2e de G2 (`tests/e2e/test_g2_catalogo.py`); catálogo y ficha con los tres datasets sintéticos revisados en local |
-| G3 · Vocabularios cargados | Pendiente | | |
-| G4 · FAIR y versiones integrados | Pendiente | | |
+| G3 · Vocabularios cargados | Cerrada, validada por el responsable | 2026-11-16 | PR #16 a #23; CI en verde en `main`; e2e de G3 (`tests/e2e/`); vocabularios, ontologías con métricas y navegador SKOS revisados en local |
+| G4 · FAIR y versiones integrados | Cerrada, validada por el responsable | 2026-11-16 | PR #24 a #33; e2e G1–G4 con F-UJI real (202 casos), Playwright (17), backend (2282) y Vitest (210) en verde; F-UJI 4.0.1 da 52.08 en las versiones actuales de los tres datasets sintéticos; entorno local revisado por el responsable |
 
 ---
 
@@ -284,7 +284,7 @@ Hay que resolverlas antes de la fase o el paso indicado.
 | 9 | ~~Convención de ramas, commits y registro de decisiones~~. Decidido: `<agente>/<descripción-corta>`, Conventional Commits y ADR en `docs/adr/` | Todos | Cerrada |
 | 10 | ~~Primer dataset para G2~~. Decidido (2026-11-14): G2 se demuestra con datasets **sintéticos**, los tres del catálogo del prototipo (Modbus/TCP, hallazgos de auditorías y ejemplos adversarios en visión), marcados como sintéticos. Los datasets reales y los valores de licencia, contacto y proyecto llegan en el piloto | `semantico`, `backend` | Cerrada (datos reales en la fase 5) |
 | 11 | Responsable nombrado por cada esquema corporativo (mitigación de gobernanza). Decidido (2026-11-15): se modela el campo y queda como placeholder `[RESPONSABLE]` hasta el piloto; no se escriben nombres en el repositorio | `semantico` | Valor real en la fase 5 |
-| 12 | Proveedor cloud. Cloudflare es una opción: las distribuciones ya irán a R2; falta evaluar qué otros componentes pueden alojarse ahí (p. ej. el frontend estático) y cuáles necesitan otro sitio (FastAPI, Fuseki, F-UJI, PostgreSQL) | `infra` | Fase 5 |
+| 12 | Proveedor cloud. Decidido en parte (2026-11-16): **Cloudflare para una evaluación con datos sintéticos**; los datos reales, y siempre los restringidos de defensa, quedan fuera de esa evaluación. Cloudflare es una opción: las distribuciones ya irán a R2; falta evaluar qué otros componentes pueden alojarse ahí (p. ej. el frontend estático) y cuáles necesitan otro sitio (FastAPI, Fuseki, F-UJI, PostgreSQL) | `infra` | Fase 5 |
 | 13 | Papel de ChatGPT Pro y Gemini: el plan de implementación los cita como asistentes, pero este sistema multi-agente se limita a Claude Code | Proceso | Cuando el responsable lo decida |
 | 14 | ~~Alcance y herramientas de las pruebas de seguridad~~. Decidido: JWT, autorización por rol, acceso a distribuciones restringidas, inyección en SPARQL y análisis de dependencias, con pip-audit, npm audit y pruebas pytest propias | `qa` | Cerrada |
 | 15 | ~~Razonador para la consistencia OWL~~. Decidido (2026-11-15): Pellet (vía owlready2). El diseño citaba HermiT; la interfaz muestra el razonador que devuelve la API | `backend`, `semantico`, `frontend` | Cerrada |
@@ -304,10 +304,10 @@ Hay que resolverlas antes de la fase o el paso indicado.
 | 29 | ~~¿Quién mantiene `dcat:dataset` del catálogo al publicar por la API?~~ Decidido (2026-11-15): el backend, en la fase 4 (QA-G2-05) | `backend`, `semantico` | Fase 4 |
 | 30 | ~~Búsqueda `q`~~. Decidido (2026-11-15), en la fase 4: `q` cubre la URI del recurso y deja de buscar en el espacio de nombres, que contiene `BASE_URI` (QA-G2-06 y QA-G3-11); el texto «Título, concepto o URI» se mantiene | `backend`, `frontend` | Fase 4 |
 | 31 | ~~Sin `Accept` o con `*/*`~~. Decidido (2026-11-15), en la fase 4: las URIs persistentes redirigen con 303 al HTML; el RDF sale solo con un `Accept` de RDF | `backend` | Fase 4 |
-| 32 | Usuario de escritura en Fuseki propio para el backend, en lugar de `admin`. Entra en la fase 4 (2026-11-15) | `infra`, `backend` | Fase 4 |
-| 33 | Paginación de la pantalla Catálogo (hoy se piden 100) y filtros en la URL. Entra en la fase 4 (2026-11-15) | `frontend` | Fase 4 |
+| 32 | ~~Usuario de escritura en Fuseki propio para el backend~~. Hecho en la fase 4 (PR #27 y #28): usuario `backend` con roles de shiro; `admin` solo administra | `infra`, `backend` | Cerrada (2026-11-16) |
+| 33 | ~~Paginación del Catálogo y filtros en la URL~~. Hecho en la fase 4 (PR #29) | `frontend` | Cerrada (2026-11-16) |
 | 34 | ~~Herramienta para pruebas de pantallas en navegador~~. Decidido (2026-11-15): Playwright, en la e2e y en el CI desde la fase 4 | `qa` | Fase 4 |
-| 35 | Pantalla para publicar datasets y versiones desde el frontend (el prototipo solo tiene el botón «Nueva versión»). Entra en la fase 4 (2026-11-15) cuando el responsable añada la pantalla al diseño; el resto de la fase no la espera | `frontend`, `backend` | Fase 4 (pendiente del diseño) |
+| 35 | Pantalla para publicar datasets y versiones desde el frontend (el prototipo solo tiene el botón «Nueva versión»). Entra en la fase 4 (2026-11-15) cuando el responsable añada la pantalla al diseño; el resto de la fase no la espera | `frontend`, `backend` | Fase 5 (pendiente del diseño; no entró en la fase 4) |
 | 36 | ~~URIs de los vocabularios corporativos~~. Decidido (2026-11-15): bajo `BASE_URI`, en `{BASE_URI}vocab/corp/{slug}/`, no en un dominio `/eurecat/` aparte como el prototipo; si Eurecat los publica en su dominio, se enlazan con `skos:exactMatch` | `semantico`, `backend` | Cerrada |
 | 37 | ~~Qué es «publicar» en el flujo de Git de la fase 3~~. Decidido (2026-11-15): una Release de GitHub con el RDF validado y la documentación WIDOCO al empujar una etiqueta `onto/{slug}/v{version}` o `vocab/[corp/]{slug}/v{version}`; la carga en un entorno es con `load-semantic` y el despliegue automático llega en la fase 5 | `infra` | Cerrada |
 | 38 | ~~Contenido de las ontologías sintéticas sin fuente~~. Decidido (2026-11-15): se retiran los `rdfs:comment`, las propiedades de objeto y el alineamiento concreto con D3FEND que el prototipo no da; se mantienen las clases que nombra el prototipo con etiqueta en español y las traducciones del nombre como propuesta | `semantico` | Cerrada |
@@ -318,3 +318,6 @@ Hay que resolverlas antes de la fase o el paso indicado.
 | 43 | ~~Consultas guardadas~~. Decidido (2026-11-15): las de referencia (las tres del prototipo) viven en `semantic/` y las ve todo el mundo; cada usuario autenticado guarda las suyas en PostgreSQL y solo las ve él | `semantico`, `backend`, `frontend` | Fase 4 |
 | 44 | ~~Jerarquía de `itot`~~. Decidido (2026-11-15): se añade `IED ⊑ ActivoIndustrial` corrigiendo la versión sintética 1.2.0 (no una versión nueva); el entorno local se recarga desde cero con `load-semantic`, y las métricas de G3 cambian | `semantico` | Fase 4 |
 | 45 | ~~Nivel FAIR de la ficha~~. Decidido (2026-11-15): se muestra el nivel de madurez que devuelve F-UJI, sin umbrales propios | `backend`, `frontend` | Fase 4 |
+| 46 | ~~Cómo se muestra la madurez FAIR~~. Decidido (2026-11-16): el número de F-UJI tal cual sobre 3 (p. ej. «Madurez 2.0 / 3»), sin nombre de nivel ni redondeo | `frontend` | Cerrada (PR #35) |
+| 47 | ~~Salida a internet de F-UJI~~. Decidido (2026-11-16): sin salida, en la red interna `fuji-net`. Las comprobaciones externas de F-UJI no se hacen y la puntuación puede ser algo menor que la de un F-UJI público. `FAIR_TARGET_BASE_URL` apunta al backend por la red interna (por defecto en el Compose, PR #34) | `infra`, `backend` | Cerrada |
+| 48 | ~~Parquet sintético~~. Decidido (2026-11-16): se añade `pyarrow` (versión fijada) a los scripts de `semantic/` y se genera un Parquet sintético reproducible byte a byte para `modbus-tcp-testbed` 2.1.0 (PR #32 y #33) | `semantico` | Cerrada |
