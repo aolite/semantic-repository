@@ -56,8 +56,11 @@ export type DomainSlug = 'it' | 'ot' | 'pqc' | 'ia'
  */
 export interface IngestErrorResponse {
   detail: string
-  /** `limit`: se ha superado un límite de la ingesta (tripletas, tamaño, IRI, profundidad o tiempo). */
-  kind: 'syntax' | 'structure' | 'uri' | 'shacl' | 'limit'
+  /**
+   * `limit`: se ha superado un límite de la ingesta (tripletas, tamaño, IRI, profundidad o tiempo).
+   * `version_removed` / `version_immutable` (409, fase 4): falta o cambia una versión ya publicada.
+   */
+  kind: 'syntax' | 'structure' | 'uri' | 'shacl' | 'limit' | 'version_removed' | 'version_immutable'
   issues: IngestIssue[]
   /** Informe SHACL en texto (solo `kind=shacl`). */
   report: string | null
@@ -125,7 +128,7 @@ export interface DatasetCard {
   current_version: string | null
   synthetic: boolean
   /** `total` de la última evaluación FAIR `done` de la versión actual (fase 4). */
-  fair_total: number | null
+  fair_total?: number | null
 }
 
 /** Esquema `DatasetPage`: respuesta de `GET /datasets`. */
