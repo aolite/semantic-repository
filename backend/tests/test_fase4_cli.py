@@ -24,11 +24,11 @@ CSV = b"# SINTETICO\r\na,b\r\n1,2\r\n"
 
 
 @pytest.fixture
-def semantic_copy(
-    tmp_path: Path, semantic_dir: Path, monkeypatch: pytest.MonkeyPatch
-) -> Path:
+def semantic_copy(tmp_path: Path, semantic_dir: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     root = tmp_path / "semantic"
     shutil.copytree(semantic_dir, root)
+    # Ficheros propios de estas pruebas, no los sintéticos de las fixtures.
+    shutil.rmtree(root / "data" / "sintetico" / "ficheros", ignore_errors=True)
     files = root / "data" / "sintetico" / "ficheros" / "modbus-tcp-testbed"
     (files / "2.1.0").mkdir(parents=True)
     (files / "1.0.0").mkdir(parents=True)
@@ -82,9 +82,7 @@ def test_load_uploads_files_and_enqueues_fair(
         assert record.media_type == "text/csv"
         assert record.uploaded_by is None
         event = session.scalars(
-            select(AuditEvent).where(
-                AuditEvent.action == AuditAction.DISTRIBUTION_UPLOADED.value
-            )
+            select(AuditEvent).where(AuditEvent.action == AuditAction.DISTRIBUTION_UPLOADED.value)
         ).first()
         assert event is not None and event.actor_username == "cli"
         versions = set(session.scalars(select(FairEvaluation.version_uri)))
