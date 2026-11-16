@@ -113,7 +113,7 @@ export function fairFixture(overrides: Partial<FairSummary> = {}): FairSummary {
     accessible: 22,
     interoperable: 33,
     reusable: 44,
-    maturity: 'nivel-de-prueba',
+    maturity: '1.75',
     evaluator: 'evaluador-de-prueba 0.0.0',
     evaluated_at: '2000-01-02T03:04:05Z',
     report_url: '/datasets/dataset-prueba/versions/2.1.0/fair/report',
