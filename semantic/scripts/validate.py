@@ -36,6 +36,16 @@ Comprueba:
      coherentes: URIs según la ruta, cadena de owl:priorVersion, términos en
      su espacio de nombres, imports y alineamientos hacia ontologías
      externas catalogadas y dct:subject hacia conceptos existentes.
+  9. Que semantic/data/sintetico/ficheros/ tiene un fichero por cada
+     distribución PUBLIC o RESTRICTED (salvo los formatos pendientes de
+     ficheros_sinteticos.PENDIENTES) y ninguno para las NON_PUBLIC, y que
+     cada fichero es exactamente el que genera
+     semantic/scripts/ficheros_sinteticos.py: tipo según dcat:mediaType,
+     marca SINTETICO y como mucho 64 KB.
+ 10. Que cada consulta de referencia de semantic/consultas/{id}.rq tiene la
+     cabecera «# title:» y «# hint:», usa el marcador {BASE_URI} en lugar
+     del dominio y, con el marcador sustituido, se analiza y se ejecuta sin
+     error sobre los datos, vocabularios y ontologías de semantic/.
 
 Sale con código 0 si todo va bien y 1 si algo falla.
 
@@ -51,8 +61,11 @@ import sys
 from pathlib import Path
 
 from pyshacl import validate
+from rdflib.plugins.sparql import prepareQuery
 from rdflib import BNode, Graph, Namespace, URIRef
 from rdflib.namespace import DCTERMS, OWL, RDF, RDFS, SKOS
+
+import ficheros_sinteticos  # mismo directorio: semantic/scripts/
 
 DEFAULT_BASE_URI = "https://semantic.example.org/itot/"
 SH = Namespace("http://www.w3.org/ns/shacl#")
@@ -70,6 +83,7 @@ VOCAB_DIR = SEMANTIC_DIR / "vocabularios"
 CORP_DIR = VOCAB_DIR / "corp"
 ONTO_DIR = SEMANTIC_DIR / "ontologias"
 EXTERNAL_FILE = ONTO_DIR / "externas.ttl"
+QUERIES_DIR = SEMANTIC_DIR / "consultas"
 
 VANN = Namespace("http://purl.org/vocab/vann/")
 ADMS = Namespace("http://www.w3.org/ns/adms#")
@@ -241,8 +255,9 @@ def main() -> int:
             errors.append(f"{rel(path)}: debería cumplir las formas y no las cumple")
             print(f"  FALLO  {rel(path)}\n{text}")
 
-    # 6. Todo semantic/data/ en un grafo: formas y coherencia.
-    data_files = sorted(DATA_DIR.rglob("*.ttl"))
+    # 6. Todo semantic/data/ en un grafo: formas y coherencia. Los ficheros de
+    # distribución (data/sintetico/ficheros/) son contenido, no metadatos.
+    data_files = sorted(p for p in DATA_DIR.rglob("*.ttl") if ficheros_sinteticos.FILES_DIR not in p.parents)
     print(f"\n[6] semantic/data/ en un grafo ({len(data_files)} ficheros)")
     combined = Graph()
     try:
@@ -340,7 +355,105 @@ def main() -> int:
             errors.append(f"prefijo VANN «{prefix}» repetido en {', '.join(sorted(set(owners)))}")
             print(f"  FALLO  prefijo VANN «{prefix}» repetido en {', '.join(sorted(set(owners)))}")
 
+    # 9. Ficheros sintéticos de distribución.
+    print(f"\n[9] Ficheros de distribución de {rel(ficheros_sinteticos.FILES_DIR)}/")
+    for problem in distribution_files(base):
+        errors.append(problem)
+        print(f"  FALLO  {problem}")
+
+    # 10. Consultas de referencia.
+    knowledge = Graph()
+    for path in [*data_files, *vocab_files, *onto_files, EXTERNAL_FILE]:
+        knowledge += parse(path, base)
+    query_files = sorted(QUERIES_DIR.glob("*.rq"))
+    print(f"\n[10] Consultas de referencia de {rel(QUERIES_DIR)}/ ({len(query_files)} ficheros)")
+    if not query_files:
+        errors.append(f"no hay consultas en {rel(QUERIES_DIR)}/")
+    for path in query_files:
+        problems, rows = reference_query(path, base, knowledge)
+        for problem in problems:
+            errors.append(f"{rel(path)}: {problem}")
+            print(f"  FALLO  {rel(path)}: {problem}")
+        if not problems:
+            print(f"  ok     {rel(path)} ({rows} filas con los datos de semantic/)")
+
     return report(errors)
+
+
+QUERY_HEADER = re.compile(r"^# (title|hint): (.+)$")
+
+
+def reference_query(path: Path, base: str, knowledge: Graph) -> tuple[list[str], int]:
+    """Una consulta de referencia: cabecera, marcador {BASE_URI} y ejecución.
+
+    La cabecera son las primeras líneas «# title: …» y «# hint: …». Los IRIs
+    propios se escriben <{BASE_URI}…>: el backend sustituye el marcador al
+    servirla (contrato de la fase 4, 3.2).
+    """
+    problems: list[str] = []
+    if not SLUG.match(path.stem):
+        problems.append(f"el nombre del fichero no es un slug válido ({path.stem})")
+    text = path.read_text(encoding="utf-8")
+    header: dict[str, str] = {}
+    for line in text.splitlines():
+        match = QUERY_HEADER.match(line)
+        if not match:
+            break
+        header[match.group(1)] = match.group(2).strip()
+    if not header.get("title"):
+        problems.append("falta la cabecera «# title: …» al principio del fichero")
+    if not header.get("hint"):
+        problems.append("falta la cabecera «# hint: …» tras el título")
+    if base in text or DEFAULT_BASE_URI in text:
+        problems.append("escribe el dominio; los IRIs propios usan el marcador {BASE_URI}")
+    if re.search(r"\{(?!BASE_URI\})[A-Za-z_]+\}", text):
+        problems.append("usa un marcador distinto de {BASE_URI}")
+    query = text.replace("{BASE_URI}", base)
+    try:
+        prepared = prepareQuery(query)
+        rows = len(list(knowledge.query(prepared)))
+    except Exception as exc:  # noqa: BLE001 - cualquier error de análisis o ejecución cuenta
+        problems.append(f"no se ejecuta: {exc}")
+        rows = 0
+    return problems, rows
+
+
+def distribution_files(base: str) -> list[str]:
+    """Ficheros de distribución: uno por PUBLIC/RESTRICTED, ninguno NON_PUBLIC."""
+    fs = ficheros_sinteticos
+    problems: list[str] = []
+    expected = fs.expected_files(base)
+    for d in fs.distributions(base):
+        path = d.path
+        if d.access in fs.WITHOUT_FILE:
+            print(f"  ok     {d.key}: {d.access}, sin fichero")
+        elif not d.needs_file:
+            problems.append(f"{d.key}: dct:accessRights {d.access!r} no es PUBLIC, RESTRICTED ni NON_PUBLIC")
+        elif d.ext is None:
+            problems.append(f"{d.key}: sin extensión conocida para el tipo de medio {d.media_type!r}")
+        elif d.ext in fs.PENDIENTES:
+            if path.exists():
+                problems.append(f"{rel(path)}: el formato está pendiente y no debería tener fichero")
+            else:
+                print(f"  PENDIENTE  {d.key} ({d.ext}): {fs.PENDIENTES[d.ext]}")
+        elif not path.is_file():
+            problems.append(f"{d.key}: {d.access} y sin fichero; ejecuta semantic/scripts/ficheros_sinteticos.py")
+        else:
+            data = path.read_bytes()
+            if data != expected[path]:
+                problems.append(f"{rel(path)}: no es el que genera ficheros_sinteticos.py; regenéralo")
+            elif len(data) > fs.MAX_BYTES:
+                problems.append(f"{rel(path)}: ocupa {len(data)} bytes, más de {fs.MAX_BYTES}")
+            elif fs.MARK.encode("ascii") not in data:
+                problems.append(f"{rel(path)}: falta la marca {fs.MARK}")
+            else:
+                print(f"  ok     {rel(path)} ({d.access}, {d.media_type or 'sin dcat:mediaType'}, {len(data)} bytes)")
+    # Nada más en la carpeta: ni ficheros de distribuciones NON_PUBLIC ni restos.
+    if fs.FILES_DIR.is_dir():
+        for path in sorted(fs.FILES_DIR.rglob("*")):
+            if path.is_file() and path not in expected:
+                problems.append(f"{rel(path)}: no corresponde a ninguna distribución PUBLIC o RESTRICTED")
+    return problems
 
 
 def short_of(base: str):

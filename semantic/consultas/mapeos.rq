@@ -1,0 +1,20 @@
+# title: Mapeos a vocabularios externos
+# hint: skos:exactMatch y skos:closeMatch en OT / ICS
+#
+# Consulta de referencia del prototipo (Consola SPARQL). Adaptada al modelo:
+# el esquema OT es <{BASE_URI}vocab/ot>, sin barra final. El backend
+# sustituye {BASE_URI} al servirla. Ver semantic/uris.md.
+#
+# Con los datos actuales no devuelve filas: los destinos de los mapeos de
+# vocabularios/ot.ttl son placeholders del prototipo ([QID], [ID de activo…],
+# [término de IEC 62443-1-1]) y quedan comentados.
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+
+SELECT ?concepto ?relacion ?destino
+WHERE {
+  VALUES ?relacion { skos:exactMatch skos:closeMatch }
+  ?concepto skos:inScheme <{BASE_URI}vocab/ot> ;
+            ?relacion ?destino .
+}
+ORDER BY ?concepto
+LIMIT 5

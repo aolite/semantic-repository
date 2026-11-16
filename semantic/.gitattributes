@@ -1,0 +1,4 @@
+# Ficheros sintéticos de distribución: se guardan byte a byte (sin conversión
+# de fin de línea), porque validate.py los compara con los que genera
+# scripts/ficheros_sinteticos.py y el backend guarda su sha256.
+data/sintetico/ficheros/** -text
