@@ -126,6 +126,9 @@ jobs:
         with:
           image-ref: backend-scan:ci
           version: v0.76.2
+          # Única excepción: CVE-2026-114820 (JRE solo para Pellet, sin corrección en
+          # Debian 13), con caducidad en .trivyignore.yaml. Ver infra/README.md.
+          trivyignores: .trivyignore.yaml
           severity: CRITICAL
           exit-code: "1"
           format: table
