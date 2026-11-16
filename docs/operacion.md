@@ -63,6 +63,7 @@ Pasos:
 
 1. Añade a `.env` las variables nuevas de `.env.example`: como mínimo `FUSEKI_BACKEND_PASSWORD` (con una contraseña propia), `FUJI_USERNAME` y `FUJI_PASSWORD`. El Compose se detiene con un mensaje si falta alguna. Ni `FUSEKI_BACKEND_PASSWORD` ni `FUSEKI_ADMIN_PASSWORD` pueden contener `,` `=` `\` `#` ni `;`, porque son separadores del formato de `shiro.ini`. `infra/fuseki/entrypoint.sh` genera ese fichero con `awk` (no con `sed`, así que `/` y `&` no dan problemas) y, si encuentra uno de esos caracteres, Fuseki no arranca.
 2. El backend debe usar `FUSEKI_USER=backend`. `docker-compose.yml` lo fija con `${FUSEKI_USER:-backend}`: si no defines `FUSEKI_USER`, vale `backend`. Pero si tu `.env` antiguo tiene `FUSEKI_USER=admin`, ese valor gana, y el backend fallaría con 401 porque recibe la contraseña de `FUSEKI_BACKEND_PASSWORD`. Cambia esa línea a `FUSEKI_USER=backend` (o bórrala).
+   Lo mismo con `FAIR_TARGET_BASE_URL`: el Compose la fija a `http://backend:8000/` si `.env` no la define. Si tu `.env` le da otro valor, F-UJI tiene que poder alcanzarlo desde `fuji-net`, que no tiene salida a internet. Con `BASE_URI` (p. ej. `https://semantic.example.org/itot/`), todas las evaluaciones quedan `failed` con «F-UJI respondió 500».
 3. Reconstruye y recrea los servicios. Fuseki regenera `shiro.ini` en cada arranque y el backend recibe las nuevas credenciales; además se construye `fuji`:
 
    ```bash

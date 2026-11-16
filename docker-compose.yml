@@ -102,6 +102,10 @@ services:
       # contraseña (FUSEKI_BACKEND_PASSWORD). `admin` queda solo para administrar Fuseki.
       FUSEKI_USER: ${FUSEKI_USER:-backend}
       FUSEKI_PASSWORD: ${FUSEKI_BACKEND_PASSWORD:?define FUSEKI_BACKEND_PASSWORD en .env (ver .env.example)}
+      # URL base que el backend pasa a F-UJI. F-UJI está en `fuji-net`, sin salida a
+      # internet, así que por defecto apunta al backend por la red interna; sin esto se
+      # usaría BASE_URI y la evaluación fallaría.
+      FAIR_TARGET_BASE_URL: ${FAIR_TARGET_BASE_URL:-http://backend:8000/}
     ports:
       - "127.0.0.1:${BACKEND_HOST_PORT:-8000}:8000"
     volumes:
