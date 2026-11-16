@@ -11,8 +11,9 @@
 #   rdfs:label en español. Los nombres locales y las etiquetas en inglés y catalán
 #   son [PROPUESTA] de semantico (traducción del nombre). RTU e IED solo
 #   llevan la sigla que da el prototipo.
-# - Jerarquía: solo la que respalda un texto del prototipo, citado en un
-#   comentario junto a cada rdfs:subClassOf.
+# - Jerarquía: solo la que respalda un texto del prototipo o una decisión
+#   del responsable (itot:IED, decisión 44), citado en un comentario junto a
+#   cada rdfs:subClassOf.
 # - Sin rdfs:comment (el prototipo no da definiciones; el hueco queda como
 #   «# rdfs:comment [DEFINICIÓN]») y sin propiedades de objeto (el prototipo
 #   no las nombra).
@@ -146,11 +147,13 @@ itot:RTU
     # rdfs:comment [DEFINICIÓN]
 
 # Nueva en la 1.2.0. Fuente de la jerarquía: «Nuevas clases de activos OT
-# (RTU, IED)» (nota de la versión 1.2.0). El prototipo no dice si un activo
-# OT es un itot:ActivoIndustrial; por eso cuelga de itot:Activo.
+# (RTU, IED)» (nota de la versión 1.2.0). Que un activo OT es un
+# itot:ActivoIndustrial es decisión del responsable (decisión 44, fase 4);
+# antes colgaba directamente de itot:Activo. Sigue siendo un itot:Activo a
+# través de itot:ActivoIndustrial.
 itot:IED
     a owl:Class ;
-    rdfs:subClassOf itot:Activo ;
+    rdfs:subClassOf itot:ActivoIndustrial ;
     rdfs:label "IED"@es .
     # rdfs:comment [DEFINICIÓN]
 

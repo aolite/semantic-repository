@@ -42,7 +42,9 @@ Los patrones marcados con *(prototipo)* aparecen literalmente en la pantalla «F
 | Ontología externa | Su IRI oficial | `owl:Ontology` | `https://saref.etsi.org/core/` | prototipo |
 | Esquema de dominios del catálogo | `{BASE_URI}vocab/dominio` | `skos:ConceptScheme` | `{BASE_URI}vocab/dominio` | **[PROPUESTA del orquestador, fase 3]** |
 | Dominio del catálogo | `{BASE_URI}vocab/dominio/{it\|ot\|pqc\|ia}` | `skos:Concept` | `{BASE_URI}vocab/dominio/ot` | **[PROPUESTA del orquestador, fase 3]** |
+| Fichero de una distribución | `{BASE_URI}dataset/{slug}/{version}/{dist}/fichero` | — | `{BASE_URI}dataset/modbus-tcp-testbed/2.1.0/pcap/fichero` | **[PROPUESTA del orquestador, fase 4]** |
 | Endpoint SPARQL | `{BASE_URI}sparql` | — | `{BASE_URI}sparql` | prototipo |
+| Consulta de referencia | `{BASE_URI}consulta/{id}` | — | `{BASE_URI}consulta/ot-datasets` | **[PROPUESTA del orquestador, fase 4]** |
 | Catálogo | `{BASE_URI}catalogo` | `dcat:Catalog` | `{BASE_URI}catalogo` (`dct:identifier "itot-catalogo"`) | **[PROPUESTA]** |
 | Esquema de tipos de dataset | `{BASE_URI}vocab/tipo-dataset` | `skos:ConceptScheme` | `{BASE_URI}vocab/tipo-dataset` | **[PROPUESTA del orquestador]** |
 | Tipo de dataset | `{BASE_URI}vocab/tipo-dataset/{slug}` | `skos:Concept` | `{BASE_URI}vocab/tipo-dataset/sintetico` | **[PROPUESTA del orquestador]** |
@@ -60,6 +62,37 @@ Detalles:
 ## `dcat:accessURL` de las distribuciones
 
 `dcat:accessURL` de cada distribución es **la URI de la propia distribución** (decisión del responsable, 2026-11-14): `{BASE_URI}dataset/{slug}/{version}/{dist}`. El prototipo no da URL de acceso. Al resolverla, el backend aplica el control de acceso por rol (lector, miembro…) según el `dct:accessRights` de la versión. `semantic/scripts/validate.py` comprueba que los datos de `semantic/data/` cumplen esta regla.
+
+## Ficheros de distribución y derechos de acceso (fase 4)
+
+### Ruta del fichero **[PROPUESTA del orquestador, fase 4]**
+
+- `{BASE_URI}dataset/{slug}/{version}/{dist}/fichero` es la descarga del fichero de una distribución. Es su `dcat:downloadURL` **solo si** existe fichero, pero **no se escribe en el RDF publicado**: el RDF no cambia al subir un fichero, y la API la devuelve en `download_url`.
+- `fichero` es un segmento fijo y queda reservado **[PROPUESTA]** de `semantico`: no puede ser el slug `{dist}` de una distribución, porque `{BASE_URI}dataset/{slug}/{version}/fichero` se confundiría con una distribución.
+- Clave de almacenamiento: `{slug}/{version}/{dist}`, sin extensión, igual en disco y en R2. La extensión del nombre de descarga sale del `dcat:mediaType`.
+
+### Qué significa cada `dct:accessRights` (decisión 40)
+
+El `dct:accessRights` efectivo de una distribución es el suyo o, si no tiene, el de su versión. Los tres valores admitidos son los de la tabla europea `http://publications.europa.eu/resource/authority/access-right/` (la forma `itsh:Dataset-accessRights` ya obliga a declararlo en cada versión, así que no hace falta forma nueva):
+
+| Valor | Significado | Fichero |
+|---|---|---|
+| `access-right/PUBLIC` | Abierto: cualquiera, también un lector anónimo, descarga el fichero | Sí, si se ha subido |
+| `access-right/RESTRICTED` | Descarga directa para usuarios autenticados (miembro o superior), auditada | Sí, si se ha subido |
+| `access-right/NON_PUBLIC` | Dataset de **defensa**: solo metadatos. El fichero nunca se sube, ni se sirve, ni está en este repositorio; queda en infraestructura de Eurecat | **Nunca** |
+
+Los tres datasets sintéticos son hoy `RESTRICTED` en todas sus versiones; ninguno es `PUBLIC` ni `NON_PUBLIC`.
+
+### Ficheros sintéticos
+
+`semantic/data/sintetico/ficheros/{slug}/{version}/{dist}.{ext}`: un fichero mínimo y marcado como sintético por cada distribución `PUBLIC` o `RESTRICTED` de `semantic/data/sintetico/`, generado sin red por `semantic/scripts/ficheros_sinteticos.py` (ver `semantic/README.md`). Ninguno para las `NON_PUBLIC`.
+
+## Consultas de referencia (fase 4)
+
+- Fichero `semantic/consultas/{id}.rq`, con `{id}` slug. Identificador `{BASE_URI}consulta/{id}` **[PROPUESTA del orquestador, fase 4]**: solo identifica la consulta, no se resuelve.
+- Cabecera de metadatos en las primeras líneas, en comentarios: `# title: …` y `# hint: …`. Después pueden ir más comentarios.
+- Los IRIs propios se escriben con el marcador literal `{BASE_URI}` (`<{BASE_URI}vocab/ot>`), que el backend sustituye al servirlas. Es el único marcador admitido.
+- Las tres del prototipo (Consola SPARQL): `ot-datasets`, `sin-definicion` y `mapeos`. En el prototipo el esquema OT es `<https://[DOMINIO]/itot/vocab/ot/>`, con barra final; en el modelo es `{BASE_URI}vocab/ot`, sin ella.
 
 ## Dominios y esquemas de dominio
 
@@ -109,7 +142,7 @@ Un fichero describe un solo esquema (con todos sus conceptos) o una sola versió
 
 - URI `{BASE_URI}onto/{slug}`, `owl:versionIRI {BASE_URI}onto/{slug}/{version}`, `owl:versionInfo "{version}"`, `owl:priorVersion` hacia la versión anterior (la primera no lleva) y, si procede, `owl:backwardCompatibleWith`.
 - VANN: `vann:preferredNamespacePrefix "{slug}"` y `vann:preferredNamespaceUri <{BASE_URI}onto/{slug}#>`. El espacio de nombres es una **IRI**, no un literal: los ficheros usan IRIs relativas a `BASE_URI` y un literal no se resolvería. Que el prefijo sea el slug es **[PROPUESTA]**; así lo hace el prototipo (`itot`, `pqcm`, `didx`).
-- Términos en `{BASE_URI}onto/{slug}#{Nombre}`. Solo lo que sale del prototipo (decisión del responsable, 2026-11-15): clases con `rdfs:label` en español (las traducciones en y ca son **[PROPUESTA]**), sin `rdfs:comment`, sin propiedades inventadas y con jerarquía solo cuando un texto del prototipo la respalda, citado en un comentario.
+- Términos en `{BASE_URI}onto/{slug}#{Nombre}`. Solo lo que sale del prototipo (decisión del responsable, 2026-11-15): clases con `rdfs:label` en español (las traducciones en y ca son **[PROPUESTA]**), sin `rdfs:comment`, sin propiedades inventadas y con jerarquía solo cuando un texto del prototipo o una decisión del responsable la respalda, citado en un comentario. La única por decisión es `itot:IED rdfs:subClassOf itot:ActivoIndustrial` en `itot` 1.2.0 (decisión 44, fase 4).
 - Si una versión usa una clase externa como destino de un alineamiento, la declara `owl:Class` en el propio fichero, para que sea OWL 2 DL sin cargar los imports. Hoy ninguna lo hace (los alineamientos con D3FEND son placeholder). **Al contar clases, el backend debe contar solo las del espacio de nombres propio.**
 - `dct:subject` hacia los conceptos SKOS que usa la ontología (el navegador SKOS los muestra en «Recursos que usan este concepto»).
 - Notas de versión en `adms:versionNotes`, como en los datasets.
@@ -207,4 +240,4 @@ Con Apache Jena: `riot --base="$BASE_URI" fichero.ttl`. Las IRIs absolutas (voca
 - URIs de entidades PROV intermedias (p. ej. «Capturas PCAP en bruto») y de actividades sin URI en el prototipo («Captura en banco de pruebas»): nodos en blanco por ahora.
 - Si la versión de los esquemas SKOS debe ser semver, como la de las ontologías.
 - Si se admiten versiones preliminares de SemVer.
-- Qué devuelve cada URI al resolverla (negociación de contenido HTML / Turtle / JSON-LD) y cómo se sirve la descarga de una distribución restringida: lo decide `backend`.
+- Qué devuelve cada URI al resolverla (negociación de contenido HTML / Turtle / JSON-LD) y cómo se sirve la descarga de una distribución restringida: lo implementa `backend` según el contrato de la fase 4 (decisiones 31 y 40).

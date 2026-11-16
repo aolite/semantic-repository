@@ -1,0 +1,13 @@
+# title: Conceptos sin definición
+# hint: Control de calidad de los vocabularios
+#
+# Consulta de referencia del prototipo (Consola SPARQL), sin cambios: no usa
+# IRIs propias. Ver semantic/uris.md.
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+
+SELECT ?concepto ?etiqueta
+WHERE {
+  ?concepto a skos:Concept ;
+            skos:prefLabel ?etiqueta .
+  FILTER NOT EXISTS { ?concepto skos:definition ?d }
+}
