@@ -19,8 +19,8 @@ from typer.testing import CliRunner
 from app import cli as cli_module
 from app import ingest, owl_metrics, vocab_ingest
 from app.config import get_settings
-from app.storage import DiskStorage
 from app.models import AuditAction, AuditEvent, OntologyMetricsRecord
+from app.storage import DiskStorage
 from app.triplestore import MemoryStore
 from tests.conftest import BASE_URI
 
