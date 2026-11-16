@@ -33,7 +33,7 @@ from app.models import (
 from app.sparql_public import MemoryQueryRunner
 from app.storage import DiskStorage
 from app.triplestore import MemoryStore
-from tests.conftest import BASE_URI, DEFAULT_PASSWORD
+from tests.conftest import BASE_URI, DEFAULT_PASSWORD, REPO_SEMANTIC_DIR
 from tests.fase4_data import AR, IANA, V1, V2, publish, series, upload
 
 CSV = b"a,b\r\n1,2\r\n"
@@ -1473,3 +1473,49 @@ def test_303_cannot_be_turned_into_an_open_redirect(
         assert "evil" not in response.headers["location"].split("?")[0][len(FRONTEND) :]
     else:
         assert response.status_code in (404, 422)
+
+
+# ==========================================================================================
+# 9. Defectos abiertos de la fase 4 (xfail estricto; aviso cuando se corrijan)
+# ==========================================================================================
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "QA-G4-03: el ejecutor lee toda la respuesta de Fuseki (hasta MAX_RESPONSE_BYTES) antes "
+        "de recortar a SPARQL_MAX_ROWS: un SELECT cuyo resultado supera ese tope da 400 en lugar "
+        "de truncarse con X-Result-Truncated (backend/app/sparql_public.py, _read_json)"
+    ),
+)
+def test_select_over_the_byte_cap_is_truncated_not_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import httpx
+
+    monkeypatch.setattr(sparql_public, "MAX_RESPONSE_BYTES", 4096)
+    row = {"s": {"type": "uri", "value": "http://ejemplo.org/" + "x" * 100}}
+    data = {"head": {"vars": ["s"]}, "results": {"bindings": [row] * 200}}  # ~25 KB > 4096
+    query = sparql_public.validate("SELECT ?s WHERE { ?s ?p ?o }", BASE_URI)
+    runner = sparql_public.FusekiQueryRunner(
+        "http://fuseki.test:3030",
+        "itot",
+        transport=httpx.MockTransport(lambda r: httpx.Response(200, json=data)),
+    )
+    result = runner.run(query, max_rows=10, timeout=5)
+    assert result.truncated and len(result.bindings) == 10
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "QA-G4-02: uvicorn arranca con su log de acceso por defecto y escribe la URL completa "
+        "del enlace de descarga, con su ?token= firmado (backend/docker-entrypoint.sh)"
+    ),
+)
+def test_backend_entrypoint_does_not_log_signed_download_links() -> None:
+    entrypoint = (REPO_SEMANTIC_DIR.parent / "backend" / "docker-entrypoint.sh").read_text(
+        encoding="utf-8"
+    )
+    command = next(line for line in entrypoint.splitlines() if line.startswith("exec uvicorn"))
+    assert "--no-access-log" in command or "--log-config" in command
