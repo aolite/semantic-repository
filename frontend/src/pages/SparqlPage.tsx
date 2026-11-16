@@ -43,11 +43,15 @@ export function SparqlPage() {
   const { state: savedState, lastData, retry: reloadSaved } = useApiLoad(loader)
   const queries = sortSavedQueries(savedState.status === 'ok' ? savedState.data : (lastData ?? []))
 
-  // Sin selección explícita, la primera consulta (como el prototipo).
+  // Sin selección explícita, la primera consulta (como el prototipo), salvo que
+  // ya se haya escrito en el editor antes de que llegara la lista: entonces se
+  // conserva ese borrador hasta que se elija una consulta (QA-G4-04).
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [edits, setEdits] = useState<Record<string, string>>({})
   const [draft, setDraft] = useState('')
-  const selected = queries.find((q) => q.id === selectedId) ?? queries[0] ?? null
+  const [draftTouched, setDraftTouched] = useState(false)
+  const selected =
+    queries.find((q) => q.id === selectedId) ?? (draftTouched ? null : (queries[0] ?? null))
   const text = selected ? (edits[selected.id] ?? selected.query) : draft
 
   const [run, setRun] = useState<RunState>({ status: 'idle' })
@@ -57,7 +61,10 @@ export function SparqlPage() {
 
   function handleEdit(value: string) {
     if (selected) setEdits((prev) => ({ ...prev, [selected.id]: value }))
-    else setDraft(value)
+    else {
+      setDraft(value)
+      setDraftTouched(true)
+    }
   }
 
   function pick(query: SavedQuery) {
