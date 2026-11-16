@@ -34,4 +34,4 @@ Solo habla con `BASE_URL` y `API_URL`: úsalo contra el entorno local o de prueb
 
 ## Defectos conocidos
 
-`QA-G4-04` (frontend) está marcado con `test.fail`: la prueba falla mientras el defecto exista y avisa cuando se corrija.
+`QA-G4-04` (frontend) está corregido: su prueba es una prueba normal y protege contra la regresión.
