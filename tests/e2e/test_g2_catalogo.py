@@ -212,7 +212,10 @@ def test_el_backend_recibe_semantic_y_las_credenciales_de_fuseki(stack: Stack) -
 
     listing = stack.compose("exec", "-T", "backend", "ls", "/semantic/data/sintetico")
     assert listing.returncode == 0, listing.stderr
-    assert sorted(listing.stdout.split()) == [f"{slug}.ttl" for slug in sorted(SYNTHETIC)]
+    # Los tres .ttl y, desde la fase 4, la carpeta `ficheros` de las distribuciones sintéticas.
+    assert sorted(listing.stdout.split()) == sorted(
+        [f"{slug}.ttl" for slug in SYNTHETIC] + ["ficheros"]
+    )
     # Solo lectura: el backend no puede modificar las formas ni los datos versionados.
     write = stack.compose("exec", "-T", "backend", "touch", "/semantic/shapes/qa-e2e.ttl")
     assert write.returncode != 0
@@ -663,17 +666,22 @@ def test_republicar_sustituye_la_serie_y_el_admin_hereda_del_editor(
     assert (same.json()["created"], same.json()["changed"]) == (False, False)
 
     # El admin hereda los permisos de editor (decisión 16) y publica una versión nueva.
+    # Fase 4 (decisión 28): las versiones son inmutables y la serie se envía con todas ellas,
+    # así que la 1.0.0 viaja idéntica; los metadatos de la serie sí pueden cambiar.
     new_title = f"{title} (revisada)"
-    newer = _series_ttl(slug, new_title, version="1.1.0")
+    original = _series_ttl(slug, title)
+    old_version = original[original.index(f"<dataset/{slug}/1.0.0> a dcat:Dataset") :]
+    newer = _series_ttl(slug, new_title, version="1.1.0", extra=old_version)
     replaced = _publish(stack, newer, admin.token)
     assert replaced.status == 200, replaced.text
     assert (replaced.json()["created"], replaced.json()["changed"]) == (False, True)
     detail = http("GET", f"{stack.api}/datasets/{slug}").json()
     assert detail["title"] == new_title
     assert detail["current_version"] == "1.1.0"
-    # La ingesta sustituye el grafo completo: la 1.0.0 ya no está.
-    assert [v["version"] for v in detail["versions"]] == ["1.1.0"]
-    assert http("GET", f"{stack.api}/datasets/{slug}?version=1.0.0").status == 404
+    # La 1.0.0 sigue publicada y sin cambios.
+    assert [v["version"] for v in detail["versions"]] == ["1.1.0", "1.0.0"]
+    old = http("GET", f"{stack.api}/datasets/{slug}?version=1.0.0")
+    assert old.status == 200 and old.json()["version"]["title"] == title
 
     events = [e for e in _published_events(stack) if e["details"]["slug"] == slug]
     assert [e["actor_username"] for e in events] == [

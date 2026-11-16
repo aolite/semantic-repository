@@ -746,6 +746,46 @@ def test_las_distribuciones_publicas_restringidas_y_de_defensa_de_una_serie_nuev
 @pytest.mark.xfail(
     strict=True,
     reason=(
+        "QA-G4-05: subidas simultáneas del mismo fichero a la misma distribución dan 500 "
+        "(IntegrityError al insertar dos veces `distribution_files.storage_key`) en lugar de "
+        "201 la primera y 200 idempotente las demás"
+    ),
+)
+def test_subidas_simultaneas_del_mismo_fichero_son_idempotentes(
+    stack: Stack, g4_editor: Account
+) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+
+    slug = f"e2e-g4-carrera-{secrets.token_hex(3)}"
+    versions = {"1.0.0": {"access": "PUBLIC", "dists": {"abierta": "PUBLIC"}}}
+    assert _publish(stack, _series_ttl(slug, versions), g4_editor.token).status == 201
+    data = b"a,b\n1,2\n"
+    with ThreadPoolExecutor(12) as pool:
+        statuses = list(
+            pool.map(
+                lambda _: _put_file(stack, slug, "1.0.0", "abierta", data, g4_editor.token).status,
+                range(12),
+            )
+        )
+    assert set(statuses) <= {200, 201}, statuses
+    assert statuses.count(201) == 1, statuses
+    assert http("GET", _file_url(stack, slug, "1.0.0", "abierta")).content == data
+
+
+def test_dos_enlaces_simultaneos_del_mismo_token_solo_descargan_una_vez(
+    stack: Stack, loaded: str, g4_member: Account
+) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+
+    link = _json(_link(stack, "modbus-tcp-testbed", "2.1.0", "csv", g4_member.token))["url"]
+    with ThreadPoolExecutor(20) as pool:
+        statuses = list(pool.map(lambda _: http("GET", f"{stack.api}{link}").status, range(20)))
+    assert statuses.count(200) == 1 and statuses.count(401) == 19, statuses
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
         "QA-G4-02: el log de acceso de uvicorn escribe la URL completa del enlace de descarga, "
         "con su `?token=` firmado, en los logs del contenedor del backend"
     ),
@@ -755,6 +795,68 @@ def test_los_logs_no_contienen_los_enlaces_firmados(stack: Stack, loaded: str) -
     text = logs.stdout + logs.stderr
     leaked = [name for name, secret in stack.sensitive.items() if secret in text]
     assert leaked == []
+
+
+# --- 4 bis. Catálogo y búsqueda (decisiones 29, 30, 33 y 44) ---------------------------
+
+
+def test_una_serie_publicada_por_la_api_cuelga_del_catalogo_rdf(
+    stack: Stack, series: dict, g4_member: Account
+) -> None:
+    """QA-G2-05: ``<catálogo> dcat:dataset <serie>`` al publicar por la API."""
+    base = stack.env["BASE_URI"]
+    ask = f"ASK {{ <{base}catalogo> <http://www.w3.org/ns/dcat#dataset> <{base}dataset/{series['slug']}> }}"
+    assert _json(_sparql(stack, ask, token=g4_member.token))["boolean"] is True
+    # Y la recarga del catálogo (load-semantic) no la borra.
+    result = stack.compose(
+        "exec", "-T", "backend", "python", "-m", "app.cli", "load-semantic", timeout=600
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert _json(_sparql(stack, ask, token=g4_member.token))["boolean"] is True
+
+
+def test_q_busca_en_la_uri_y_no_en_el_espacio_de_nombres(stack: Stack, loaded: str) -> None:
+    """QA-G2-06 y QA-G3-11: ``q=itot`` ya no devuelve todo lo propio; la URI sí cuenta."""
+    everything = _json(http("GET", f"{stack.api}/vocabularies?page_size=100"))
+    total = everything["total"] if "total" in everything else len(everything["items"])
+    itot = _json(http("GET", f"{stack.api}/vocabularies?q=itot"))
+    found = itot["total"] if "total" in itot else len(itot["items"])
+    assert 0 < found < total
+    base = urllib.parse.quote(stack.env["BASE_URI"].split("//", 1)[1])
+    assert _json(http("GET", f"{stack.api}/datasets?q={base}"))["total"] == 0  # BASE_URI no cuenta
+    by_uri = _json(http("GET", f"{stack.api}/datasets?q=dataset/modbus-tcp"))
+    assert [d["slug"] for d in by_uri["items"]] == ["modbus-tcp-testbed"]
+
+
+def test_el_catalogo_se_pagina_con_page_y_page_size(stack: Stack, loaded: str) -> None:
+    first = _json(http("GET", f"{stack.api}/datasets?page=1&page_size=2"))
+    second = _json(http("GET", f"{stack.api}/datasets?page=2&page_size=2"))
+    assert len(first["items"]) == 2 and first["page_size"] == 2 and first["total"] >= 3
+    assert not {d["slug"] for d in first["items"]} & {d["slug"] for d in second["items"]}
+    assert http("GET", f"{stack.api}/datasets?page_size=101").status == 422
+    assert http("GET", f"{stack.api}/datasets?page=0").status == 422
+
+
+def test_la_ontologia_itot_1_2_0_declara_ied_como_activo_industrial(
+    stack: Stack, loaded: str, g4_other_member: Account
+) -> None:
+    """Decisión 44: ``IED ⊑ ActivoIndustrial`` solo en la 1.2.0."""
+    base = stack.env["BASE_URI"]
+    query = (
+        f"ASK {{ GRAPH <{base}onto/itot/{{v}}> {{ <{base}onto/itot#IED> "
+        f"<http://www.w3.org/2000/01/rdf-schema#subClassOf> <{base}onto/itot#ActivoIndustrial> }} }}"
+    )
+    assert (
+        _json(_sparql(stack, query.replace("{v}", "1.2.0"), token=g4_other_member.token))["boolean"]
+        is True
+    )
+    assert (
+        _json(_sparql(stack, query.replace("{v}", "1.1.0"), token=g4_other_member.token))["boolean"]
+        is False
+    )
+    detail = _json(http("GET", f"{stack.api}/ontologies/itot"))
+    assert detail["metrics"]["classes"] == 13 and detail["metrics"]["logical_axioms"] == 8
+    assert detail["consistency"]["consistent"] is True
 
 
 # --- 5. Negociación de contenido (decisión 31) -----------------------------------------

@@ -316,7 +316,8 @@ def test_las_variables_del_razonador_son_opcionales(stack: Stack) -> None:
 def test_la_migracion_ha_creado_la_tabla_de_metricas(stack: Stack) -> None:
     tables = stack.psql("select tablename from pg_tables where schemaname = 'public'")
     assert "ontology_metrics" in tables
-    assert stack.psql("select version_num from alembic_version") == ["0002"]
+    # La 0003 es de la fase 4 (ficheros, FAIR, consultas guardadas, login y SPARQL).
+    assert stack.psql("select version_num from alembic_version") == ["0003"]
 
 
 # --- 2. load-semantic ------------------------------------------------------------------
@@ -510,7 +511,10 @@ def test_los_recuentos_de_vocabularios(stack: Stack, baseline: dict) -> None:
         ({"domain": "ot", "kind": "skos_corp"}, set()),
         ({"q": "pqcm"}, {"pqcm"}),
         ({"q": "PQCM", "kind": "own"}, {"pqcm"}),
-        ({"q": "onto/itot#"}, {"itot"}),
+        # Fase 4 (decisión 30): `q` busca en la URI sin BASE_URI y ya no en el espacio de
+        # nombres (`onto/itot#`, el de vann:preferredNamespaceUri).
+        ({"q": "onto/itot"}, {"itot"}),
+        ({"q": "onto/itot#"}, set()),
         ({"q": "vocab/corp/trl"}, {"trl"}),
         ({"q": "no-existe-este-texto"}, set()),
         ({"q": '" } UNION { GRAPH ?g { ?s ?p ?o } } #'}, set()),
