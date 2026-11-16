@@ -21,11 +21,11 @@ Las referencias son `fichero:línea` del repositorio en la rama `main`. Donde el
 | Imagen y runtime | `node:26.13.0-alpine`; ejecuta el servidor de desarrollo de Vite (`npm run dev -- --host 0.0.0.0 --port 5173`) | `frontend/Dockerfile:3`, `:19` |
 | Producción | **No hay imagen ni build de producción** en el repositorio: la imagen es de desarrollo con recarga en caliente | `frontend/Dockerfile:1`, `infra/README.md:37` |
 | Larga duración / segundo plano | Proceso de larga duración (servidor de Vite); sin tareas propias | `frontend/Dockerfile:19` |
-| Persistencia | Ninguna | `docker-compose.yml:130-149` (sin `volumes`) |
-| Memoria | Sin cifra en el repositorio | `docker-compose.yml:130-149` |
-| Puertos y red | 5173 (publicado solo en 127.0.0.1); red por defecto; depende de que el backend esté sano | `docker-compose.yml:137-141` |
+| Persistencia | Ninguna | `docker-compose.yml:134-153` (sin `volumes`) |
+| Memoria | Sin cifra en el repositorio | `docker-compose.yml:134-153` |
+| Puertos y red | 5173 (publicado solo en 127.0.0.1); red por defecto; depende de que el backend esté sano | `docker-compose.yml:141-145` |
 | Internet | No lo necesita en ejecución. Es el navegador del usuario quien llama al backend con `VITE_API_BASE_URL` | `.env.example:80-83`, `infra/README.md:52` |
-| Variables | `VITE_API_BASE_URL` (URL que usa el navegador), `VITE_BASE_URI` (mismo valor que `BASE_URI`); el frontend no recibe secretos | `docker-compose.yml:133-136`, `.env.example:80-83` |
+| Variables | `VITE_API_BASE_URL` (URL que usa el navegador), `VITE_BASE_URI` (mismo valor que `BASE_URI`); el frontend no recibe secretos | `docker-compose.yml:137-140`, `.env.example:80-83` |
 
 ### 2.2 Backend (API FastAPI) y trabajador FAIR
 
@@ -38,11 +38,11 @@ Las referencias son `fichero:línea` del repositorio en la rama `main`. Donde el
 | Segundo plano: trabajador FAIR | Hilo demonio `fair-worker` que arranca en el `lifespan` de la API y consulta las evaluaciones pendientes cada `FAIR_WORKER_POLL_SECONDS` (10 s por defecto; 0 lo desactiva) | `backend/app/main.py:78-89`, `backend/app/fair.py:479`, `:494`, `backend/app/config.py:95-96` |
 | Segundo plano: purga de login | **No es una tarea periódica**: `purge_expired` se ejecuta en la petición, al registrar cada fallo de login (un `DELETE`) | `backend/app/login_guard.py:50-56` |
 | Segundo plano: procesos auxiliares | La validación SHACL corre en procesos de un *forkserver* de `multiprocessing`, con tiempo (`SHACL_TIMEOUT_SECONDS`, 60) y memoria (`SHACL_MEMORY_MB`, 2048, `RLIMIT_AS`, solo Linux); Pellet corre en una JVM aparte (`REASONER_TIMEOUT_SECONDS` 120, `REASONER_JAVA_MEMORY_MB` 1024) | `backend/app/config.py:59-67`, `backend/README.md:48-51`, `:249` |
-| Persistencia | Volumen `distributions` en `/data/distributions` (distribuciones) y `./semantic` montado en `/semantic` solo lectura (formas SHACL y datos de ejemplo). El propio backend no guarda más estado | `docker-compose.yml:107-109` |
-| Memoria | Sin límite de contenedor en el repositorio. Cifras de procesos internos: SHACL hasta 2048 MB y Pellet 1024 MB (`-Xmx`) por ejecución | `docker-compose.yml:93-128`, `backend/app/config.py:63`, `:67` |
-| Puertos y red | 8000 (127.0.0.1 en el host); redes `default` y `fuji-net`. Habla con PostgreSQL, Fuseki y F-UJI, y recibe las llamadas de F-UJI | `docker-compose.yml:105-122` |
+| Persistencia | Volumen `distributions` en `/data/distributions` (distribuciones) y `./semantic` montado en `/semantic` solo lectura (formas SHACL y datos de ejemplo). El propio backend no guarda más estado | `docker-compose.yml:111-113` |
+| Memoria | Sin límite de contenedor en el repositorio. Cifras de procesos internos: SHACL hasta 2048 MB y Pellet 1024 MB (`-Xmx`) por ejecución | `docker-compose.yml:93-132`, `backend/app/config.py:63`, `:67` |
+| Puertos y red | 8000 (127.0.0.1 en el host); redes `default` y `fuji-net`. Habla con PostgreSQL, Fuseki y F-UJI, y recibe las llamadas de F-UJI | `docker-compose.yml:109-126` |
 | Internet | No lo necesita en ejecución. Solo habla con servicios internos; con R2 necesitaría salida hacia R2 | `backend/app/config.py:46`, `:89` |
-| Depende de | PostgreSQL sano y Fuseki sano; F-UJI es opcional (`required: false`) | `docker-compose.yml:110-119` |
+| Depende de | PostgreSQL sano y Fuseki sano; F-UJI es opcional (`required: false`) | `docker-compose.yml:114-123` |
 | Detrás de un proxy | La IP del cliente es la de la conexión; `X-Forwarded-For` se ignora. Con un proxy inverso hay que configurar `FORWARDED_ALLOW_IPS` de uvicorn (por defecto `127.0.0.1`). Afecta al límite de frecuencia de SPARQL y al bloqueo de login. No está en `.env.example` ni en Compose | `backend/README.md:343` |
 | Variables relevantes para un despliegue | `BASE_URI`, `DATABASE_URL`, `FUSEKI_URL`, `FUSEKI_DATASET`, `FUSEKI_USER`/`FUSEKI_PASSWORD`, `FUJI_URL`, `FUJI_USERNAME`/`FUJI_PASSWORD`, `FUJI_TIMEOUT_SECONDS`, `FAIR_TARGET_BASE_URL`, `FAIR_WORKER_POLL_SECONDS`, `JWT_SECRET` (obligatoria, mínimo 32 bytes con HS256), `CORS_ORIGINS`, `FRONTEND_BASE_URL` (destino de la redirección 303 de las URIs persistentes), `STORAGE_BACKEND`, `STORAGE_DISK_PATH`, `MAX_UPLOAD_MB` (512), `DOWNLOAD_LINK_TTL_SECONDS` (60) | `.env.example:5-83`, `backend/app/config.py:37-108` |
 
@@ -81,9 +81,9 @@ Las referencias son `fichero:línea` del repositorio en la rama `main`. Donde el
 | Larga duración | Sí. En el arranque ejecuta `touch` sobre `repodois.yaml` para evitar refrescar la lista de DataCite; arranca Chromium con Playwright | `docker-compose.yml:72-76`, `infra/fuji/Dockerfile:4-7` |
 | Persistencia | Ninguna; solo monta `infra/fuji/users.py` en solo lectura | `docker-compose.yml:80-82` |
 | Memoria | Sin cifra en el repositorio. El `start_period` del healthcheck es de 60 s | `docker-compose.yml:66-91` |
-| Puertos y red | 1071 (API, base `/fuji/api/v1`); **sin puerto en el host**; solo en `fuji-net` (`internal: true`, sin salida a internet) junto al backend. Alcanza al backend en `http://backend:8000/` | `docker-compose.yml:83-84`, `:151-155`, `infra/README.md:114` |
+| Puertos y red | 1071 (API, base `/fuji/api/v1`); **sin puerto en el host**; solo en `fuji-net` (`internal: true`, sin salida a internet) junto al backend. Alcanza al backend en `http://backend:8000/` | `docker-compose.yml:83-84`, `:155-159`, `infra/README.md:114` |
 | Internet | **No lo tiene ni lo necesita** en la configuración actual. Si se abriera, F-UJI haría consultas externas (Mendeley Data/Elsevier, DataCite, Google, `publicsuffix.org`, GitHub) y algunas no se pueden desactivar por configuración; no se ha verificado la región de esos servidores | `infra/README.md:117-136` |
-| Variables | `FUJI_USERNAME`, `FUJI_PASSWORD` (Basic; sin ellas no arranca); del lado del backend `FUJI_URL`, `FUJI_TIMEOUT_SECONDS` (300), `FAIR_TARGET_BASE_URL` (en local `http://backend:8000/`; vacío = `BASE_URI`) | `docker-compose.yml:77-79`, `.env.example:26-38`, `backend/app/config.py:89-96` |
+| Variables | `FUJI_USERNAME`, `FUJI_PASSWORD` (Basic; sin ellas no arranca); del lado del backend `FUJI_URL`, `FUJI_TIMEOUT_SECONDS` (300), `FAIR_TARGET_BASE_URL` (el Compose la fija por defecto a `http://backend:8000/`; en el código, vacío = `BASE_URI`) | `docker-compose.yml:77-79`, `docker-compose.yml:105-108`, `.env.example:26-38`, `backend/app/config.py:89-96` |
 | Detalle a decidir en despliegue | F-UJI necesita llegar a la URL que evalúa. En local es el backend por red interna; en el despliegue habrá que decidir si mantiene `FAIR_TARGET_BASE_URL` interna o evalúa `BASE_URI` pública (lo segundo implica salida a internet) | `.env.example:36-38`, `infra/README.md:136` |
 
 ### 2.6 Almacenamiento de distribuciones
@@ -94,7 +94,7 @@ Las referencias son `fichero:línea` del repositorio en la rama `main`. Donde el
 | Disco (MVP) | `DiskStorage` sobre `STORAGE_DISK_PATH` (`/data/distributions`), escritura atómica con `fsync` y `os.replace`, lectura en streaming. Claves `{slug}/{version}/{dist}` | `backend/app/storage.py:84-137`, `:12` |
 | R2 | **Existe la clase `R2Storage` pero sin implementar**: cada operación lanza `StorageConfigError` (503). Faltan decidir el cliente (p. ej. `boto3`, dependencia nueva) y los nombres de las variables de credenciales. **No hay ninguna variable de R2 en `config.py` ni en `.env.example`** | `backend/app/storage.py:8-10`, `:140-149`, `backend/README.md:322` |
 | Descargas | Enlaces firmados con validez `DOWNLOAD_LINK_TTL_SECONDS` (60 s); subida máxima `MAX_UPLOAD_MB` (512) | `.env.example:52-54`, `backend/app/config.py:84-85` |
-| Persistencia en Compose | Volumen `distributions` montado en el backend | `docker-compose.yml:108`, `:160` |
+| Persistencia en Compose | Volumen `distributions` montado en el backend | `docker-compose.yml:112`, `:164` |
 | Copias de seguridad | **No hay script ni servicio de copia de seguridad en el repositorio**; `Plan.md` los lista como responsabilidad de `infra` y propone una tarea programada con actividad real en la fase 5 | `Plan.md:142`; contenido de `infra/` |
 
 ### 2.7 Resumen de redes, puertos y dependencias
@@ -108,7 +108,7 @@ Las referencias son `fichero:línea` del repositorio en la rama `main`. Donde el
 | backend | F-UJI | 1071 | `fuji-net` (interna) |
 | F-UJI | backend | 8000 | `fuji-net` (interna) |
 
-Fuentes: `docker-compose.yml:20`, `:45`, `:105`, `:120-122`, `:137`, `:151-155`; `.env.example:16`, `:29`, `:38`. Ningún servicio necesita internet en ejecución con la configuración actual; solo el build (imágenes base, uv, `apt`, Playwright) lo necesita.
+Fuentes: `docker-compose.yml:20`, `:45`, `:109`, `:124-126`, `:141`, `:155-159`; `.env.example:16`, `:29`, `:38`. Ningún servicio necesita internet en ejecución con la configuración actual; solo el build (imágenes base, uv, `apt`, Playwright) lo necesita.
 
 ### 2.8 Otros datos relevantes
 
@@ -152,7 +152,7 @@ Fuentes: `docker-compose.yml:20`, `:45`, `:105`, `:120-122`, `:137`, `:151-155`;
 | Almacenamiento de distribuciones (R2) | Sí, con trabajo pendiente | Sí para el almacenamiento (jurisdicción `eu`, fijada al crear el bucket). El procesamiento de las peticiones no está limitado a la UE sin Enterprise | R2 es compatible con S3 y tiene egress gratis. Falta implementar `R2Storage` (hoy lanza 503, `backend/app/storage.py:140-149`) y decidir cliente y variables: trabajo de `backend`. El límite de tamaño de objeto frente a `MAX_UPLOAD_MB=512` está [PENDIENTE: verificar]. Los *location hints* no sirven como garantía y Logpush no funciona con buckets con jurisdicción |
 | Frontend | Sí, con trabajo pendiente | Almacenamiento de los assets: no documentado. Procesamiento en la UE: solo garantizado con Regional Services (Enterprise) | Encaja como Workers Static Assets, pero falta el build de producción (hoy la imagen ejecuta el servidor de desarrollo de Vite, `frontend/Dockerfile:19`). Con datos sintéticos y un frontend estático el impacto de que el procesamiento no esté limitado a la UE es bajo, aunque es una decisión del responsable (apartado 6) |
 | Backend FastAPI + trabajador FAIR | No, tal como está documentado | No documentada | Containers: sin región o jurisdicción UE documentada (arranca en la ubicación más cercana con la imagen precargada y puede moverse al reiniciar); sin «siempre encendido» garantizado, y el backend tiene un hilo permanente (`backend/app/fair.py:479`); sin red privada directa documentada (solo HTTP vía Worker o Durable Object, mientras el backend habla con Postgres, Fuseki y F-UJI por red interna). Las instancias cubren su memoria en tamaño (SHACL 2048 MB y Pellet 1024 MB por ejecución, `backend/app/config.py:63,67`), pero eso no resuelve lo anterior |
-| F-UJI | No, tal como está documentado | No documentada | Mismos motivos que el backend. Además, `fuji-net` es una red interna sin salida (`docker-compose.yml:151-155`) y no hay red privada documentada. La imagen es `linux/amd64` con Chromium (`infra/fuji/Dockerfile`); que Containers la admita no se ha verificado |
+| F-UJI | No, tal como está documentado | No documentada | Mismos motivos que el backend. Además, `fuji-net` es una red interna sin salida (`docker-compose.yml:155-159`) y no hay red privada documentada. La imagen es `linux/amd64` con Chromium (`infra/fuji/Dockerfile`); que Containers la admita no se ha verificado |
 | Fuseki | No | No documentada | El disco de Containers es efímero y Fuseki guarda el TDB2 en un volumen (`docker-compose.yml:47`). Solo hay snapshots (beta, máximo 20 GB) o FUSE sobre R2, con rendimiento muy inferior. Tampoco hay red privada ni región UE documentadas |
 | PostgreSQL | No hay equivalente nativo | D1: sí (`eu`), pero es SQLite. Hyperdrive: no documentado dónde hace la caché y el *pooling* | Cloudflare no ofrece PostgreSQL gestionado propio. D1 es SQLite y el backend usa PostgreSQL (`.env.example:12`); migrar sería un cambio de capa. Hyperdrive solo conecta un PostgreSQL externo y solo desde Workers, no desde contenedores arbitrarios |
 | Exposición del backend (Tunnel) y acceso (Access) | Sí, a falta de verificar el coste de Tunnel | Procesamiento en la UE: solo con Regional Services (Enterprise) | Zero Trust Free cuesta 0 USD hasta 50 usuarios. Tunnel gratuito: [PENDIENTE: verificar] |
@@ -165,7 +165,7 @@ Dar por buenos R2 y el frontend depende de la respuesta a la pregunta 2 del apar
 
 El proveedor de la máquina virtual en la UE **no está elegido** y no se propone ninguno: es decisión del responsable.
 
-**Decisión 47 y F-UJI.** Según la decisión 47 (PR #36, pendiente de fusionar), F-UJI evalúa por la red interna y sigue sin internet. Implicación: en las opciones B y C F-UJI se mantiene en `fuji-net` (`internal: true`) con `FAIR_TARGET_BASE_URL` apuntando al backend por la red interna (`.env.example:36-38`), de modo que no se abre salida a internet y no se aplican las consultas externas de `infra/README.md:117-136`. Si se quisiera evaluar la `BASE_URI` pública, habría que quitar `internal: true` y decidir sobre esas llamadas.
+**Decisión 47 y F-UJI.** Según la decisión 47 de `Plan.md`, F-UJI evalúa por la red interna y sigue sin internet. Implicación: en las opciones B y C F-UJI se mantiene en `fuji-net` (`internal: true`) con `FAIR_TARGET_BASE_URL` apuntando al backend por la red interna (`.env.example:36-38`), de modo que no se abre salida a internet y no se aplican las consultas externas de `infra/README.md:117-136`. Si se quisiera evaluar la `BASE_URI` pública, habría que quitar `internal: true` y decidir sobre esas llamadas.
 
 ### A) Todo en Cloudflare: descartada
 
@@ -224,7 +224,7 @@ Preguntas:
 2. **Alcance de la residencia.** ¿Basta la jurisdicción de almacenamiento (R2 `eu`) o se exige también que el procesamiento ocurra en la UE? Lo segundo exige Regional Services (add-on Enterprise de pago); sin Enterprise no hay forma documentada de limitarlo. Con datos sintéticos y un frontend estático el impacto es bajo, pero con datos reales habría que volver a decidirlo. Los datos de defensa quedan fuera siempre.
 3. **Dominio y `BASE_URI`.** Qué dominio se usa y si lo gestiona Cloudflare. Hasta entonces `BASE_URI` mantiene el valor de `.env.example`.
 4. **Cuenta y costes.** Quién crea la cuenta de Cloudflare, quién aprueba los costes y quién custodia las credenciales de R2 y del túnel (secrets de GitHub Actions o variables de entorno; nunca en ficheros).
-5. **Decisión 47.** Confirmar que F-UJI evalúa por la red interna y sin internet en el despliegue.
+5. **Decisión 47 en el despliegue.** La decisión 47 fija F-UJI sin internet; confirmar que se mantiene también en el despliegue (si se quisiera evaluar la `BASE_URI` pública, haría falta abrir salida a internet).
 
 Riesgos:
 
