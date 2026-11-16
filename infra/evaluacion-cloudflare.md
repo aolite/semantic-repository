@@ -1,6 +1,6 @@
 # Evaluación de Cloudflare como proveedor (decisión 12, fase 5)
 
-Estado: **borrador**. Los apartados 3 a 6 esperan datos verificados con fuentes.
+Estado: **borrador completo**, pendiente de revisión del responsable. Las cifras de Cloudflare (apartados 3 a 5) deben contrastarse con la página original antes de decidir.
 
 ## 1. Objetivo y alcance
 
@@ -118,24 +118,118 @@ Fuentes: `docker-compose.yml:20`, `:45`, `:105`, `:120-122`, `:137`, `:151-155`;
 
 ## 3. Encaje en Cloudflare por componente
 
-| Componente | Encaje | Notas |
+**Nota sobre las fuentes.** Los datos de este apartado y de los siguientes proceden de las páginas oficiales de Cloudflare citadas, consultadas el 2026-11-16 con una herramienta que resume el contenido. **Las cifras y las afirmaciones hay que contrastarlas con la página original antes de decidir.** Lo que figura como «no documentado» significa que no se ha encontrado en esas páginas; no se completa con suposiciones. Los precios están en USD.
+
+### 3.1 Datos de Cloudflare utilizados
+
+| Producto | Dato | Fuente |
 |---|---|---|
-| Frontend | [PENDIENTE: datos de Cloudflare] | [PENDIENTE: datos de Cloudflare] |
-| Backend FastAPI + trabajador FAIR | [PENDIENTE: datos de Cloudflare] | [PENDIENTE: datos de Cloudflare] |
-| Fuseki | [PENDIENTE: datos de Cloudflare] | [PENDIENTE: datos de Cloudflare] |
-| PostgreSQL | [PENDIENTE: datos de Cloudflare] | [PENDIENTE: datos de Cloudflare] |
-| F-UJI | [PENDIENTE: datos de Cloudflare] | [PENDIENTE: datos de Cloudflare] |
-| Almacenamiento de distribuciones (R2) | [PENDIENTE: datos de Cloudflare] | [PENDIENTE: datos de Cloudflare] |
-| Residencia de datos en la UE | [PENDIENTE: datos de Cloudflare] | [PENDIENTE: datos de Cloudflare] |
+| R2 (Standard) | 0,015 USD/GB-mes; operaciones clase A 4,50 USD/millón; clase B 0,36 USD/millón; egress gratis (página actualizada el 2026-10-30) | https://developers.cloudflare.com/r2/pricing/ |
+| R2 (capa gratuita) | 10 GB-mes, 1 millón de operaciones clase A y 10 millones de clase B al mes | https://developers.cloudflare.com/r2/pricing/ |
+| R2 (jurisdicción) | La jurisdicción `eu` garantiza que los objetos de un bucket se almacenan dentro de esa jurisdicción («guarantee objects in a bucket are stored within a specific jurisdiction»); se fija al crear el bucket y no se puede cambiar; endpoint `https://<ACCOUNT_ID>.eu.r2.cloudflarestorage.com`, compatible con S3; Logpush no funciona con buckets con jurisdicción; los *location hints* (`weur`, `eeur`…) son «best effort and not a guarantee» y no valen como garantía | https://developers.cloudflare.com/r2/reference/data-location/ |
+| R2 (tamaño de objeto) | Límite de tamaño de objeto frente a `MAX_UPLOAD_MB=512`: [PENDIENTE: verificar] | |
+| Workers Static Assets | Plan Free: 100.000 peticiones al día; plan Paid: 5 USD al mes; las peticiones a assets estáticos son «free and unlimited», salvo las que invocan el Worker. Pages no se consultó aparte | https://developers.cloudflare.com/workers/platform/pricing/ (actualizada el 2026-11-13), https://developers.cloudflare.com/workers/static-assets/billing-and-limitations/ |
+| Containers (disponibilidad) | GA desde el 2026-04-13 | https://developers.cloudflare.com/changelog/post/2026-04-13-containers-sandbox-ga/ |
+| Containers (precio) | Exige Workers Paid (5 USD al mes), que incluye 25 GiB-h de memoria, 375 vCPU-min y 200 GB-h de disco al mes. Exceso: 0,0000025 USD/GiB-s de memoria, 0,000020 USD/vCPU-s (CPU activa) y 0,00000007 USD/GB-s de disco. Egress en Europa: 0,025 USD/GB con 1 TB incluido | https://developers.cloudflare.com/containers/pricing/ |
+| Containers (instancias) | vCPU / memoria / disco: `lite` 1/16, 256 MiB, 2 GB; `basic` 1/4, 1 GiB, 4 GB; `standard-1` 1/2, 4 GiB, 8 GB; `standard-2` 1, 6 GiB, 12 GB; `standard-3` 2, 8 GiB, 16 GB; `standard-4` 4, 12 GiB, 20 GB | https://developers.cloudflare.com/containers/platform-details/limits/ |
+| Containers (disco) | Efímero («All disk is ephemeral by default»). Solo hay snapshots (beta, máximo 20 GB) o FUSE sobre R2, con rendimiento muy inferior | https://developers.cloudflare.com/containers/platform-details/ |
+| Containers (siempre encendido) | No garantizado: se paran por inactividad (lo evita `setInactivityTimeout`), al desplegar o al reiniciar el host; no hay duración garantizada | https://developers.cloudflare.com/containers/platform-details/architecture/, https://developers.cloudflare.com/containers/faq/ |
+| Containers (región o jurisdicción UE) | No documentada. Arranca en «the nearest location with a pre-fetched image» y puede moverse al reiniciar | https://developers.cloudflare.com/containers/platform-details/architecture/ |
+| Containers (red privada) | Red privada entre contenedores: no documentada. Solo se accede a un contenedor por HTTP a través de un Worker o Durable Object | https://developers.cloudflare.com/containers/platform-details/architecture/ |
+| D1 | Admite `--jurisdiction=eu`, pero es SQLite, no PostgreSQL | https://developers.cloudflare.com/d1/configuration/data-location/ |
+| Hyperdrive | Conecta un PostgreSQL externo, solo desde Workers (no desde contenedores arbitrarios), en los planes Free y Paid. Precio y ubicación de la caché y del *pooling*: no documentados | https://developers.cloudflare.com/hyperdrive/ |
+| PostgreSQL gestionado | Cloudflare no ofrece PostgreSQL gestionado propio. Hay integraciones con terceros (PlanetScale, Neon), sin región UE verificada | https://developers.cloudflare.com/hyperdrive/ |
+| Zero Trust | Plan Free: 0 USD, hasta 50 usuarios | https://www.cloudflare.com/plans/sase-zero-trust.md |
+| Tunnel | Que Tunnel sea gratuito no figura de forma explícita: [PENDIENTE: verificar] | |
+| Regional Services / Data Localization Suite | Add-on solo Enterprise y de pago. El TLS y el procesamiento (Cache, WAF, Workers) ocurren solo en la UE; la mitigación DDoS L3/L4 es global. Sin Enterprise no hay forma documentada de limitar a la UE dónde se procesan las peticiones | https://developers.cloudflare.com/data-localization/, https://developers.cloudflare.com/data-localization/regional-services/ |
+
+### 3.2 Encaje por componente
+
+«Residencia UE» se refiere al criterio excluyente de `CLAUDE.md`.
+
+| Componente | ¿Encaja? | Residencia UE | Motivo |
+|---|---|---|---|
+| Almacenamiento de distribuciones (R2) | Sí, con trabajo pendiente | Sí para el almacenamiento (jurisdicción `eu`, fijada al crear el bucket). El procesamiento de las peticiones no está limitado a la UE sin Enterprise | R2 es compatible con S3 y tiene egress gratis. Falta implementar `R2Storage` (hoy lanza 503, `backend/app/storage.py:140-149`) y decidir cliente y variables: trabajo de `backend`. El límite de tamaño de objeto frente a `MAX_UPLOAD_MB=512` está [PENDIENTE: verificar]. Los *location hints* no sirven como garantía y Logpush no funciona con buckets con jurisdicción |
+| Frontend | Sí, con trabajo pendiente | Almacenamiento de los assets: no documentado. Procesamiento en la UE: solo garantizado con Regional Services (Enterprise) | Encaja como Workers Static Assets, pero falta el build de producción (hoy la imagen ejecuta el servidor de desarrollo de Vite, `frontend/Dockerfile:19`). Con datos sintéticos y un frontend estático el impacto de que el procesamiento no esté limitado a la UE es bajo, aunque es una decisión del responsable (apartado 6) |
+| Backend FastAPI + trabajador FAIR | No, tal como está documentado | No documentada | Containers: sin región o jurisdicción UE documentada (arranca en la ubicación más cercana con la imagen precargada y puede moverse al reiniciar); sin «siempre encendido» garantizado, y el backend tiene un hilo permanente (`backend/app/fair.py:479`); sin red privada directa documentada (solo HTTP vía Worker o Durable Object, mientras el backend habla con Postgres, Fuseki y F-UJI por red interna). Las instancias cubren su memoria en tamaño (SHACL 2048 MB y Pellet 1024 MB por ejecución, `backend/app/config.py:63,67`), pero eso no resuelve lo anterior |
+| F-UJI | No, tal como está documentado | No documentada | Mismos motivos que el backend. Además, `fuji-net` es una red interna sin salida (`docker-compose.yml:151-155`) y no hay red privada documentada. La imagen es `linux/amd64` con Chromium (`infra/fuji/Dockerfile`); que Containers la admita no se ha verificado |
+| Fuseki | No | No documentada | El disco de Containers es efímero y Fuseki guarda el TDB2 en un volumen (`docker-compose.yml:47`). Solo hay snapshots (beta, máximo 20 GB) o FUSE sobre R2, con rendimiento muy inferior. Tampoco hay red privada ni región UE documentadas |
+| PostgreSQL | No hay equivalente nativo | D1: sí (`eu`), pero es SQLite. Hyperdrive: no documentado dónde hace la caché y el *pooling* | Cloudflare no ofrece PostgreSQL gestionado propio. D1 es SQLite y el backend usa PostgreSQL (`.env.example:12`); migrar sería un cambio de capa. Hyperdrive solo conecta un PostgreSQL externo y solo desde Workers, no desde contenedores arbitrarios |
+| Exposición del backend (Tunnel) y acceso (Access) | Sí, a falta de verificar el coste de Tunnel | Procesamiento en la UE: solo con Regional Services (Enterprise) | Zero Trust Free cuesta 0 USD hasta 50 usuarios. Tunnel gratuito: [PENDIENTE: verificar] |
+
+Conclusión del apartado: con la documentación consultada, solo R2 con jurisdicción `eu` y, con las salvedades indicadas, el frontend estático encajan en Cloudflare. Backend, F-UJI, Fuseki y PostgreSQL no encajan.
 
 ## 4. Opciones de arquitectura
 
-[PENDIENTE]
+El proveedor de la máquina virtual en la UE **no está elegido** y no se propone ninguno: es decisión del responsable.
+
+**Decisión 47 y F-UJI.** El encargo indica que, según la decisión 47, F-UJI evalúa por la red interna y sigue sin internet. Esa decisión no figura en `Plan.md` ni en `docs/` en esta rama; se cita tal como se recibió. Implicación: en las opciones B y C F-UJI se mantiene en `fuji-net` (`internal: true`) con `FAIR_TARGET_BASE_URL` apuntando al backend por la red interna (`.env.example:36-38`), de modo que no se abre salida a internet y no se aplican las consultas externas de `infra/README.md:117-136`. Si se quisiera evaluar la `BASE_URI` pública, habría que quitar `internal: true` y decidir sobre esas llamadas.
+
+### A) Todo en Cloudflare: descartada
+
+- Frontend en Static Assets, backend y F-UJI en Containers, Fuseki y PostgreSQL sin soporte equivalente.
+- Motivos: Fuseki no cabe por el disco efímero de Containers; PostgreSQL no tiene equivalente nativo (D1 es SQLite, Hyperdrive solo conecta uno externo y solo desde Workers); backend y F-UJI en Containers no tienen región UE documentada, ni «siempre encendido» garantizado, ni red privada directa documentada, así que no cumplen el criterio excluyente tal como está documentado.
+- Solo Containers aparecería en el coste de esta opción (apartado 5).
+
+### B) Híbrida
+
+- El Docker Compose actual en una máquina virtual en la UE (proveedor sin elegir).
+- R2 con jurisdicción `eu` para las distribuciones (`STORAGE_BACKEND=r2`).
+- Frontend en Workers Static Assets.
+- Tunnel para exponer el backend sin abrir puertos en la máquina virtual.
+
+### C) Mínima
+
+- La máquina virtual en la UE con todos los servicios, incluido el frontend.
+- Solo R2 con jurisdicción `eu` de Cloudflare, para las distribuciones.
+
+### Trabajo que exige cada opción
+
+| Trabajo | A | B | C |
+|---|---|---|---|
+| `R2Storage` (cliente y variables de credenciales, hoy sin implementar) | Sí (`backend`) | Sí (`backend`) | Sí (`backend`) |
+| Build de producción del frontend (hoy solo servidor de desarrollo de Vite) | Sí (`frontend`, `infra`) | Sí (`frontend`, `infra`): `vite build` y publicación como assets | Sí si se sirve desde la máquina virtual (`frontend`, `infra`: imagen o servidor estático); el servidor de desarrollo de Vite no es una configuración de producción |
+| `FORWARDED_ALLOW_IPS` (hoy fuera de `.env.example` y Compose) | No evaluado | Sí: con Tunnel el backend recibe las conexiones desde el agente del túnel; hay que fijar las IP de confianza para el límite de SPARQL y el bloqueo de login (`backend/README.md:343`) | Sí, si hay un proxy inverso delante; si no, se deja el valor por defecto |
+| Copias de seguridad (Fuseki, PostgreSQL, distribuciones; hoy inexistentes) | Sin solución documentada para Fuseki y PostgreSQL | Sí: en la máquina virtual para Fuseki y PostgreSQL; las distribuciones están en R2 | Sí: igual que B |
+| Límites de memoria (hoy sin cifra en ningún servicio) | Necesario para elegir instancia de Containers | Necesario para dimensionar la máquina virtual | Necesario para dimensionar la máquina virtual |
+| Dominio y `BASE_URI` | Sí | Sí: apuntará al frontend y al backend según el reparto | Sí |
+| Cuenta y aprobación de costes en Cloudflare | Sí | Sí | Sí (R2) |
+
+Otros puntos: en B y C hay que añadir las variables de R2 a `.env.example`, lo que afecta a todas las capas (aviso para el orquestador). En B hay que decidir cómo llega `VITE_API_BASE_URL` al build estático, porque se resuelve en el navegador (`.env.example:80-83`). Una tarea programada con actividad real (`Plan.md:142`) solo es necesaria si el proveedor de la máquina virtual pausa máquinas inactivas.
 
 ## 5. Coste estimado
 
-[PENDIENTE]
+Solo la parte de Cloudflare, para la evaluación con datos sintéticos (unos pocos GB y poco tráfico). Las cifras proceden del apartado 3.1 y hay que contrastarlas con la página original.
+
+| Concepto | Opciones B y C | Opción A |
+|---|---|---|
+| R2 | Unos pocos GB caben en la capa gratuita (10 GB-mes, 1 millón de operaciones clase A y 10 millones de clase B al mes). Fuera de la capa: 0,015 USD/GB-mes; egress gratis | Igual |
+| Workers Static Assets (frontend) | Plan Free: 100.000 peticiones al día; las de assets estáticos son «free and unlimited», salvo las que invocan el Worker. Con poco tráfico, 0 USD | Igual, más Workers Paid |
+| Zero Trust (Access) | Plan Free: 0 USD, hasta 50 usuarios | Igual |
+| Tunnel | [PENDIENTE: verificar] (no figura de forma explícita como gratuito) | No aplica |
+| Containers | No se usa | Exige Workers Paid (5 USD al mes) más el uso por encima de lo incluido (25 GiB-h de memoria, 375 vCPU-min y 200 GB-h de disco al mes). Descartada por encaje, no por coste; no se calcula |
+| Regional Services (Enterprise) | No incluido; precio no documentado en lo consultado | Igual |
+| Máquina virtual en la UE | [PENDIENTE: proveedor sin elegir] | No aplica |
+
+Estimación para B y C: probablemente 0 USD en Cloudflare, siempre que se mantenga dentro de las capas gratuitas y esté verificado el coste de Tunnel (opción B). Es una estimación, no una comprobación; no se ha creado ninguna cuenta ni se ha ejecutado ninguna operación.
 
 ## 6. Riesgos y preguntas para el responsable
 
-[PENDIENTE]
+Preguntas:
+
+1. **Proveedor de la máquina virtual en la UE.** Hace falta elegirlo para las opciones B y C. Debe cumplir la residencia en la UE y declarar el coste. Hasta entonces el coste de la máquina virtual es [PENDIENTE: proveedor sin elegir].
+2. **Alcance de la residencia.** ¿Basta la jurisdicción de almacenamiento (R2 `eu`) o se exige también que el procesamiento ocurra en la UE? Lo segundo exige Regional Services (add-on Enterprise de pago); sin Enterprise no hay forma documentada de limitarlo. Con datos sintéticos y un frontend estático el impacto es bajo, pero con datos reales habría que volver a decidirlo. Los datos de defensa quedan fuera siempre.
+3. **Dominio y `BASE_URI`.** Qué dominio se usa y si lo gestiona Cloudflare. Hasta entonces `BASE_URI` mantiene el valor de `.env.example`.
+4. **Cuenta y costes.** Quién crea la cuenta de Cloudflare, quién aprueba los costes y quién custodia las credenciales de R2 y del túnel (secrets de GitHub Actions o variables de entorno; nunca en ficheros).
+5. **Decisión 47.** Confirmar que F-UJI evalúa por la red interna y sin internet en el despliegue.
+
+Riesgos:
+
+- **Cifras no contrastadas.** Los datos se leyeron con una herramienta que resume; hay que contrastarlos con la página original antes de decidir.
+- **Verificaciones pendientes.** Límite de tamaño de objeto de R2 frente a `MAX_UPLOAD_MB=512` ([PENDIENTE: verificar]); gratuidad de Tunnel ([PENDIENTE: verificar]); Pages no se consultó.
+- **Caducidad de la clase Container el 2026-12-31.** Solo aparece citada en un resultado de búsqueda sobre https://blog.cloudflare.com/faster-agent-sandboxes/ y no está verificada. Afecta solo a la opción A, que está descartada.
+- **Trabajo de otras capas sin hacer.** `R2Storage` (`backend`) y el build de producción del frontend (`frontend`, `infra`) son requisitos previos de B y C.
+- **Sin copias de seguridad ni límites de memoria.** Hoy no existen en el repositorio; son requisito del despliegue en cualquier opción.
+- **Los *location hints* de R2 no son garantía.** Solo vale la jurisdicción `eu`, que no se puede cambiar después de crear el bucket; un bucket creado sin ella obliga a crear otro y migrar.
+- **Logpush no funciona con buckets con jurisdicción.** Los registros de acceso a R2 no podrán enviarse por esa vía.
+- **Dependencia del proveedor.** Mitigada porque R2 es compatible con S3 y el acceso va por la interfaz `Storage` elegida por configuración (`backend/app/storage.py:70-81`).
