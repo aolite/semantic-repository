@@ -1039,7 +1039,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Respuesta de F-UJI tal cual (su esquema FAIRResults)",
+            "description": "Respuesta de F-UJI (su esquema FAIRResults) sin URLs internas: la URL evaluada pasa a ser la URI persistente de la versión y FAIR_TARGET_BASE_URL pasa a BASE_URI",
             "content": {
               "application/json": {
                 "schema": {
@@ -1179,7 +1179,7 @@
         ],
         "responses": {
           "200": {
-            "description": "SELECT/ASK: application/sparql-results+json (por defecto) o text/csv. CONSTRUCT/DESCRIBE: text/turtle (por defecto) o application/ld+json. Con `X-Result-Truncated: true` si se ha recortado a SPARQL_MAX_ROWS",
+            "description": "SELECT/ASK: application/sparql-results+json (por defecto) o text/csv. CONSTRUCT/DESCRIBE: text/turtle (por defecto), application/ld+json, application/rdf+xml o application/n-triples. Con `X-Result-Truncated: true` si se ha recortado a SPARQL_MAX_ROWS",
             "content": {
               "application/sparql-results+json": {
                 "schema": {
@@ -1199,6 +1199,16 @@
               "application/ld+json": {
                 "schema": {
                   "type": "object"
+                }
+              },
+              "application/rdf+xml": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "application/n-triples": {
+                "schema": {
+                  "type": "string"
                 }
               }
             }
@@ -1301,7 +1311,7 @@
         ],
         "responses": {
           "200": {
-            "description": "SELECT/ASK: application/sparql-results+json (por defecto) o text/csv. CONSTRUCT/DESCRIBE: text/turtle (por defecto) o application/ld+json. Con `X-Result-Truncated: true` si se ha recortado a SPARQL_MAX_ROWS",
+            "description": "SELECT/ASK: application/sparql-results+json (por defecto) o text/csv. CONSTRUCT/DESCRIBE: text/turtle (por defecto), application/ld+json, application/rdf+xml o application/n-triples. Con `X-Result-Truncated: true` si se ha recortado a SPARQL_MAX_ROWS",
             "content": {
               "application/sparql-results+json": {
                 "schema": {
@@ -1321,6 +1331,16 @@
               "application/ld+json": {
                 "schema": {
                   "type": "object"
+                }
+              },
+              "application/rdf+xml": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "application/n-triples": {
+                "schema": {
+                  "type": "string"
                 }
               }
             }

@@ -12,6 +12,7 @@ import math
 import unicodedata
 from datetime import UTC, datetime, timedelta
 
+from sqlalchemy import delete, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -46,12 +47,34 @@ def locked_for(session: Session, username: str, ip: str, now: datetime | None = 
     return max(1, math.ceil((until - now).total_seconds()))
 
 
+def purge_expired(
+    session: Session, settings: Settings, keep: tuple[str, str], now: datetime | None = None
+) -> None:
+    """Borra los pares que ya no cuentan: sin bloqueo vigente y con la ventana caducada.
+
+    Se llama al registrar cada fallo (una sola sentencia ``DELETE``), así que
+    ``login_attempts`` no crece sin límite con usuarios o IPs que no vuelven. ``keep`` es el
+    par que se está registrando: su fila puede estar ya en la sesión y se reinicia aparte.
+    Sin commit.
+    """
+    now = now or datetime.now(UTC)
+    window = now - timedelta(minutes=settings.login_window_minutes)
+    session.execute(
+        delete(LoginAttempt)
+        .where(LoginAttempt.window_start < window)
+        .where(or_(LoginAttempt.locked_until.is_(None), LoginAttempt.locked_until <= now))
+        .where(or_(LoginAttempt.username != keep[0], LoginAttempt.ip != keep[1]))
+        .execution_options(synchronize_session=False)
+    )
+
+
 def register_failure(
     session: Session, settings: Settings, username: str, ip: str, now: datetime | None = None
 ) -> bool:
     """Cuenta un fallo. Devuelve ``True`` si este fallo deja el par bloqueado. Sin commit."""
     now = now or datetime.now(UTC)
     key = (normalize_username(username), ip[:64])
+    purge_expired(session, settings, key, now)
     row = session.get(LoginAttempt, key)
     if row is None:
         row = LoginAttempt(username=key[0], ip=key[1], failures=0, window_start=now)

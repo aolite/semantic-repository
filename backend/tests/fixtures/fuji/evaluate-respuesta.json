@@ -1,7 +1,7 @@
 {
   "test_id": "prueba-0001",
   "request": {
-    "object_identifier": "http://backend:8000/dataset/prueba/1.0.0",
+    "object_identifier": "http://backend:8000/datasets/prueba/rdf?version=1.0.0&format=turtle",
     "test_debug": false,
     "use_datacite": false,
     "use_github": false,
@@ -9,7 +9,7 @@
     "metadata_service_endpoint": "http://backend:8000/sparql",
     "metadata_service_type": "sparql"
   },
-  "resolved_url": "http://backend:8000/dataset/prueba/1.0.0",
+  "resolved_url": "http://backend:8000/datasets/prueba/rdf?version=1.0.0&format=turtle",
   "start_timestamp": "2026-11-15T10:00:00Z",
   "end_timestamp": "2026-11-15T10:00:01Z",
   "metric_specification": "https://doi.org/10.5281/zenodo.6461229",
