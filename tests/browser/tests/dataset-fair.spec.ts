@@ -59,11 +59,8 @@ test('la sección FAIR muestra la evaluación real de F-UJI y enlaza el informe 
 test('sin sesión: «Iniciar sesión para descargar» en las restringidas y sin botón «Descargar»', async ({ page }) => {
   await page.goto(`/datasets/${MODBUS}`)
   const table = page.locator('#distribuciones')
-  await expect(table.getByRole('link', { name: /^Iniciar sesión para descargar/ })).toHaveCount(2) // csv y pcap
+  await expect(table.getByRole('link', { name: /^Iniciar sesión para descargar/ })).toHaveCount(3) // csv, pcap y parquet
   await expect(table.getByRole('link', { name: /^Descargar/ })).toHaveCount(0)
-  // El Parquet no tiene fichero: no hay acción de descarga.
-  const parquet = table.locator('tr', { hasText: 'parquet' })
-  await expect(parquet).toContainText('No disponible')
   await expect(page.getByRole('button', { name: /Solicitar acceso|Nueva versión/ })).toHaveCount(0)
 })
 
@@ -79,7 +76,7 @@ test('un miembro inicia sesión desde la ficha, vuelve a ella y descarga con enl
   const table = page.locator('#distribuciones')
   await expect(table.getByRole('link', { name: /^Iniciar sesión para descargar/ })).toHaveCount(0)
   const buttons = table.getByRole('button', { name: /^Descargar/ })
-  await expect(buttons).toHaveCount(2)
+  await expect(buttons).toHaveCount(3)
 
   const row = table.locator('tr', { hasText: 'csv' }).first()
   const [download] = await Promise.all([page.waitForEvent('download'), row.getByRole('button', { name: /^Descargar/ }).click()])
@@ -96,7 +93,7 @@ test('distribuciones PUBLIC, RESTRICTED y NON_PUBLIC de una serie nueva en la fi
   const token = await login(editor)
   const slug = `browser-acc-${Date.now().toString(36)}`
   const turtle = seriesTurtle(slug, `Serie de accesos ${slug}`, {
-    '1.0.0': { access: 'RESTRICTED', dists: { abierta: 'PUBLIC', restringida: null, defensa: 'NON_PUBLIC' } },
+    '1.0.0': { access: 'RESTRICTED', dists: { abierta: 'PUBLIC', restringida: null, defensa: 'NON_PUBLIC', pendiente: 'RESTRICTED' } },
   })
   await publishSeries(token, turtle)
   expect(await uploadFile(token, slug, '1.0.0', 'abierta', new TextEncoder().encode('a,b\n1,2\n'))).toBe(201)
@@ -117,4 +114,9 @@ test('distribuciones PUBLIC, RESTRICTED y NON_PUBLIC de una serie nueva en la fi
   await expect(defensa).toContainText('Solo metadatos')
   await expect(defensa.getByRole('link')).toHaveCount(0)
   await expect(defensa.getByRole('button')).toHaveCount(0)
+  // Sin fichero subido: «No disponible», sin acción de descarga.
+  const pendiente = table.locator('tr', { hasText: 'pendiente' })
+  await expect(pendiente).toContainText('No disponible')
+  await expect(pendiente.getByRole('link')).toHaveCount(0)
+  await expect(pendiente.getByRole('button')).toHaveCount(0)
 })

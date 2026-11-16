@@ -546,14 +546,14 @@ def test_load_semantic_no_altera_las_versiones_sinteticas(stack: Stack, evaluate
 # --- 4. Descargas ----------------------------------------------------------------------
 
 
-def test_las_distribuciones_sinteticas_son_restringidas_y_la_que_falta_no_esta_disponible(
+def test_las_distribuciones_sinteticas_son_restringidas_y_descargables(
     stack: Stack, loaded: str
 ) -> None:
     detail = _detail(stack, "modbus-tcp-testbed")["version"]["distributions"]
     modes = {d["uri"].rsplit("/", 1)[1]: d["download"] for d in detail}
-    assert modes == {"csv": "authenticated", "pcap": "authenticated", "parquet": "unavailable"}
+    assert modes == {"csv": "authenticated", "pcap": "authenticated", "parquet": "authenticated"}
     parquet = next(d for d in detail if d["uri"].endswith("/parquet"))
-    assert parquet["download_url"] is None and parquet["byte_size"] is None
+    assert parquet["download_url"] and parquet["byte_size"] == 502
     for dist in detail:
         if dist["download"] == "authenticated":
             path = FILES_DIR / "modbus-tcp-testbed" / "2.1.0"
@@ -617,6 +617,7 @@ def test_los_binarios_se_descargan_byte_a_byte(
 ) -> None:
     for slug, version, dist, name in (
         ("modbus-tcp-testbed", "2.1.0", "pcap", "pcap.pcap"),
+        ("modbus-tcp-testbed", "2.1.0", "parquet", "parquet.parquet"),
         ("modbus-tcp-testbed", "1.0.0", "pcap", "pcap.pcap"),
         ("ejemplos-adversarios-vision", "0.9.0", "npz", "npz.npz"),
         ("hallazgos-auditorias-intrusion", "1.3.0", "rdf", "rdf.ttl"),
@@ -633,11 +634,19 @@ def test_los_binarios_se_descargan_byte_a_byte(
     assert npz.headers["content-type"] == "application/octet-stream"
 
 
-def test_la_distribucion_que_falta_da_404_y_no_hay_enlace(stack: Stack, g4_member: Account) -> None:
-    url = _file_url(stack, "modbus-tcp-testbed", "2.1.0", "parquet")
+def test_la_distribucion_que_falta_da_404_y_no_hay_enlace(
+    stack: Stack, loaded: str, g4_member: Account, g4_editor: Account
+) -> None:
+    # Serie propia con una distribución RESTRICTED a la que no se sube fichero.
+    slug = f"e2e-g4-sinfichero-{secrets.token_hex(4)}"
+    versions = {"1.0.0": {"access": "RESTRICTED", "dists": {"sinfichero": "RESTRICTED"}}}
+    assert _publish(stack, _series_ttl(slug, versions), g4_editor.token).status == 201
+    detail = _detail(stack, slug)["version"]["distributions"]
+    assert [d["download"] for d in detail] == ["unavailable"]
+    url = _file_url(stack, slug, "1.0.0", "sinfichero")
     assert http("GET", url, token=g4_member.token).status == 404
     assert http("GET", url).status in (401, 404)
-    assert _link(stack, "modbus-tcp-testbed", "2.1.0", "parquet", g4_member.token).status == 404
+    assert _link(stack, slug, "1.0.0", "sinfichero", g4_member.token).status == 404
 
 
 def test_enlaces_caducados_manipulados_o_de_otro_fichero_no_valen(
