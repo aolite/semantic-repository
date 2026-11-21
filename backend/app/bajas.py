@@ -12,6 +12,15 @@ Funciones de bajo nivel sobre el triplestore, sin dependencias de la ingesta (la
 - **Lápidas.** Un catálogo o una serie dados de baja quedan solo como lápida en el grafo
   ``{BASE_URI}bajas`` (forma ``itsh:BajaShape``): ``rdf:type prov:Entity``, ``dct:title``,
   ``adms:status …/Withdrawn`` y ``prov:invalidatedAtTime``. Ese grafo no se publica.
+
+Escrituras atómicas (QA-49-01): ninguna función lee un grafo entero para reescribirlo.
+Añadir triples es un ``POST`` del Graph Store Protocol (``append_graph``, se añade al
+grafo sin tocar lo demás) y quitarlos, un SPARQL Update ``DELETE DATA`` o
+``DELETE … WHERE`` con solo IRIs validadas por ``app.sparql.iri``; mover una serie de
+catálogo es **una** petición de Update con las dos operaciones, que Fuseki aplica en una
+transacción. Así dos peticiones simultáneas no se pierden los cambios la una a la otra.
+Las comprobaciones que tienen que ir juntas con su escritura (slug libre y crear, catálogo
+vacío y dar de baja…) se serializan además con ``app.write_lock``.
 """
 
 from dataclasses import dataclass
@@ -27,6 +36,13 @@ from app.uris import ADMS, DCAT, DCT, PROV, Uris
 WITHDRAWN_STATUS = URIRef("http://purl.org/adms/status/Withdrawn")
 
 _SUBJECT_QUERY = "CONSTRUCT { $s ?p ?o } WHERE { GRAPH $graph { $s ?p ?o } }"
+
+# SPARQL Update solo con IRIs (``app.sparql.iri``): nunca literales ni texto del usuario.
+_DELETE_DATA = "DELETE DATA { GRAPH $graph { $s $p $o } }"
+_SET_MEMBERSHIP = """DELETE { GRAPH ?c { ?c $dataset $series } }
+WHERE { GRAPH ?c { ?c $dataset $series }
+  FILTER(STRSTARTS(STR(?c), $catalog_ns) && ?c != $target) } ;
+INSERT DATA { GRAPH $target { $target $dataset $series } }"""
 
 _MEMBERSHIP_QUERY = """PREFIX dcat: <http://www.w3.org/ns/dcat#>
 CONSTRUCT { ?c dcat:dataset $series } WHERE {
@@ -80,11 +96,8 @@ def tombstone_graph(uri: str, titles: list[Literal], when: datetime | None = Non
 
 
 def add_tombstone(store: TripleStore, uris: Uris, tombstone: Graph) -> None:
-    """Añade la lápida al grafo de bajas (lectura y escritura del grafo completo)."""
-    graph = store.get_graph(uris.withdrawn_graph)
-    for triple in tombstone:
-        graph.add(triple)
-    store.put_graph(uris.withdrawn_graph, graph)
+    """Añade la lápida al grafo de bajas sin reescribirlo (``append_graph``, atómico)."""
+    store.append_graph(uris.withdrawn_graph, tombstone)
 
 
 def withdrawn_uris(store: TripleStore, uris: Uris) -> set[str]:
@@ -105,20 +118,26 @@ def catalog_exists(store: TripleStore, catalog_uri: str) -> bool:
     return (URIRef(catalog_uri), RDF.type, DCAT.Catalog) in graph
 
 
+def _triple(subject: str, predicate: URIRef, obj: str) -> Graph:
+    graph = Graph()
+    graph.add((URIRef(subject), predicate, URIRef(obj)))
+    return graph
+
+
+def _delete_data(graph_uri: str, subject: str, predicate: URIRef, obj: str) -> str:
+    """``DELETE DATA`` de un triple de IRIs (validadas: nunca texto del usuario)."""
+    return render(
+        _DELETE_DATA, graph=iri(graph_uri), s=iri(subject), p=iri(str(predicate)), o=iri(obj)
+    )
+
+
 def add_to_root(store: TripleStore, uris: Uris, catalog_uri: str) -> None:
-    graph = store.get_graph(uris.root_catalog)
-    triple = (URIRef(uris.root_catalog), DCAT.catalog, URIRef(catalog_uri))
-    if triple not in graph:
-        graph.add(triple)
-        store.put_graph(uris.root_catalog, graph)
+    """``<raíz> dcat:catalog <catálogo>``, añadido sin reescribir el raíz."""
+    store.append_graph(uris.root_catalog, _triple(uris.root_catalog, DCAT.catalog, catalog_uri))
 
 
 def remove_from_root(store: TripleStore, uris: Uris, catalog_uri: str) -> None:
-    graph = store.get_graph(uris.root_catalog)
-    triple = (URIRef(uris.root_catalog), DCAT.catalog, URIRef(catalog_uri))
-    if triple in graph:
-        graph.remove(triple)
-        store.put_graph(uris.root_catalog, graph)
+    store.update(_delete_data(uris.root_catalog, uris.root_catalog, DCAT.catalog, catalog_uri))
 
 
 # --- Pertenencia de las series ---------------------------------------------------------
@@ -133,27 +152,26 @@ def series_catalogs(store: TripleStore, uris: Uris, series_uri: str) -> set[str]
 
 
 def remove_membership(store: TripleStore, catalog_uri: str, series_uri: str) -> None:
-    graph = store.get_graph(catalog_uri)
-    triple = (URIRef(catalog_uri), DCAT.dataset, URIRef(series_uri))
-    if triple in graph:
-        graph.remove(triple)
-        store.put_graph(catalog_uri, graph)
+    store.update(_delete_data(catalog_uri, catalog_uri, DCAT.dataset, series_uri))
 
 
-def add_membership(store: TripleStore, catalog_uri: str, series_uri: str) -> bool:
-    graph = store.get_graph(catalog_uri)
-    triple = (URIRef(catalog_uri), DCAT.dataset, URIRef(series_uri))
-    if triple in graph:
-        return False
-    graph.add(triple)
-    store.put_graph(catalog_uri, graph)
-    return True
+def add_membership(store: TripleStore, catalog_uri: str, series_uri: str) -> None:
+    """``<catálogo> dcat:dataset <serie>``, añadido sin reescribir el catálogo."""
+    store.append_graph(catalog_uri, _triple(catalog_uri, DCAT.dataset, series_uri))
 
 
 def set_membership(store: TripleStore, uris: Uris, series_uri: str, catalog_uri: str) -> set[str]:
-    """Deja la serie solo en ``catalog_uri``. Devuelve los catálogos de los que se quitó."""
+    """Deja la serie solo en ``catalog_uri``, en **una** petición de Update (quita la
+    pertenencia a cualquier otro catálogo y la añade al destino, atómicamente). Devuelve
+    los catálogos de los que se quitó."""
     previous = series_catalogs(store, uris, series_uri) - {catalog_uri}
-    add_membership(store, catalog_uri, series_uri)
-    for other in previous:
-        remove_membership(store, other, series_uri)
+    store.update(
+        render(
+            _SET_MEMBERSHIP,
+            dataset=iri(str(DCAT.dataset)),
+            series=iri(series_uri),
+            target=iri(catalog_uri),
+            catalog_ns=literal(uris.catalog_ns),
+        )
+    )
     return previous

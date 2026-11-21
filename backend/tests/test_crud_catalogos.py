@@ -741,3 +741,32 @@ def test_load_semantic_skips_a_withdrawn_catalog(
     assert "se omite (catálogo dado de baja)" in result.output
     assert SINTETICO not in loaded_store.graph_names()
     assert (URIRef(ROOT), DCAT.catalog, URIRef(SINTETICO)) not in loaded_store.get_graph(ROOT)
+
+
+def test_withdraw_dataset_removes_orphan_files_only_of_its_slug(
+    api: TestClient,
+    editor: dict[str, str],
+    file_storage: DiskStorage,
+    session_factory: sessionmaker[Session],
+) -> None:
+    """QA-49-02: los ficheros de {slug}/ sin fila en distribution_files también se borran,
+    y nunca los de otro slug que empiece igual (prueba-otra/…)."""
+    import io
+
+    assert fase4_data.publish(api, editor, fase4_data.series(fase4_data.V1)).status_code == 201
+    assert fase4_data.upload(api, editor, "abierta", b"con fila").status_code == 201
+    file_storage.save("prueba/1.0.0/huerfano", io.BytesIO(b"sin fila"))
+    file_storage.save("prueba/9.9.9/csv", io.BytesIO(b"sin fila"))
+    file_storage.save("prueba-otra/1.0.0/csv", io.BytesIO(b"otro slug"))
+    assert api.delete("/datasets/prueba", headers=editor).status_code == 204
+    for key in ("prueba/1.0.0/abierta", "prueba/1.0.0/huerfano", "prueba/9.9.9/csv"):
+        assert not file_storage.exists(key), key
+    assert not (file_storage.root / "prueba").exists()
+    assert file_storage.exists("prueba-otra/1.0.0/csv")
+    events = _events(session_factory, AuditAction.DATASET_WITHDRAWN)
+    assert sorted(events[0].details["files_deleted"]) == [
+        "prueba/1.0.0/abierta",
+        "prueba/1.0.0/huerfano",
+        "prueba/9.9.9/csv",
+    ]
+    assert events[0].details["files_not_deleted"] == []
