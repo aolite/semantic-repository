@@ -741,7 +741,7 @@ def coherence(g: Graph, base: str, synthetic: set[URIRef], vocab: Graph) -> list
         for item in g.objects(catalog, DCAT.catalog):
             problems.append(f"{short(catalog)}: solo el catálogo raíz agrupa catálogos (dcat:catalog {short(item)})")
     for catalog, item in g.subject_objects(DCAT.dataset):
-        if catalog not in children:
+        if catalog not in children and catalog != root:  # el raíz ya se informa arriba
             problems.append(f"{short(catalog)}: dcat:dataset {short(item)} desde algo que no es un catálogo catalogo/{{slug}} descrito")
         if item not in series:
             problems.append(f"{short(catalog)}: dcat:dataset {short(item)} no es una dcat:DatasetSeries descrita")

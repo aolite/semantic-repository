@@ -2,11 +2,13 @@
 # Solo deben fallar las formas indicadas.
 # validate.py lee las líneas «expect-violation» (nombre local en {BASE_URI}shapes#).
 # La fecha de baja es ficticia, solo para el ejemplo.
-# Además de Baja-type, fallan las formas de la serie: por eso la lápida pierde su
+# Además de Baja-type, fallan las formas de la serie (también la que prohíbe
+# Withdrawn en una serie viva): por eso la lápida pierde su
 # tipo DCAT (ver itsh:BajaShape).
 # expect-violation: Baja-type
 # expect-violation: DatasetSeries-description
 # expect-violation: DatasetSeries-catalog
+# expect-violation: DatasetSeries-status
 
 @prefix itotd: <dataset/> .
 @prefix dcat:  <http://www.w3.org/ns/dcat#> .

@@ -37,7 +37,8 @@ itsh:ItotDatasetShape
         itsh:Dataset-inSeries ,
         itsh:Dataset-previousVersion ,
         itsh:Dataset-distribution ,
-        itsh:Dataset-theme .
+        itsh:Dataset-theme ,
+        itsh:Dataset-status .
 
 # Regla propia: dct:accessRights exactamente una vez y con una IRI de la tabla
 # de autoridad europea de derechos de acceso. En DCAT-AP 3 no es obligatoria;
@@ -107,12 +108,23 @@ itsh:Dataset-theme
     sh:nodeKind sh:IRI ;
     sh:message "Regla IT&OT: cada dcat:theme es la IRI de un concepto SKOS."@es .
 
+# Regla propia (Decidido (2026-11-21, decisión 49)): «Withdrawn» solo lo lleva una lápida
+# (itsh:BajaShape), nunca un recurso DCAT vivo. Así nadie marca como
+# retirado una versión sin pasar por el borrado lógico (sin fecha de baja y
+# sin quitarlo de los listados ni de SPARQL). Otros valores de adms:status
+# no se restringen aquí.
+itsh:Dataset-status
+    a sh:PropertyShape ;
+    sh:path adms:status ;
+    sh:not [ sh:hasValue <http://purl.org/adms/status/Withdrawn> ] ;
+    sh:message "Regla IT&OT: una versión (dcat:Dataset) no puede llevar adms:status Withdrawn; el borrado lógico deja una lápida (prov:Entity con prov:invalidatedAtTime) y quita la descripción DCAT."@es .
+
 # --- dcat:DatasetSeries -----------------------------------------------------
 itsh:ItotDatasetSeriesShape
     a sh:NodeShape ;
     rdfs:label "Unidad IT&OT · Serie de dataset"@es ;
     sh:targetClass dcat:DatasetSeries ;
-    sh:property itsh:DatasetSeries-last , itsh:DatasetSeries-catalog .
+    sh:property itsh:DatasetSeries-last , itsh:DatasetSeries-catalog , itsh:DatasetSeries-status .
 
 # Regla propia: como mucho un dcat:last, con IRI. La ficha muestra una única
 # versión vigente.
@@ -140,6 +152,17 @@ itsh:DatasetSeries-catalog
     sh:maxCount 1 ;
     sh:nodeKind sh:IRI ;
     sh:message "Regla IT&OT: cada serie pertenece exactamente a un dcat:Catalog, identificado por IRI («<catálogo> dcat:dataset <serie>»)."@es .
+
+# Regla propia (Decidido (2026-11-21, decisión 49)): «Withdrawn» solo lo lleva una lápida
+# (itsh:BajaShape), nunca un recurso DCAT vivo. Así nadie marca como
+# retirado un dataset sin pasar por el borrado lógico (sin fecha de baja y
+# sin quitarlo de los listados ni de SPARQL). Otros valores de adms:status
+# no se restringen aquí.
+itsh:DatasetSeries-status
+    a sh:PropertyShape ;
+    sh:path adms:status ;
+    sh:not [ sh:hasValue <http://purl.org/adms/status/Withdrawn> ] ;
+    sh:message "Regla IT&OT: una serie (dcat:DatasetSeries) no puede llevar adms:status Withdrawn; el borrado lógico deja una lápida (prov:Entity con prov:invalidatedAtTime) y quita la descripción DCAT."@es .
 
 # --- dcat:Distribution ------------------------------------------------------
 itsh:ItotDistributionShape
@@ -169,16 +192,32 @@ itsh:Distribution-mediaType
     sh:message "Regla IT&OT: dcat:mediaType, si aparece, es una sola IRI de IANA (http://www.iana.org/assignments/media-types/…)."@es .
 
 # --- dcat:Catalog -----------------------------------------------------------
-# Decidido (2026-11-21, decisión 49): varios catálogos, el raíz fijo
+# Decidido (2026-11-21, decisión 49): varios catálogos; el raíz fijo
 # {BASE_URI}catalogo agrupa los catálogos con dcat:catalog y cada catálogo
-# {BASE_URI}catalogo/{slug} lista sus series con dcat:dataset (semantic/uris.md). Que el
-# raíz no liste series ni los demás catálogos aniden otros no es contrato de
-# ingesta (el raíz no se crea desde la API) y lo comprueba validate.py.
+# {BASE_URI}catalogo/{slug} lista sus series con dcat:dataset
+# (semantic/uris.md).
+#
+# [PROPUESTA] Un solo nivel: el raíz no lista series y los catálogos
+# catalogo/{slug} no agrupan otros. SHACL no lo puede comprobar sin conocer
+# BASE_URI, así que es una regla que comprueba el backend (uris.md, «Reglas
+# que comprueba el backend») y, sobre semantic/data/, validate.py.
 itsh:ItotCatalogShape
     a sh:NodeShape ;
     rdfs:label "Unidad IT&OT · Catálogo"@es ;
     sh:targetClass dcat:Catalog ;
-    sh:property itsh:Catalog-dataset , itsh:Catalog-catalog .
+    sh:property itsh:Catalog-dataset , itsh:Catalog-catalog , itsh:Catalog-status .
+
+# Decidido (2026-11-21, decisión 49): la URI de un catálogo es {BASE_URI}catalogo (el raíz)
+# o {BASE_URI}catalogo/{slug}. Las formas no conocen BASE_URI, así que solo
+# se comprueba el final de la URI; que empiece por BASE_URI lo comprueba el
+# backend.
+itsh:CatalogUriShape
+    a sh:NodeShape ;
+    rdfs:label "Unidad IT&OT · URI de catálogo"@es ;
+    sh:targetClass dcat:Catalog ;
+    sh:nodeKind sh:IRI ;
+    sh:pattern "/catalogo(/[a-z0-9]+(-[a-z0-9]+)*)?$" ;
+    sh:message "Regla IT&OT: la URI de un catálogo es {BASE_URI}catalogo o {BASE_URI}catalogo/{slug} (slug en minúsculas ASCII, dígitos y guiones)."@es .
 
 # Regla propia: dcat:dataset apunta a series por IRI. No se exige sh:class
 # dcat:DatasetSeries porque cada serie está en su propio grafo.
@@ -195,6 +234,17 @@ itsh:Catalog-catalog
     sh:path dcat:catalog ;
     sh:nodeKind sh:IRI ;
     sh:message "Regla IT&OT: cada dcat:catalog es la IRI de un catálogo."@es .
+
+# Regla propia (Decidido (2026-11-21, decisión 49)): «Withdrawn» solo lo lleva una lápida
+# (itsh:BajaShape), nunca un recurso DCAT vivo. Así nadie marca como
+# retirado un catálogo sin pasar por el borrado lógico (sin fecha de baja y
+# sin quitarlo de los listados ni de SPARQL). Otros valores de adms:status
+# no se restringen aquí.
+itsh:Catalog-status
+    a sh:PropertyShape ;
+    sh:path adms:status ;
+    sh:not [ sh:hasValue <http://purl.org/adms/status/Withdrawn> ] ;
+    sh:message "Regla IT&OT: un dcat:Catalog no puede llevar adms:status Withdrawn; el borrado lógico deja una lápida (prov:Entity con prov:invalidatedAtTime) y quita la descripción DCAT."@es .
 
 # --- Recurso dado de baja (borrado lógico, decisión 49) ---------------------
 # Decidido (2026-11-21, decisión 49). Al borrar un catálogo o un dataset
@@ -253,4 +303,32 @@ itsh:Baja-title
     sh:path dct:title ;
     sh:minCount 1 ;
     sh:nodeKind sh:Literal ;
-    sh:message "Regla IT&OT: un recurso dado de baja conserva al menos un dct:title para la ficha mínima del 410."@es .
+    sh:minLength 1 ;
+    sh:message "Regla IT&OT: un recurso dado de baja conserva al menos un dct:title, no vacío, para la ficha mínima del 410."@es .
+
+# Decidido (2026-11-21, decisión 49): solo tienen lápida un catálogo ({BASE_URI}catalogo/{slug})
+# o un dataset ({BASE_URI}dataset/{slug}); las versiones, distribuciones y
+# ficheros responden 410 por el prefijo de su serie. Como en CatalogUriShape,
+# solo se comprueba el final de la URI.
+itsh:BajaUriShape
+    a sh:NodeShape ;
+    rdfs:label "Unidad IT&OT · URI de un recurso dado de baja"@es ;
+    sh:targetSubjectsOf prov:invalidatedAtTime ;
+    sh:nodeKind sh:IRI ;
+    sh:pattern "/(catalogo|dataset)/[a-z0-9]+(-[a-z0-9]+)*$" ;
+    sh:message "Regla IT&OT: solo tienen lápida un catálogo ({BASE_URI}catalogo/{slug}) o un dataset ({BASE_URI}dataset/{slug})."@es .
+
+# Decidido (2026-11-21, decisión 49): todo sujeto con adms:status Withdrawn es una lápida y lleva
+# fecha de baja. BajaShape se aplica a los sujetos de prov:invalidatedAtTime;
+# sin esta forma, una lápida sin fecha escaparía a ella. Se aplica a todo
+# sujeto de adms:status (también ontologías y esquemas, que nunca llevan
+# Withdrawn) y solo exige la fecha cuando el estado es Withdrawn.
+itsh:RetiradoShape
+    a sh:NodeShape ;
+    rdfs:label "Unidad IT&OT · Estado Withdrawn"@es ;
+    sh:targetSubjectsOf adms:status ;
+    sh:or (
+        [ sh:not [ sh:path adms:status ; sh:hasValue <http://purl.org/adms/status/Withdrawn> ] ]
+        [ sh:path prov:invalidatedAtTime ; sh:minCount 1 ]
+    ) ;
+    sh:message "Regla IT&OT: un recurso con adms:status Withdrawn es una lápida y necesita prov:invalidatedAtTime."@es .

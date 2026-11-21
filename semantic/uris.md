@@ -142,7 +142,30 @@ Al dar de baja un catálogo o un dataset, su descripción sale de los grafos pub
 - Solo tienen lápida el catálogo y la serie, que son lo que se borra. Las URIs que cuelgan de una serie dada de baja (`dataset/{slug}/{version}`, `…/{dist}` y `…/{dist}/fichero`) responden también 410, con la ficha de la serie: el backend las resuelve por el prefijo.
 - Las versiones no se borran una a una: son inmutables (decisión 28).
 - **El slug de un recurso dado de baja no se reutiliza**: su URI responde 410 para siempre. Crear un catálogo o un dataset con ese slug da 409.
-- `Withdrawn` solo se admite en las lápidas: las ontologías y los esquemas siguen limitados a `Completed` y `UnderDevelopment` (ver «Estado»).
+- `Withdrawn` solo se admite en las lápidas: las ontologías y los esquemas siguen limitados a `Completed` y `UnderDevelopment` (ver «Estado»), un `dcat:Catalog`, una `dcat:DatasetSeries` o un `dcat:Dataset` vivo no puede llevarlo (formas `itsh:Catalog-status`, `itsh:DatasetSeries-status` e `itsh:Dataset-status`) y todo sujeto con `adms:status` `Withdrawn` necesita `prov:invalidatedAtTime` (forma `itsh:RetiradoShape`), así que no hay lápidas sin fecha.
+
+### Qué comprueban las formas y qué comprueba el backend
+
+Las formas SHACL no conocen `BASE_URI` (los patrones literales no se resuelven contra ella) ni ven más que el grafo que validan. Lo que cabe en SHACL está en las formas:
+
+| Regla | Forma |
+|---|---|
+| La URI de un catálogo termina en `/catalogo` o `/catalogo/{slug}` | `itsh:CatalogUriShape` |
+| La URI de una lápida termina en `/catalogo/{slug}` o `/dataset/{slug}` | `itsh:BajaUriShape` |
+| El título de una lápida no está vacío | `itsh:Baja-title` (`sh:minLength 1`) |
+| Cada serie, en exactamente un catálogo del grafo | `itsh:DatasetSeries-catalog` |
+| `Withdrawn` solo en lápidas, y siempre con fecha | `itsh:*-status`, `itsh:RetiradoShape` |
+
+**Reglas que el backend tiene que comprobar** en la ingesta y en el CRUD, porque no son SHACL (`semantic/scripts/validate.py` comprueba las que aplican sobre `semantic/data/`, pero no es contrato de ingesta):
+
+1. Las URIs de catálogos y lápidas **empiezan por `BASE_URI`**: `{BASE_URI}catalogo`, `{BASE_URI}catalogo/{slug}` o `{BASE_URI}dataset/{slug}`, con `{slug}` válido.
+2. El catálogo raíz es único y fijo: la API no lo crea, ni lo edita, ni lo borra, y **no lista series** (`dcat:dataset`).
+3. **[PROPUESTA]** **Un solo nivel**: solo el raíz lleva `dcat:catalog`, y solo hacia catálogos `catalogo/{slug}` existentes.
+4. `dcat:dataset` sale **solo de un catálogo `catalogo/{slug}` existente** y apunta a una serie existente.
+5. La serie no está ya en **otro** catálogo del triplestore (SHACL solo ve el grafo que valida).
+6. Al dar de baja, la lápida sustituye a la descripción: el backend escribe `prov:invalidatedAtTime` con la hora del servidor, que **no puede ser futura**, y `dct:title` con el título que tenía el recurso (no vacío).
+7. Una URI o un slug dados de baja no se reutilizan (409).
+8. Un catálogo con datasets no se da de baja (409).
 
 ### Borrar un catálogo que tiene datasets · Decidido (2026-11-21, decisión 49)
 
