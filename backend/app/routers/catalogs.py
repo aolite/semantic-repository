@@ -42,10 +42,14 @@ UNAVAILABLE = {
 def crud_error_response(exc: catalogs.CrudError, uris: UrisDep) -> JSONResponse:
     if exc.status_code == status.HTTP_410_GONE and exc.tombstone is not None:
         return gone_json(exc.tombstone, uris)
-    content: dict = {"detail": exc.detail}
-    if exc.datasets:
-        content["datasets"] = exc.datasets
-    return JSONResponse(status_code=exc.status_code, content=content)
+    if exc.kind is not None:  # 409 con kind (schemas.ConflictResponse)
+        body = schemas.ConflictResponse(
+            detail=exc.detail,
+            kind=exc.kind,  # type: ignore[arg-type]
+            datasets=exc.datasets,
+        )
+        return JSONResponse(status_code=exc.status_code, content=body.model_dump())
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
 
 
 def _detail(store: StoreDep, uris: UrisDep, slug: str) -> schemas.CatalogDetail:
@@ -95,8 +99,8 @@ def get_catalog(slug: CatalogSlug, store: StoreDep, uris: UrisDep) -> schemas.Ca
         status.HTTP_401_UNAUTHORIZED: UNAUTHORIZED,
         status.HTTP_403_FORBIDDEN: FORBIDDEN,
         status.HTTP_409_CONFLICT: {
-            "model": schemas.ErrorResponse,
-            "description": "Slug en uso o dado de baja",
+            "model": schemas.ConflictResponse,
+            "description": "Slug en uso (kind=slug_in_use) o dado de baja (kind=withdrawn)",
         },
         status.HTTP_422_UNPROCESSABLE_CONTENT: INVALID,
         status.HTTP_503_SERVICE_UNAVAILABLE: UNAVAILABLE,
@@ -165,8 +169,8 @@ def update_catalog(
         status.HTTP_403_FORBIDDEN: FORBIDDEN,
         status.HTTP_404_NOT_FOUND: NOT_FOUND,
         status.HTTP_409_CONFLICT: {
-            "model": schemas.CatalogConflictResponse,
-            "description": "El catálogo tiene datasets",
+            "model": schemas.ConflictResponse,
+            "description": "El catálogo tiene datasets (kind=catalog_not_empty, con datasets)",
         },
         status.HTTP_410_GONE: GONE,
         status.HTTP_503_SERVICE_UNAVAILABLE: UNAVAILABLE,
@@ -203,8 +207,9 @@ def withdraw_catalog(
         status.HTTP_403_FORBIDDEN: FORBIDDEN,
         status.HTTP_404_NOT_FOUND: NOT_FOUND,
         status.HTTP_409_CONFLICT: {
-            "model": schemas.ErrorResponse,
-            "description": "Slug del dataset en uso o dado de baja",
+            "model": schemas.ConflictResponse,
+            "description": "Slug del dataset en uso (kind=slug_in_use) o dado de baja "
+            "(kind=withdrawn)",
         },
         status.HTTP_410_GONE: GONE,
         status.HTTP_422_UNPROCESSABLE_CONTENT: INVALID,

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { ApiError } from '../api'
 import { goneFixture } from '../test/fixtures'
-import { conflictDatasets, CRUD_TEXT, describeError, goneFromError, INGEST_KIND_TEXT, ingestError } from './errors'
+import { conflictDatasets, conflictKind, CRUD_TEXT, describeError, goneFromError, INGEST_KIND_TEXT, ingestError } from './errors'
 
 const CONTEXT = { notFound: 'No existe de prueba.', fallback: 'Fallo de prueba.' }
 
@@ -15,7 +15,23 @@ function ingest(kind: string, extra: object = {}) {
 }
 
 describe('Errores de los formularios de catálogos y datasets', () => {
-  it('409 sin kind (slug en uso o dado de baja) marca el slug', () => {
+  it.each([
+    ['slug_in_use', CRUD_TEXT.slugInUse],
+    ['withdrawn', CRUD_TEXT.slugWithdrawn],
+  ] as const)('409 ConflictResponse %s: mensaje propio en el slug', (kind, text) => {
+    const info = describeError(apiError(409, { detail: 'x', kind }), CONTEXT)
+    expect(info.message).toBe(text)
+    expect(info.fields.slug).toBe(text)
+  })
+
+  it('409 ConflictResponse catalog_not_empty: el catálogo tiene datasets', () => {
+    const body = { detail: 'x', kind: 'catalog_not_empty', datasets: ['http://uri.test/itot/dataset/a'] }
+    expect(describeError(apiError(409, body), CONTEXT).message).toBe(CRUD_TEXT.catalogHasDatasets)
+    expect(conflictKind(apiError(409, body))).toBe('catalog_not_empty')
+    expect(conflictKind(apiError(422, body))).toBeNull()
+  })
+
+  it('409 sin kind (respuesta antigua) marca el slug con el texto genérico', () => {
     const info = describeError(apiError(409, { detail: 'Ya existe un catálogo con ese slug' }), CONTEXT)
     expect(info.message).toBe(CRUD_TEXT.slugTaken)
     expect(info.fields.slug).toBe(CRUD_TEXT.slugTaken)
@@ -86,7 +102,7 @@ describe('Errores de los formularios de catálogos y datasets', () => {
   })
 
   it('conflictDatasets devuelve las URIs del 409 de baja de un catálogo', () => {
-    expect(conflictDatasets(apiError(409, { detail: 'x', datasets: ['http://uri.test/itot/dataset/a'] }))).toEqual([
+    expect(conflictDatasets(apiError(409, { detail: 'x', kind: 'catalog_not_empty', datasets: ['http://uri.test/itot/dataset/a'] }))).toEqual([
       'http://uri.test/itot/dataset/a',
     ])
     expect(conflictDatasets(apiError(409, { detail: 'x' }))).toEqual([])

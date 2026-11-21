@@ -59,6 +59,7 @@ from app.config import ConfigurationError, get_settings
 from app.models import AuditAction, User
 from app.triplestore import TripleStore
 from app.uris import DCAT, Uris, is_slug
+from app.write_lock import catalog_write_lock
 
 SH = Namespace("http://www.w3.org/ns/shacl#")
 
@@ -956,6 +957,26 @@ def publish_and_audit(
     Se escribe primero en el triplestore y después se confirma la auditoría: si Fuseki
     falla no queda un evento de una publicación que no ha ocurrido.
     """
+    # QA-49-01: comprobar (inmutabilidad, catálogo, baja) y escribir sin que otra petición
+    # se cuele entre medias.
+    with catalog_write_lock(session):
+        result = _publish_and_record(store, session, prepared, actor, actor_username, via, other)
+    if result.new_versions:
+        from app import fair
+
+        fair.notify()
+    return result
+
+
+def _publish_and_record(
+    store: TripleStore,
+    session: Session,
+    prepared: PreparedSeries,
+    actor: User | None,
+    actor_username: str | None,
+    via: str,
+    other: OtherCatalog,
+) -> PublishResult:
     result = publish(store, prepared, other=other)
     if result.new_versions:
         from app import fair  # evita la importación circular
@@ -980,8 +1001,4 @@ def publish_and_audit(
         },
     )
     session.commit()
-    if result.new_versions:
-        from app import fair
-
-        fair.notify()
     return result

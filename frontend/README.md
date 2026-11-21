@@ -87,7 +87,7 @@ src/
 - **410** (dataset dado de baja, decisión 49): ficha mínima con `GoneResponse` (ver «Recursos dados de baja»), no un error.
 - Si el dataset tiene catálogo (`catalog`), las migas lo enlazan: «Catálogo / {catálogo} / {dominio} / Dataset».
 - **Acciones del editor y el admin** (decisión 49), a la derecha de la cabecera, en un grupo «Acciones del dataset». El miembro y el anónimo no las ven:
-  - «Editar»: título y descripción de la serie (en español), publicador y catálogo (`PATCH /datasets/{slug}`, solo con los campos que cambian; cambiar el catálogo es moverlo, `catalog`). La API no devuelve el publicador de la serie, así que el campo empieza vacío y solo se manda si se escribe uno. Las versiones publicadas no se tocan.
+  - «Editar»: título y descripción de la serie (en español), publicador y catálogo (`PATCH /datasets/{slug}`, solo con los campos que cambian; cambiar el catálogo es moverlo, `catalog`). El publicador se precarga con `DatasetDetail.publisher.label` y solo se manda si cambia; vaciarlo conserva el actual (la API no admite borrarlo). Las versiones publicadas no se tocan.
   - «Nueva versión» (botón del prototipo): sube el RDF de la serie completa (Turtle `.ttl` o JSON-LD `.jsonld`/`.json`) a `POST /datasets?catalog={catálogo del dataset}`. Ver «Nueva versión».
   - «Dar de baja»: diálogo de confirmación que avisa de que se eliminan los ficheros de todas sus distribuciones; `DELETE /datasets/{slug}` y vuelta a la ficha de su catálogo (o al Catálogo) con el aviso «Dataset «…» dado de baja.».
   - Tras guardar o publicar, la ficha se vuelve a pedir (se sigue mostrando la anterior mientras tanto) y un aviso (`role="status"`) dice el resultado.
@@ -142,14 +142,14 @@ src/
 - Editor y admin, en el grupo «Acciones del catálogo»:
   - «Editar catálogo»: título, descripción y publicador, con los valores actuales (`PATCH /catalogs/{slug}`, solo los campos que cambian). El slug no se edita.
   - «Nuevo dataset»: slug, título, descripción y publicador opcional (`POST /catalogs/{slug}/datasets`). Al crear, va a la ficha del dataset (serie sin versiones) con el aviso «Dataset creado. Publica su primera versión con «Nueva versión».».
-  - «Dar de baja»: diálogo de confirmación; `DELETE /catalogs/{slug}` y vuelta a `/catalogos` con el aviso. Si el catálogo tiene datasets, el 409 (`CatalogConflictResponse`) se muestra en el diálogo con la lista de los datasets que hay que mover o dar de baja antes, enlazados a su ficha.
+  - «Dar de baja»: diálogo de confirmación; `DELETE /catalogs/{slug}` y vuelta a `/catalogos` con el aviso. Si el catálogo tiene datasets, el 409 (`ConflictResponse` con `kind: catalog_not_empty`) se muestra en el diálogo con la lista de los datasets que hay que mover o dar de baja antes, enlazados a su ficha.
 
 ### Formularios de catálogos y datasets
 
 - Paneles bajo la cabecera, con los campos (`label`, `aria-invalid`, `aria-describedby` con la ayuda y el error de cada campo), botones y colores de las pantallas existentes. El foco va al primer campo; Escape o «Cancelar» los cierran y devuelven el foco al botón que los abrió.
 - Validación en el cliente con los límites del OpenAPI (`src/crud/validation.ts`): obligatorios, slug con el patrón de `semantic/uris.md` (`^[a-z0-9]+(-[a-z0-9]+)*$`, hasta 200) y longitudes máximas. El backend vuelve a validar todo con SHACL.
 - Errores de la API (`src/crud/errors.ts`), en un `role="alert"` del formulario y marcando el campo:
-  - 409 sin `kind` (slug en uso o de un recurso dado de baja): «El slug ya está en uso o es de un recurso dado de baja…», en el slug.
+  - 409 `ConflictResponse` al crear, en el slug: `slug_in_use` («Ya existe un recurso con ese slug. Elige otro.») y `withdrawn` («Ese slug es de un recurso dado de baja y no se reutiliza. Elige otro.»). Un 409 sin `kind` muestra un texto que cubre los dos casos.
   - `IngestErrorResponse` por `kind`: `withdrawn`, `catalog_conflict`, `version_removed`, `version_immutable` (409) y `catalog`, `shacl`, `syntax`, `structure`, `uri`, `limit` (422), con un texto propio para cada uno y la lista de incidencias (`issues`, con el último segmento de `path` o `focus_node`, hasta 10).
   - 422 de validación de FastAPI: marca los campos por su `loc` (sin mostrar valores).
   - 401, 403, 404, 410, 413, 415, 503 y sin conexión, con su mensaje.
@@ -203,8 +203,8 @@ El contrato es `backend/openapi.json`. El cliente usa estos endpoints:
 - `GET /auth/me` con `Authorization: Bearer <token>`. Devuelve el esquema `UserRead`: `{ id, username, role, is_active, created_at, updated_at }`. La navegación muestra `username` y `role` (`miembro`, `editor` o `admin`).
 - `GET /health`: esquema `HealthStatus`, `{ status: "ok" }`.
 - `GET /datasets?q=&domain=&catalog=&page=&page_size=`: esquema `DatasetPage` con `DatasetCard` (con `catalog` desde la decisión 49).
-- `GET /datasets/{slug}?version=`: esquema `DatasetDetail` (serie, `catalog`, `VersionDetail` e historial `VersionSummary`); 410 con `GoneResponse`.
-- Decisión 49 (con el JWT de editor o admin salvo las lecturas): `GET /catalogs` (`CatalogPage` con `CatalogSummary`), `GET /catalogs/{slug}` (`CatalogDetail`; 410 `GoneResponse`), `POST /catalogs` (`CatalogCreate`), `PATCH /catalogs/{slug}` (`CatalogUpdate`), `DELETE /catalogs/{slug}` (204; 409 `CatalogConflictResponse`), `POST /catalogs/{slug}/datasets` (`DatasetCreate`), `PATCH /datasets/{slug}` (`DatasetUpdate`), `DELETE /datasets/{slug}` (204) y `POST /datasets?catalog=` (RDF en `text/turtle` o `application/ld+json`; `IngestResult`, o `IngestErrorResponse` en 409 y 422).
+- `GET /datasets/{slug}?version=`: esquema `DatasetDetail` (serie, `catalog`, `publisher`, `VersionDetail` e historial `VersionSummary`); 410 con `GoneResponse`.
+- Decisión 49 (con el JWT de editor o admin salvo las lecturas): `GET /catalogs` (`CatalogPage` con `CatalogSummary`), `GET /catalogs/{slug}` (`CatalogDetail`; 410 `GoneResponse`), `POST /catalogs` (`CatalogCreate`), `PATCH /catalogs/{slug}` (`CatalogUpdate`), `DELETE /catalogs/{slug}` (204; 409 `ConflictResponse`), con `ConflictResponse` también en el 409 de los dos `POST` de alta, `POST /catalogs/{slug}/datasets` (`DatasetCreate`), `PATCH /datasets/{slug}` (`DatasetUpdate`), `DELETE /datasets/{slug}` (204) y `POST /datasets?catalog=` (RDF en `text/turtle` o `application/ld+json`; `IngestResult`, o `IngestErrorResponse` en 409 y 422).
 - `GET /datasets/{slug}/rdf?format=turtle|jsonld&version=`: RDF en texto.
 - `POST /datasets/{slug}/versions/{version}/distributions/{dist}/download-link` (miembro): `{ url, expires_at }`. `dist` es el último segmento de la URI de la distribución.
 - `GET /dataset/{slug}/{version}/{dist}/fichero`: descarga (enlace del navegador, a partir de `download_url` o del enlace firmado).
@@ -215,7 +215,7 @@ El contrato es `backend/openapi.json`. El cliente usa estos endpoints:
 - `GET /ontologies/{slug}?version=`: esquema `OntologyDetail`. `GET /ontologies/{slug}/rdf?format=turtle|rdfxml|jsonld&version=`: enlace de descarga.
 - `GET /schemes/{slug}` y `/schemes/corp/{slug}`: esquema `SchemeDetail` con el árbol `ConceptNode`. `…/concepts/{concept}`: esquema `ConceptDetail`. `…/rdf?format=`: enlace de descarga.
 
-Los errores de la API llegan como `ApiError` con `status`, `detail` (si el `ErrorResponse` lo trae como texto), `retryAfter` (cabecera `Retry-After` en segundos) y `body` (el cuerpo JSON tal cual, para leer `GoneResponse`, `CatalogConflictResponse` o `IngestErrorResponse`).
+Los errores de la API llegan como `ApiError` con `status`, `detail` (si el `ErrorResponse` lo trae como texto), `retryAfter` (cabecera `Retry-After` en segundos) y `body` (el cuerpo JSON tal cual, para leer `GoneResponse`, `ConflictResponse` o `IngestErrorResponse`).
 
 Los tipos de `src/api/types.ts` están copiados a mano del OpenAPI, sin generador. Los de la fase 4 (`FairSummary`, `DistributionRead.download`, `DownloadLink`, `SavedQuery`, `DatasetCard.fair_total`…) salen del contrato de la fase y se contrastan con el `openapi.json` real en la integración (prueba de contrato de `qa`). Si el contrato cambia, hay que actualizarlos ahí. Las respuestas ficticias de las pruebas (`src/test/utils.tsx`, `src/test/fixtures.ts` y `src/test/vocabFixtures.ts`) usan esos tipos, así que el build falla si se desalinean.
 

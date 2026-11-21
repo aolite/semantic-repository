@@ -9,7 +9,7 @@ export class ApiError extends Error {
   readonly retryAfter: number | null
   /**
    * Cuerpo JSON de la respuesta de error tal cual (`GoneResponse`,
-   * `CatalogConflictResponse`, `IngestErrorResponse`, 422 de validación…);
+   * `ConflictResponse`, `IngestErrorResponse`, 422 de validación…);
    * null si no era JSON.
    */
   readonly body: unknown

@@ -44,7 +44,6 @@ export type { ListVocabulariesParams } from './vocabularies'
 export type {
   AccessRights,
   Alignment,
-  CatalogConflictResponse,
   CatalogCreate,
   CatalogDatasetRef,
   CatalogDetail,
@@ -57,6 +56,7 @@ export type {
   ConceptNode,
   ConceptRef,
   ConceptUsage,
+  ConflictResponse,
   ConsistencyRead,
   CurrentUser,
   DatasetCard,

@@ -378,11 +378,11 @@
             }
           },
           "409": {
-            "description": "Slug en uso o dado de baja",
+            "description": "Slug en uso (kind=slug_in_use) o dado de baja (kind=withdrawn)",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "$ref": "#/components/schemas/ConflictResponse"
                 }
               }
             }
@@ -662,11 +662,11 @@
             }
           },
           "409": {
-            "description": "El catálogo tiene datasets",
+            "description": "El catálogo tiene datasets (kind=catalog_not_empty, con datasets)",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/CatalogConflictResponse"
+                  "$ref": "#/components/schemas/ConflictResponse"
                 }
               }
             }
@@ -784,11 +784,11 @@
             }
           },
           "409": {
-            "description": "Slug del dataset en uso o dado de baja",
+            "description": "Slug del dataset en uso (kind=slug_in_use) o dado de baja (kind=withdrawn)",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "$ref": "#/components/schemas/ConflictResponse"
                 }
               }
             }
@@ -5108,28 +5108,6 @@
         ],
         "title": "Body_login_auth_token_post"
       },
-      "CatalogConflictResponse": {
-        "properties": {
-          "detail": {
-            "type": "string",
-            "title": "Detail"
-          },
-          "datasets": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Datasets",
-            "description": "URIs de las series que siguen en el catálogo"
-          }
-        },
-        "type": "object",
-        "required": [
-          "detail"
-        ],
-        "title": "CatalogConflictResponse",
-        "description": "409 al dar de baja un catálogo que todavía tiene datasets."
-      },
       "CatalogCreate": {
         "properties": {
           "slug": {
@@ -5699,6 +5677,39 @@
         ],
         "title": "ConceptUsage"
       },
+      "ConflictResponse": {
+        "properties": {
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "slug_in_use",
+              "withdrawn",
+              "catalog_not_empty"
+            ],
+            "title": "Kind",
+            "description": "slug_in_use: ya existe un recurso con ese slug. withdrawn: el slug es de un recurso dado de baja y no se reutiliza. catalog_not_empty: el catálogo tiene datasets (en datasets) y no se puede dar de baja"
+          },
+          "datasets": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Datasets",
+            "description": "Solo con catalog_not_empty: URIs de las series que siguen en el catálogo"
+          }
+        },
+        "type": "object",
+        "required": [
+          "detail",
+          "kind"
+        ],
+        "title": "ConflictResponse",
+        "description": "409 del CRUD de catálogos y datasets (decisión 49)."
+      },
       "ConsistencyRead": {
         "properties": {
           "reasoner": {
@@ -5984,6 +5995,17 @@
               }
             ],
             "description": "Catálogo del dataset (decisión 49); null si no está en ninguno"
+          },
+          "publisher": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResourceRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "dct:publisher de la serie (label = su foaf:name; uri = null si es un nodo en blanco), igual que en el detalle del catálogo. Es lo que edita PATCH /datasets/{slug} con publisher_name; null si la serie no lo declara"
           },
           "synthetic": {
             "type": "boolean",

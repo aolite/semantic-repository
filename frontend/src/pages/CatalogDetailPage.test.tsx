@@ -161,7 +161,7 @@ describe('Ficha de catálogo (/catalogos/:slug)', () => {
   })
 
   it('409 con datasets: lista los que hay que mover o dar de baja antes', async () => {
-    const conflict = { detail: 'El catálogo tiene datasets', datasets: ['http://uri.test/itot/dataset/dataset-prueba'] }
+    const conflict = { detail: 'El catálogo tiene datasets', kind: 'catalog_not_empty', datasets: ['http://uri.test/itot/dataset/dataset-prueba'] }
     const { user } = await renderEditor({
       detail: (_url, init) => (init?.method === 'DELETE' ? jsonResponse(conflict, 409) : jsonResponse(catalogDetailFixture())),
     })

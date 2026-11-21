@@ -110,11 +110,14 @@ describe('Catálogos (/catalogos)', () => {
     expect(callsTo(fetchMock, 'POST', '/catalogs')).toHaveLength(0)
   })
 
-  it('409: el slug está en uso o dado de baja', async () => {
-    const { user } = await openForm('editor', () => jsonResponse({ detail: 'Ya existe un catálogo con ese slug' }, 409))
+  it.each([
+    ['slug_in_use', CRUD_TEXT.slugInUse],
+    ['withdrawn', CRUD_TEXT.slugWithdrawn],
+  ] as const)('409 %s: mensaje propio y slug marcado', async (kind, text) => {
+    const { user } = await openForm('editor', () => jsonResponse({ detail: 'x', kind }, 409))
     await fill(user)
     await user.click(screen.getByRole('button', { name: 'Crear catálogo' }))
-    expect(await screen.findByRole('alert')).toHaveTextContent(CRUD_TEXT.slugTaken)
+    expect(await screen.findByRole('alert')).toHaveTextContent(text)
     expect(screen.getByLabelText('Slug')).toHaveAttribute('aria-invalid', 'true')
   })
 

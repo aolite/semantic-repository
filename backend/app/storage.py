@@ -17,6 +17,7 @@ comprueba además que la ruta resuelta queda dentro de la carpeta raíz.
 
 import hashlib
 import os
+import shutil
 import tempfile
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -82,6 +83,12 @@ class Storage(Protocol):
 
     def delete(self, key: str) -> None:
         """Borra el fichero (baja de un dataset, decisión 49). No falla si no existe."""
+        ...
+
+    def delete_prefix(self, slug: str) -> list[str]:
+        """Borra todos los ficheros ``{slug}/…`` (baja de un dataset, QA-49-02), también los
+        que no tienen fila en ``distribution_files``. Solo ese slug, nunca ``{slug}-…``.
+        Devuelve las claves borradas."""
         ...
 
 
@@ -159,6 +166,28 @@ class DiskStorage:
             except OSError:
                 break
 
+    def delete_prefix(self, slug: str) -> list[str]:
+        return _delete_prefix(self, slug)
+
+
+def _delete_prefix(storage: DiskStorage, slug: str) -> list[str]:
+    if not is_slug(slug):
+        raise ValueError("Slug no válido para borrar del almacenamiento")
+    root = storage.root.resolve()
+    folder = (root / slug).resolve()
+    if folder.parent != root:  # defensa en profundidad: solo {raíz}/{slug}
+        raise StorageError("No se puede borrar del almacenamiento de disco")
+    if not folder.is_dir():
+        return []
+    deleted = sorted(
+        path.relative_to(root).as_posix() for path in folder.rglob("*") if path.is_file()
+    )
+    try:
+        shutil.rmtree(folder)
+    except OSError as exc:
+        raise StorageError("No se puede borrar del almacenamiento de disco") from exc
+    return deleted
+
 
 class R2Storage:
     """Cloudflare R2: pendiente de decidir cliente y credenciales (ver el docstring)."""
@@ -181,6 +210,9 @@ class R2Storage:
         raise self._fail()
 
     def delete(self, key: str) -> None:
+        raise self._fail()
+
+    def delete_prefix(self, slug: str) -> list[str]:
         raise self._fail()
 
 

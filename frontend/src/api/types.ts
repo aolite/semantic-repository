@@ -276,6 +276,8 @@ export interface DatasetDetail {
   description: string | null
   /** Catálogo del dataset (decisión 49); null si no está en ninguno. */
   catalog?: CatalogRef | null
+  /** `dct:publisher` de la serie (`label` es lo que edita `publisher_name`); null si no lo declara. */
+  publisher?: ResourceRef | null
   synthetic: boolean
   domain: DomainRef | null
   domains: DomainRef[]
@@ -729,10 +731,15 @@ export interface CatalogUpdate {
   publisher_name?: string | null
 }
 
-/** Esquema `CatalogConflictResponse`: 409 al dar de baja un catálogo con datasets. */
-export interface CatalogConflictResponse {
+/**
+ * Esquema `ConflictResponse`: 409 del CRUD de catálogos y datasets.
+ * `slug_in_use` y `withdrawn` al crear; `catalog_not_empty` (con `datasets`)
+ * al dar de baja un catálogo con datasets.
+ */
+export interface ConflictResponse {
   detail: string
-  /** URIs de las series que siguen en el catálogo. */
+  kind: 'slug_in_use' | 'withdrawn' | 'catalog_not_empty'
+  /** Solo con `catalog_not_empty`: URIs de las series que siguen en el catálogo. */
   datasets?: string[]
 }
 

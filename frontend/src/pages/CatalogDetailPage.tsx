@@ -22,7 +22,7 @@ import { Notice } from '../components/Notice'
 import { Pager } from '../components/Pager'
 import { TypeTag } from '../components/Tags'
 import { getBaseUri } from '../config'
-import { conflictDatasets, CRUD_TEXT, describeError } from '../crud/errors'
+import { conflictDatasets, describeError } from '../crud/errors'
 import { datasetCount } from '../crud/labels'
 import { datasetRoute, noticeState } from '../crud/navigation'
 import { ResourceForm, type ResourceFormValues } from '../crud/ResourceForm'
@@ -199,15 +199,12 @@ function CatalogView({ catalog, onChanged, datasets, datasetsStatus, retryDatase
       await withdrawCatalog(catalog.slug, token ?? '')
       navigate('/catalogos', { state: noticeState(`Catálogo «${title}» dado de baja.`) })
     } catch (error) {
-      const blocking = conflictDatasets(error)
-      const message =
-        blocking.length > 0
-          ? CRUD_TEXT.catalogHasDatasets
-          : describeError(error, {
-              notFound: 'El catálogo no existe.',
-              fallback: 'No se ha podido dar de baja el catálogo.',
-            }).message
-      setWithdrawError({ message, datasets: blocking })
+      // 409 `catalog_not_empty`: el mensaje y la lista de datasets que hay que mover o dar de baja.
+      const { message } = describeError(error, {
+        notFound: 'El catálogo no existe.',
+        fallback: 'No se ha podido dar de baja el catálogo.',
+      })
+      setWithdrawError({ message, datasets: conflictDatasets(error) })
       setWithdrawing(false)
     }
   }
