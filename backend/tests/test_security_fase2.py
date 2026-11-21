@@ -1420,7 +1420,10 @@ def test_successful_write_does_not_log_credentials(
     seen: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
-        if request.method == "PUT":
+        # Escrituras: PUT de la serie y, desde QA-49-01, POST de la pertenencia al grafo
+        # del catálogo (Graph Store Protocol) y SPARQL Update en /update.
+        writes = request.method == "PUT" or request.url.path.endswith(("/data", "/update"))
+        if writes:
             seen.append(request.headers.get("authorization", ""))
             return httpx.Response(201)
         # Las lecturas van sin credenciales.

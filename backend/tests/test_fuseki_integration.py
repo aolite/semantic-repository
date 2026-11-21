@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-from rdflib import Graph, URIRef
+from rdflib import Graph, Literal, URIRef
 
 from app import ingest
 from app.deps import get_triplestore
@@ -38,6 +38,25 @@ def fuseki() -> FusekiStore:
         credentials=(USER, PASSWORD),  # type: ignore[arg-type]
         timeout_seconds=20,
     )
+
+
+# Grafos que escriben las pruebas de la decisión 49 y que no salen de semantic/: se vacían
+# antes y después de cada prueba para que una ejecución no dependa de la anterior (una
+# lápida que quedara haría que el slug diera 409 la siguiente vez).
+ISOLATED_GRAPHS = (
+    f"{BASE_URI}bajas",
+    f"{BASE_URI}catalogo/fuseki-baja",
+    f"{BASE_URI}catalogo/pruebas",
+)
+
+
+@pytest.fixture(autouse=True)
+def _isolated_graphs(fuseki: FusekiStore) -> Iterator[None]:
+    for graph in ISOLATED_GRAPHS:
+        fuseki.delete_graph(graph)
+    yield
+    for graph in ISOLATED_GRAPHS:
+        fuseki.delete_graph(graph)
 
 
 @pytest.fixture
@@ -175,8 +194,8 @@ def test_withdrawn_graph_is_not_visible_in_public_sparql(
         json={"slug": "fuseki-baja", "title": "T", "description": "D", "publisher_name": "P"},
         headers=editor,
     )
-    assert response.status_code in (201, 409), response.text
-    fuseki_client.delete("/catalogs/fuseki-baja", headers=editor)
+    assert response.status_code == 201, response.text
+    assert fuseki_client.delete("/catalogs/fuseki-baja", headers=editor).status_code == 204
     assert fuseki_client.get("/catalogs/fuseki-baja").status_code == 410
     bajas = f"{BASE_URI}bajas"
     query = "SELECT DISTINCT ?g WHERE { GRAPH ?g { ?s ?p ?o } }"
@@ -185,3 +204,35 @@ def test_withdrawn_graph_is_not_visible_in_public_sparql(
     assert graphs and bajas not in graphs
     ask = "ASK { ?s <http://www.w3.org/ns/prov#invalidatedAtTime> ?t }"
     assert fuseki_client.get("/sparql", params={"query": ask}).json()["boolean"] is False
+
+
+def test_concurrent_writes_on_real_fuseki_keep_every_link_and_tombstone(
+    fuseki: FusekiStore, semantic_dir: Path
+) -> None:
+    """QA-49-01 con el motor de Jena: añadir y quitar triples en paralelo con
+    ``append_graph`` y SPARQL Update no pierde ninguno (sin reescribir el grafo)."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from app import bajas
+
+    uris = Uris(BASE_URI)
+    _load(fuseki, semantic_dir)
+    slugs = [f"fuseki-paralelo-{n}" for n in range(8)]
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        list(pool.map(lambda slug: bajas.add_to_root(fuseki, uris, uris.catalog(slug)), slugs))
+        list(
+            pool.map(
+                lambda slug: bajas.add_tombstone(
+                    fuseki, uris, bajas.tombstone_graph(uris.catalog(slug), [Literal(slug)])
+                ),
+                slugs,
+            )
+        )
+    root = fuseki.get_graph(uris.root_catalog)
+    linked = {str(o) for o in root.objects(URIRef(uris.root_catalog), None)}
+    assert {uris.catalog(slug) for slug in slugs} <= linked
+    assert {uris.catalog(slug) for slug in slugs} <= bajas.withdrawn_uris(fuseki, uris)
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        list(pool.map(lambda slug: bajas.remove_from_root(fuseki, uris, uris.catalog(slug)), slugs))
+    root = fuseki.get_graph(uris.root_catalog)
+    assert not {uris.catalog(slug) for slug in slugs} & {str(o) for o in root.objects()}
