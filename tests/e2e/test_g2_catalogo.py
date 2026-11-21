@@ -712,6 +712,8 @@ def test_publicar_en_json_ld(stack: Stack, loaded: str, g2_editor: Account) -> N
             "dct": "http://purl.org/dc/terms/",
         },
         "@graph": [
+            # Decisión 49: la pertenencia al catálogo viaja en el grafo que se ingesta.
+            {"@id": f"{base}catalogo/e2e-pruebas", "dcat:dataset": {"@id": series}},
             {
                 "@id": series,
                 "@type": "dcat:DatasetSeries",

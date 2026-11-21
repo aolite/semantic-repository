@@ -49,6 +49,25 @@ La prueba de caducidad espera de verdad `DOWNLOAD_LINK_TTL_SECONDS` y la de lím
 
 Puntuación real de F-UJI 4.0.1 con los datos sintéticos (versión actual de cada dataset): total 52.08 (F 35.71, A 100, I 50, R 50), con madurez 2.0 en `modbus-tcp-testbed` y 1.75 en los otros dos.
 
+## Decisión 49 · CRUD de catálogos y datasets
+
+`test_g5_crud_catalogos.py` usa el mismo entorno y va **después de G4** (por el nombre). Su última prueba da de baja un dataset sintético (`ejemplos-adversarios-vision`): nada que se ejecute después puede contar con él, ni se puede repetir sobre el mismo entorno (el slug no se reutiliza). Cubre:
+
+1. Roles en cada endpoint nuevo (`POST/PATCH/DELETE` de catálogos y datasets): anónimo 401, miembro 403, token manipulado 401, y un rechazo no escribe en Fuseki ni en la auditoría.
+2. CRUD de catálogos y datasets por editor y admin; el catálogo raíz no cambia; mover un dataset (un solo catálogo, URIs y versiones intactas); el 409 al borrar un catálogo con datasets (con su lista) y el 409 por slug dado de baja.
+3. 410 en JSON, HTML (sin `Accept`, `*/*`, `text/html` y el de un navegador, con el título escapado) y RDF (Turtle, JSON-LD y RDF/XML), también por prefijo (versión, distribución y fichero, incluida una versión que nunca existió).
+4. Las bajas **no salen en el SPARQL público contra Fuseki real**: consultas con `GRAPH ?g`, `GRAPH <bajas>`, `VALUES`, `BIND`, `FILTER`, `UNION`, subconsultas, `CONSTRUCT`, `DESCRIBE`, `FROM`/`FROM NAMED` (400), variantes de la IRI, `SERVICE`, escrituras y parámetros `default-graph-uri` del cliente. Un control consulta Fuseki directamente y comprueba que la lápida existe (y que el grafo por defecto de Fuseki la vería sin el filtro del backend).
+5. Inyección al construir el RDF desde el JSON (títulos con comillas, `"""`, IRIs y literales tipados; slugs hostiles) y que la baja elimine los ficheros (también en un dataset con distribución `NON_PUBLIC`).
+6. Auditoría de cada operación, sin títulos ni secretos.
+7. `load-semantic` conserva lo hecho desde la aplicación (catálogos, datasets, traslados) y no resucita lo dado de baja.
+
+Las pruebas de la forma `xfail(strict=True)` documentan defectos conocidos: cuando se corrijan, la prueba pasará y `strict` obligará a quitar la marca.
+
+### Defectos conocidos (decisión 49)
+
+- **QA-49-01** (backend): las altas de catálogos y las bajas simultáneas pierden enlaces del raíz y lápidas (lectura y reescritura del grafo entero, `app/bajas.py`). Pruebas: `test_altas_simultaneas_de_catalogos_no_pierden_enlaces_del_raiz` y `test_bajas_simultaneas_no_pierden_lapidas`.
+- **QA-49-02** (backend): la baja de un dataset solo borra los ficheros que tienen fila en `distribution_files`; uno huérfano queda en disco. Prueba: `test_un_fichero_huerfano_en_disco_tambien_se_elimina`.
+
 ## Puerta G3 · vocabularios cargados
 
 `test_g3_vocabularios.py` usa el mismo entorno y se ejecuta después de G1 y G2. Recorre el criterio de la puerta:

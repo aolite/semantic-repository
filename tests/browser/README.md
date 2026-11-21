@@ -28,7 +28,7 @@ BASE_URL=http://localhost:5173 API_URL=http://localhost:8000 npx playwright test
 | `BROWSER_COMPOSE_ARGS` | Opciones de `docker compose` para crear el admin con la CLI del backend, p. ej. `-p miproyecto` si el entorno no se llama `itot` |
 | `BROWSER_ADMIN_USER`, `BROWSER_ADMIN_PASSWORD` | Un admin que ya exista, en lugar de crearlo con la CLI |
 
-`support/global-setup.ts` crea sus propias cuentas (un admin con la CLI y un editor y dos miembros por la API, con contraseñas aleatorias que solo viven en memoria), publica 21 series pequeñas para la paginación y espera a que F-UJI termine la evaluación de los datasets sintéticos. No hay credenciales ni datos fijos.
+`support/global-setup.ts` crea sus propias cuentas (un admin con la CLI y un editor y dos miembros por la API, con contraseñas aleatorias que solo viven en memoria), crea el catálogo `browser-pruebas` (decisión 49: cada serie pertenece a uno), publica en él 21 series pequeñas para la paginación y espera a que F-UJI termine la evaluación de los datasets sintéticos. No hay credenciales ni datos fijos.
 
 Solo habla con `BASE_URL` y `API_URL`: úsalo contra el entorno local o de pruebas del proyecto.
 
