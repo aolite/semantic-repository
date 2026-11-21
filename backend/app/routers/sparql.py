@@ -22,7 +22,7 @@ from sqlalchemy import func, select
 
 from app import audit, ratelimit, saved_queries, schemas, sparql_public
 from app.config import Settings
-from app.deps import CurrentUser, DbDep, OptionalUser, SettingsDep
+from app.deps import CurrentUser, DbDep, OptionalUser, SettingsDep, StoreDep, UrisDep
 from app.models import AuditAction, SavedQuery, User
 from app.negotiation import JSONLD, RDFXML, TURTLE, negotiate
 
@@ -75,14 +75,27 @@ def _rate_limit(db: DbDep, settings: Settings, request: Request, user: User | No
         )
 
 
+def published_graphs(store: StoreDep, uris: UrisDep) -> list[str]:
+    """Grafos publicados: todos salvo el de bajas (decisión 49). Si no hay ninguno, un grafo
+    que no existe (``{BASE_URI}sparql``): una lista vacía dejaría el dataset de Fuseki."""
+    names = sorted(store.graph_names() - unpublished_graphs(uris))
+    return names or [f"{uris.base}sparql"]
+
+
+def unpublished_graphs(uris: UrisDep) -> set[str]:
+    return {uris.withdrawn_graph}
+
+
 def _execute(
     text: str,
     request: Request,
     settings: Settings,
     runner: sparql_public.FusekiQueryRunner,
+    store: StoreDep,
+    uris: UrisDep,
 ) -> Response:
     try:
-        validated = sparql_public.validate(text, settings.base_uri)
+        validated = sparql_public.validate(text, settings.base_uri, unpublished_graphs(uris))
     except sparql_public.SparqlRequestError as exc:
         raise _error(exc.status_code, exc.message) from None
     media = negotiate(request.headers.get("accept"), OFFERED[validated.kind])
@@ -92,8 +105,12 @@ def _execute(
             f"Formatos para {validated.kind}: " + ", ".join(OFFERED[validated.kind]),
         )
     try:
+        graphs = None if validated.has_dataset_clause else published_graphs(store, uris)
         result = runner.run(
-            validated, max_rows=settings.sparql_max_rows, timeout=settings.sparql_timeout_seconds
+            validated,
+            max_rows=settings.sparql_max_rows,
+            timeout=settings.sparql_timeout_seconds,
+            graphs=graphs,
         )
     except sparql_public.SparqlRequestError as exc:
         raise _error(exc.status_code, exc.message) from None
@@ -140,7 +157,7 @@ RESPONSES = {
     },
     status.HTTP_400_BAD_REQUEST: {
         "model": schemas.ErrorResponse,
-        "description": "Sintaxis, actualización, SERVICE o FROM fuera del repositorio",
+        "description": "Sintaxis, actualización, SERVICE o FROM fuera de los grafos publicados",
     },
     status.HTTP_401_UNAUTHORIZED: {"description": "Token no válido"},
     status.HTTP_406_NOT_ACCEPTABLE: {"model": schemas.ErrorResponse},
@@ -167,10 +184,12 @@ def sparql_get(
     settings: SettingsDep,
     runner: RunnerDep,
     user: OptionalUser,
+    store: StoreDep,
+    uris: UrisDep,
     query: Annotated[str, Query(description="Consulta SPARQL (SELECT, ASK, CONSTRUCT o DESCRIBE)")],
 ) -> Response:
     _rate_limit(db, settings, request, user)
-    return _execute(query, request, settings, runner)
+    return _execute(query, request, settings, runner, store, uris)
 
 
 async def _read_limited(request: Request, limit: int) -> bytes:
@@ -241,6 +260,8 @@ async def sparql_post(
     settings: SettingsDep,
     runner: RunnerDep,
     user: OptionalUser,
+    store: StoreDep,
+    uris: UrisDep,
 ) -> Response:
     _rate_limit(db, settings, request, user)
     try:
@@ -249,7 +270,7 @@ async def sparql_post(
         raise _error(
             status.HTTP_400_BAD_REQUEST, "Formulario no válido o consulta que no está en UTF-8"
         ) from None
-    return _execute(text, request, settings, runner)
+    return _execute(text, request, settings, runner, store, uris)
 
 
 # --- Consultas guardadas ------------------------------------------------------------------

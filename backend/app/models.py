@@ -54,6 +54,13 @@ class AuditAction(enum.StrEnum):
     SAVED_QUERY_CREATED = "saved_query_created"
     SAVED_QUERY_DELETED = "saved_query_deleted"
     LOGIN_LOCKED = "login_locked"
+    # Decisión 49: CRUD de catálogos y datasets. Quién dio de baja algo va aquí, no al RDF.
+    CATALOG_CREATED = "catalog_created"
+    CATALOG_UPDATED = "catalog_updated"
+    CATALOG_WITHDRAWN = "catalog_withdrawn"
+    DATASET_CREATED = "dataset_created"
+    DATASET_UPDATED = "dataset_updated"
+    DATASET_WITHDRAWN = "dataset_withdrawn"
 
 
 class User(Base):

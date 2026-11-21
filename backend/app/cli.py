@@ -21,7 +21,7 @@ import typer
 from rdflib import Graph, URIRef
 from sqlalchemy.orm import Session
 
-from app import distributions, ingest, vocab_ingest
+from app import bajas, distributions, ingest, vocab_ingest
 from app.config import Settings, get_settings
 from app.db import get_sessionmaker
 from app.models import DistributionFile, Role
@@ -110,7 +110,11 @@ class _Plan:
         field(default_factory=list)
     )
     plain: list[tuple[str, str, Graph]] = field(default_factory=list)
+    # Catálogo raíz y catálogos de data/catalogos/ (decisión 49).
+    catalogs: list[tuple[str, str, Graph]] = field(default_factory=list)
     series: list[tuple[str, ingest.PreparedSeries]] = field(default_factory=list)
+    # URIs con lápida en el grafo de bajas: sus ficheros se omiten.
+    withdrawn: set[str] = field(default_factory=set)
     files: list[tuple[str, Path, tuple[str, str, str]]] = field(default_factory=list)
 
 
@@ -136,11 +140,17 @@ def _check_files(
     ``download: unavailable``)."""
     graphs = {prepared.slug: prepared.graph for _name, prepared in plan.series}
     failed = False
+    withdrawn_slugs = {
+        slug for uri in plan.withdrawn if (slug := uris.series_slug(uri)) is not None
+    }
     seen: set[str] = set()
     limit = settings.max_upload_mb * 1024 * 1024
     for path in _file_paths(semantic_dir):
         name = str(path.relative_to(semantic_dir))
         slug, version, dist = path.parent.parent.name, path.parent.name, path.stem
+        if slug in withdrawn_slugs:
+            typer.echo(f"  {name}: se omite (dataset dado de baja)")
+            continue
         problem = None
         if not (is_slug(slug) and is_version(version) and is_slug(dist)) or path.suffix == "":
             problem = "la ruta debe ser {slug}/{version}/{dist}.{ext}"
@@ -174,6 +184,29 @@ def _check_files(
         seen.add(key)
         plan.files.append((name, path, (slug, version, dist)))
     return failed
+
+
+def _catalog_paths(semantic_dir: Path) -> list[Path]:
+    root = semantic_dir / ingest.CATALOGS_DIR
+    return sorted(root.glob("*.ttl")) if root.is_dir() else []
+
+
+def _check_series_catalog(
+    store: TripleStore, uris: Uris, prepared: ingest.PreparedSeries, loaded: set[str]
+) -> None:
+    """Antes de escribir: una serie que ya está en un catálogo se queda en él (un traslado
+    hecho desde la aplicación no se deshace); una serie nueva necesita que su catálogo se
+    cargue en esta misma ejecución o ya esté publicado."""
+    if bajas.series_catalogs(store, uris, prepared.uri):
+        return
+    target = prepared.catalog_uri
+    if target is None or target in loaded or bajas.catalog_exists(store, target):
+        return
+    raise ingest.IngestError(
+        "catalog",
+        "El catálogo de la serie no existe, está dado de baja o no está en data/catalogos/",
+        [ingest.Issue("Catálogo de la serie", focus_node=target)],
+    )
 
 
 def _scheme_paths(semantic_dir: Path) -> list[Path]:
@@ -267,18 +300,76 @@ def _validate_all(
     externas = semantic_dir / ingest.EXTERNAL_ONTOLOGIES_FILE
     if externas.is_file():
         plain_files.append((externas, uris.external_ontologies_graph))
-    plain_files.append((semantic_dir / ingest.CATALOG_FILE, uris.catalog))
     for path, graph_uri in plain_files:
         name = str(path.relative_to(semantic_dir))
         try:
             graph = ingest.parse_file(path, uris.base, max_triples=settings.ingest_max_triples)
-            if path == externas:
-                vocab_ingest.prepare_external(graph, uris, settings)
-            else:
-                ingest.validate_plain(graph, semantic_dir, uris.base)
+            vocab_ingest.prepare_external(graph, uris, settings)
             plan.plain.append((name, graph_uri, graph))
         except ingest.IngestError as exc:
             _print_ingest_error(name, exc)
+            failed = True
+
+    # Catálogos (decisión 49). Lo dado de baja desde la aplicación manda sobre los
+    # ficheros: un catálogo o una serie con lápida se omite (su slug no se reutiliza).
+    plan.withdrawn = bajas.withdrawn_uris(store, uris) if store is not None else set()
+    root_file = semantic_dir / ingest.CATALOG_FILE
+    try:
+        graph = ingest.parse_file(root_file, uris.base, max_triples=settings.ingest_max_triples)
+        ingest.validate_plain(graph, semantic_dir, uris.base)
+        plan.catalogs.append((str(root_file.relative_to(semantic_dir)), uris.root_catalog, graph))
+    except ingest.IngestError as exc:
+        _print_ingest_error(str(root_file.relative_to(semantic_dir)), exc)
+        failed = True
+    loaded_catalogs: set[str] = set()
+    for path in _catalog_paths(semantic_dir):
+        name = str(path.relative_to(semantic_dir))
+        try:
+            if not is_slug(path.stem):
+                raise ingest.IngestError(
+                    "uri", "El nombre del fichero tiene que ser el slug del catálogo"
+                )
+            catalog_uri = uris.catalog(path.stem)
+            if catalog_uri in plan.withdrawn:
+                typer.echo(f"  {name}: se omite (catálogo dado de baja)")
+                continue
+            graph = ingest.parse_file(path, uris.base, max_triples=settings.ingest_max_triples)
+            ingest.check_catalog_structure(graph, uris, catalog_uri)
+            ingest.validate_plain(graph, semantic_dir, uris.base)
+            plan.catalogs.append((name, catalog_uri, graph))
+            loaded_catalogs.add(catalog_uri)
+        except ingest.IngestError as exc:
+            _print_ingest_error(name, exc)
+            failed = True
+
+    # El raíz: no lista series y solo agrupa catálogos catalogo/{slug} que se cargan aquí o
+    # ya están publicados (un solo nivel). Los dados de baja se quitan al escribirlo.
+    for name, graph_uri, graph in plan.catalogs:
+        if graph_uri != uris.root_catalog:
+            continue
+        root = URIRef(uris.root_catalog)
+        problems = [
+            ingest.Issue("El catálogo raíz no lista series", value=str(item))
+            for item in graph.objects(root, DCAT.dataset)
+        ]
+        for item in graph.objects(root, DCAT.catalog):
+            target = str(item)
+            if target in plan.withdrawn:
+                continue
+            if uris.catalog_slug(target) is None or not (
+                target in loaded_catalogs
+                or (store is not None and bajas.catalog_exists(store, target))
+            ):
+                problems.append(
+                    ingest.Issue(
+                        "dcat:catalog tiene que ser un catálogo catalogo/{slug} existente",
+                        value=target,
+                    )
+                )
+        if problems:
+            _print_ingest_error(
+                name, ingest.IngestError("structure", "Catálogo raíz no válido", problems)
+            )
             failed = True
 
     series_dir = semantic_dir / ingest.SYNTHETIC_DIR
@@ -287,8 +378,12 @@ def _validate_all(
         try:
             graph = ingest.parse_file(path, uris.base, max_triples=settings.ingest_max_triples)
             prepared_series = ingest.prepare_series(graph, uris, semantic_dir)
+            if prepared_series.uri in plan.withdrawn:
+                typer.echo(f"  {name}: se omite (dataset dado de baja)")
+                continue
             if store is not None:
                 ingest.check_immutable(store.get_graph(prepared_series.uri), prepared_series)
+                _check_series_catalog(store, uris, prepared_series, loaded_catalogs)
             plan.series.append((name, prepared_series))
         except ingest.IngestError as exc:
             _print_ingest_error(name, exc)
@@ -304,11 +399,15 @@ def load_semantic() -> None:
 
     Lee ``SEMANTIC_DIR``: ``vocabularios/*.ttl`` y ``vocabularios/corp/*.ttl``,
     ``data/vocab-minimo.ttl`` (esquemas auxiliares, uno por grafo),
-    ``ontologias/{slug}/{version}.ttl``, ``ontologias/externas.ttl``, ``data/catalogo.ttl``,
+    ``ontologias/{slug}/{version}.ttl``, ``ontologias/externas.ttl``, ``data/catalogo.ttl``
+    (catálogo raíz), ``data/catalogos/{slug}.ttl`` (un catálogo por fichero),
     ``data/sintetico/*.ttl`` y los ficheros de distribución de
     ``data/sintetico/ficheros/{slug}/{version}/{dist}.{ext}`` (con las reglas de la API).
     Las versiones ya publicadas son inmutables (decisión 28) y las nuevas se encolan para
     evaluarlas con F-UJI (las evalúa el trabajador de la API).
+    Decisión 49: lo hecho desde la aplicación se conserva. Los catálogos y las series dados
+    de baja se omiten (con sus ficheros), una serie que ya está en un catálogo se queda en
+    él, y los catálogos creados por la API siguen en el raíz.
     Valida todo antes de escribir nada: si un fichero no es válido, no se carga ninguno. Es
     idempotente: un grafo con el mismo contenido no se reescribe, y las métricas de una
     versión de ontología solo se recalculan si su contenido ha cambiado.
@@ -345,9 +444,16 @@ def load_semantic() -> None:
             state = "cargado" if result.changed else "sin cambios"
             typer.echo(f"{name} -> <{result.graph_uri}>: {state} ({result.concepts} conceptos)")
         for name, graph_uri, graph in plan.plain:
-            if graph_uri == uris.catalog:
-                # Decisión 29: se conservan los dcat:dataset de las series publicadas.
-                graph = ingest.merge_catalog(store.get_graph(graph_uri), graph, uris)
+            _created, changed = ingest.store_graph(store, graph_uri, graph)
+            typer.echo(f"{name} -> <{graph_uri}>: {'cargado' if changed else 'sin cambios'}")
+        for name, graph_uri, graph in plan.catalogs:
+            # Decisión 49: se conservan los dcat:catalog del raíz y los dcat:dataset de cada
+            # catálogo que ya están publicados (lo hecho desde la aplicación).
+            current = store.get_graph(graph_uri)
+            if graph_uri == uris.root_catalog:
+                graph = ingest.merge_root_catalog(current, graph, uris, plan.withdrawn)
+            else:
+                graph = ingest.merge_catalog(current, graph, graph_uri)
             _created, changed = ingest.store_graph(store, graph_uri, graph)
             typer.echo(f"{name} -> <{graph_uri}>: {'cargado' if changed else 'sin cambios'}")
         for name, ontology, analysis in plan.ontologies:
@@ -365,7 +471,7 @@ def load_semantic() -> None:
             typer.echo(f"{name} -> <{onto.graph_uri}>: {state}, {metrics}")
         for name, series in plan.series:
             published = ingest.publish_and_audit(
-                store, session, series, actor_username=CLI_ACTOR, via="cli"
+                store, session, series, actor_username=CLI_ACTOR, via="cli", other="keep"
             )
             state = "cargado" if published.changed else "sin cambios"
             fair_note = (
