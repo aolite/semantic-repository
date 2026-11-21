@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import secrets
+import subprocess
 import threading
 import time
 import urllib.parse
@@ -27,6 +28,7 @@ IANA = "http://www.iana.org/assignments/media-types/"
 TURTLE = {"Content-Type": "text/turtle"}
 SPARQL_QUERY = {"Content-Type": "application/sparql-query"}
 BROWSER_ACCEPT = "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8"
+ADVISORY_KEY = 4_904_900_001  # clave del advisory lock de las escrituras del catálogo
 XSS_TITLE = "<script>alert(1)</script> \"comillas\" 'simples' & <b>x</b>"
 
 
@@ -55,9 +57,9 @@ def _catalog(
     return create_catalog(stack, token, slug, title, timeout)
 
 
-def _api_slow(stack: Stack, method: str, path: str, token: str | None):
+def _api_slow(stack: Stack, method: str, path: str, token: str | None, body: object | None = None):
     """Como ``_api`` pero esperando hasta 3 minutos (pruebas de ráfagas con el bloqueo)."""
-    return http(method, f"{stack.api}{path}", token=token, timeout=180)
+    return http(method, f"{stack.api}{path}", json_body=body, token=token, timeout=180)
 
 
 def _dataset(
@@ -1023,12 +1025,6 @@ def test_bajas_simultaneas_no_pierden_lapidas(stack: Stack, editor: Account) -> 
     assert lost == [], f"lápidas perdidas: {lost}"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="QA-49-03: con más escrituras simultáneas que conexiones del pool, las que esperan "
-    "el bloqueo retienen su conexión y el que lo tiene no consigue otra para el advisory lock: "
-    "500 (QueuePool), ráfagas de ~30 s y /auth/me parado hasta 30 s",
-)
 def test_muchas_escrituras_simultaneas_no_agotan_el_pool_ni_el_bloqueo(
     stack: Stack, editor: Account
 ) -> None:
@@ -1089,6 +1085,105 @@ def test_muchas_escrituras_simultaneas_no_agotan_el_pool_ni_el_bloqueo(
     )
     assert statuses == [204] * n, sorted(set(map(str, statuses)))
     assert all(http("GET", f"{stack.api}/catalogs/{s}").status == 410 for s in cats)
+
+
+def _hold_advisory_lock(stack: Stack, seconds: int) -> subprocess.Popen[str]:
+    """Retiene el advisory lock de las escrituras del catálogo desde ``psql`` (otro «proceso»,
+    como lo haría ``load-semantic``) y espera a que esté concedido."""
+    command = [
+        *stack._base(),  # noqa: SLF001 - misma línea de Compose que el resto de pruebas
+        "exec",
+        "-T",
+        "postgres",
+        "psql",
+        "-U",
+        stack.env["POSTGRES_USER"],
+        "-d",
+        stack.env["POSTGRES_DB"],
+        "-v",
+        "ON_ERROR_STOP=1",
+        "-At",
+        "-c",
+        f"select pg_advisory_lock({ADVISORY_KEY}); select pg_sleep({seconds})",
+    ]
+    process = subprocess.Popen(  # noqa: S603 - comando fijo, sin shell
+        command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+    )
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        granted = stack.psql(
+            f"select count(*) from pg_locks where locktype = 'advisory' and granted and objid = {ADVISORY_KEY & 0xFFFFFFFF}"
+        )
+        if granted == ["1"]:
+            return process
+        time.sleep(0.5)
+    process.kill()
+    pytest.fail("No se ha podido retener el advisory lock desde psql")
+
+
+def test_la_espera_del_bloqueo_vence_con_503_y_retry_after(stack: Stack, editor: Account, cat: str) -> None:
+    """Otro proceso (aquí, ``psql``) tiene el bloqueo de escritura más de ``CATALOG_LOCK_TIMEOUT_SECONDS``
+    (30 s por defecto): las escrituras esperan, y al vencer responden 503 con ``Retry-After: 5`` sin
+    escribir nada ni agotar el pool; las lecturas siguen respondiendo mientras tanto. Al soltarlo,
+    se puede escribir otra vez."""
+    holder = _hold_advisory_lock(stack, 50)
+    try:
+        slug, ds = _slug("espera"), _slug("espera-ds")
+        audit_before = stack.psql("select count(*) from audit_events where action like 'catalog_%' or action like 'dataset_%'")
+        probes: list[tuple[int, float]] = []
+        stop = threading.Event()
+
+        def probe() -> None:
+            while not stop.is_set():
+                started = time.monotonic()
+                status = http("GET", f"{stack.api}/auth/me", token=editor.token, timeout=60).status
+                probes.append((status, time.monotonic() - started))
+                time.sleep(1)
+
+        watcher = threading.Thread(target=probe)
+        watcher.start()
+        started = time.monotonic()
+        try:
+            results = _parallel(
+                [
+                    lambda: _catalog(stack, editor.token, slug, timeout=90),
+                    lambda: _api_slow(stack, "PATCH", f"/datasets/{ds}", editor.token, {"title": "x"}),
+                    lambda: _api_slow(stack, "DELETE", f"/catalogs/{cat}", editor.token),
+                    lambda: http(
+                        "POST",
+                        f"{stack.api}/datasets",
+                        raw_body=_series_ttl(ds, cat, {"csv": "PUBLIC"}).encode(),
+                        headers=TURTLE,
+                        token=editor.token,
+                        timeout=90,
+                    ),
+                ]
+            )
+        finally:
+            stop.set()
+            watcher.join()
+        elapsed = time.monotonic() - started
+        assert [r.status for r in results] == [503, 503, 503, 503], [(r.status, r.text[:120]) for r in results]
+        assert all(r.headers.get("retry-after") == "5" for r in results)
+        assert all("CATALOG_LOCK_TIMEOUT_SECONDS" in _json(r)["detail"] for r in results)  # type: ignore[operator]
+        assert 25 <= elapsed < 45, f"la espera tardó {elapsed:.0f} s (CATALOG_LOCK_TIMEOUT_SECONDS=30)"
+        assert probes and all(s == 200 and t < 5 for s, t in probes), probes
+        assert http("GET", f"{stack.api}/catalogs/{slug}").status == 404  # nada escrito
+        assert http("GET", f"{stack.api}/datasets/{ds}").status == 404
+        assert http("GET", f"{stack.api}/catalogs/{cat}").status == 200  # y el catálogo sigue vivo
+        assert (
+            stack.psql("select count(*) from audit_events where action like 'catalog_%' or action like 'dataset_%'")
+            == audit_before
+        )
+    finally:
+        holder.kill()
+        holder.wait()
+    # Soltado el bloqueo (al morir psql), vuelve a funcionar.
+    deadline = time.monotonic() + 20
+    while stack.psql("select count(*) from pg_locks where locktype = 'advisory'") != ["0"]:
+        assert time.monotonic() < deadline, "el advisory lock sigue retenido"
+        time.sleep(0.5)
+    assert _catalog(stack, editor.token, _slug("despues")).status == 201
 
 
 def test_el_bloqueo_se_libera_y_no_quedan_conexiones_colgadas(stack: Stack, editor: Account) -> None:

@@ -65,7 +65,7 @@ Puntuación real de F-UJI 4.0.1 con los datos sintéticos (versión actual de ca
 
 **QA-49-01** (altas y bajas simultáneas perdían enlaces del raíz y lápidas) y **QA-49-02** (un fichero huérfano quedaba en disco al dar de baja un dataset) están corregidos: sus pruebas pasan sin marca. Además se comprueba que no queda ningún advisory lock retenido y que `load-semantic` y la API se serializan.
 
-- **QA-49-03** (backend, `app/write_lock.py`): con más escrituras simultáneas que conexiones del pool de SQLAlchemy (5 + 10), las peticiones que esperan el bloqueo retienen su conexión (la sesión que leyó al usuario sigue en transacción) y quien lo tiene necesita otra para el `pg_advisory_lock`. Con 20 altas a la vez: 500 por `QueuePool limit … timeout 30`, ráfaga de ~33 s y `/auth/me` parado hasta ~30 s. Se recupera solo, sin dejar locks. Prueba: `test_muchas_escrituras_simultaneas_no_agotan_el_pool_ni_el_bloqueo` (`xfail` estricta).
+**QA-49-03** (ráfagas de escrituras: 500 por pool agotado y `/auth/me` parado) también está corregido. Se comprueba con 20 altas simultáneas (todas 201, `/auth/me` sin esperas) y con el bloqueo retenido desde otro proceso (`psql`): las escrituras vencen a los 30 s con 503 y `Retry-After: 5`, sin escribir nada, mientras las lecturas siguen respondiendo.
 
 ## Puerta G3 · vocabularios cargados
 
