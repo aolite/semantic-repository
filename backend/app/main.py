@@ -28,6 +28,7 @@ from app.routers import (
     vocabularies,
 )
 from app.triplestore import TriplestoreError
+from app.write_lock import CatalogLockTimeoutError
 
 API_TITLE = "Repositorio semántico IT&OT · API"
 API_DESCRIPTION = (
@@ -62,6 +63,15 @@ async def validation_exception_handler(
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         content={"detail": jsonable_encoder(errors)},
+    )
+
+
+async def catalog_lock_exception_handler(_request: Request, exc: Exception) -> JSONResponse:
+    """503 si el bloqueo de escritura del catálogo no llega a tiempo (QA-49-03)."""
+    return JSONResponse(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        content={"detail": str(exc)},
+        headers={"Retry-After": "5"},
     )
 
 
@@ -107,6 +117,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_exception_handler(RequestValidationError, validation_exception_handler)
     app.add_exception_handler(TriplestoreError, triplestore_exception_handler)
     app.add_exception_handler(gone.GoneError, gone.gone_exception_handler)
+    app.add_exception_handler(CatalogLockTimeoutError, catalog_lock_exception_handler)
 
     app.include_router(health.router)
     app.include_router(auth.router)

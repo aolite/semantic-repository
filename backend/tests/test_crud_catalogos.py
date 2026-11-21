@@ -770,3 +770,38 @@ def test_withdraw_dataset_removes_orphan_files_only_of_its_slug(
         "prueba/9.9.9/csv",
     ]
     assert events[0].details["files_not_deleted"] == []
+
+
+def test_load_semantic_holds_the_lock_only_while_writing_catalogs(
+    loaded_store: MemoryStore,
+    cli_doubles: CliRunner,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """QA-49-03: ni la validación (con el razonador) ni la publicación de ontologías y
+    esquemas retienen el bloqueo; solo la escritura de catálogos, series y ficheros."""
+    from app import write_lock
+
+    seen: dict[str, list[int]] = {"validate": [], "ontology": [], "series": []}
+
+    def held() -> int:
+        return getattr(write_lock._local, "depth", 0)
+
+    def spy(key: str, function):
+        def wrapper(*args, **kwargs):
+            seen[key].append(held())
+            return function(*args, **kwargs)
+
+        return wrapper
+
+    monkeypatch.setattr(cli_module, "_validate_all", spy("validate", cli_module._validate_all))
+    monkeypatch.setattr(
+        vocab_ingest,
+        "publish_ontology_and_audit",
+        spy("ontology", vocab_ingest.publish_ontology_and_audit),
+    )
+    monkeypatch.setattr(ingest, "publish_and_audit", spy("series", ingest.publish_and_audit))
+    result = cli_doubles.invoke(cli_module.cli, ["load-semantic"])
+    assert result.exit_code == 0, result.output
+    assert seen["validate"] == [0]
+    assert seen["ontology"] and set(seen["ontology"]) == {0}
+    assert seen["series"] and set(seen["series"]) == {1}
