@@ -1,10 +1,20 @@
-import { apiRequest, apiRequestText, withQuery } from './client'
-import type { DatasetDetail, DatasetPage, DomainSlug, DownloadLink, RdfFormat } from './types'
+import { apiRequest, apiRequestText, apiRequestVoid, jsonBody, withQuery } from './client'
+import type {
+  DatasetDetail,
+  DatasetPage,
+  DatasetUpdate,
+  DomainSlug,
+  DownloadLink,
+  IngestResult,
+  RdfFormat,
+} from './types'
 
 export interface ListDatasetsParams {
   /** Texto libre: título, descripción y temas. */
   q?: string
   domain?: DomainSlug
+  /** Slug del catálogo (`catalogo/{slug}`, decisión 49). */
+  catalog?: string
   page?: number
   /** Máximo 100 según el contrato. */
   pageSize?: number
@@ -15,6 +25,7 @@ export function listDatasets(params: ListDatasetsParams = {}, signal?: AbortSign
   const path = withQuery('/datasets', {
     q: params.q?.trim(),
     domain: params.domain,
+    catalog: params.catalog,
     page: params.page,
     page_size: params.pageSize,
   })
@@ -59,4 +70,36 @@ export function requestDownloadLink(slug: string, version: string, dist: string,
     'download-link',
   ].join('/')
   return apiRequest<DownloadLink>(path, { method: 'POST', token })
+}
+
+function datasetPath(slug: string): string {
+  return `/datasets/${encodeURIComponent(slug)}`
+}
+
+/** `PATCH /datasets/{slug}` (editor o admin): metadatos de la serie; `catalog` la mueve de catálogo. */
+export function updateDataset(slug: string, body: DatasetUpdate, token: string): Promise<DatasetDetail> {
+  return apiRequest<DatasetDetail>(datasetPath(slug), { method: 'PATCH', token, ...jsonBody(body) })
+}
+
+/** `DELETE /datasets/{slug}` (editor o admin): baja del dataset; el backend elimina sus ficheros. */
+export function withdrawDataset(slug: string, token: string): Promise<void> {
+  return apiRequestVoid(datasetPath(slug), { method: 'DELETE', token })
+}
+
+/** Tipos de medio que admite `POST /datasets`. */
+export type IngestMediaType = 'text/turtle' | 'application/ld+json'
+
+/**
+ * `POST /datasets?catalog=` (editor o admin): publica la serie con todas sus
+ * versiones (RDF validado con SHACL por el backend). Así se publica una
+ * versión nueva: las ya publicadas tienen que venir sin cambios.
+ */
+export function publishDatasetRdf(
+  rdf: Blob | string,
+  mediaType: IngestMediaType,
+  catalog: string | null,
+  token: string,
+): Promise<IngestResult> {
+  const path = withQuery('/datasets', { catalog })
+  return apiRequest<IngestResult>(path, { method: 'POST', token, body: rdf, headers: { 'Content-Type': mediaType } })
 }

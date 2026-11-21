@@ -10,6 +10,11 @@
  * del contrato de la fase (sección 5) y se escribieron antes de que el backend
  * regenerase `openapi.json`: la prueba de contrato de `qa` los contrasta con el
  * OpenAPI real en la integración.
+ *
+ * Los de la decisión 49 (catálogos, edición y bajas) salen del `openapi.json`
+ * de la PR del contrato; las pruebas de contrato del backend
+ * (`backend/tests/test_contracts_fase2.py` y `test_contracts_fase3.py`)
+ * comprueban que coinciden.
  */
 
 /** Esquema `Role`: roles con cuenta. El lector es anónimo y no tiene token. */
@@ -50,17 +55,20 @@ export interface HealthResponse {
 export type DomainSlug = 'it' | 'ot' | 'pqc' | 'ia'
 
 /**
- * Esquema `IngestErrorResponse`: error de `POST /datasets`, `/ontologies` y
- * `/schemes`. El cliente todavía no tiene pantallas de ingesta; se recoge para
- * que el tipo siga alineado con el contrato.
+ * Esquema `IngestErrorResponse`: error de `POST /datasets` (formulario «Nueva
+ * versión»), `/ontologies` y `/schemes`, y 422 de los formularios JSON de
+ * catálogos y datasets (decisión 49).
  */
 export interface IngestErrorResponse {
   detail: string
   /**
    * `limit`: se ha superado un límite de la ingesta (tripletas, tamaño, IRI, profundidad o tiempo).
+   * `catalog` (422): el catálogo indicado no existe o está dado de baja.
    * `version_removed` / `version_immutable` (409, fase 4): falta o cambia una versión ya publicada.
+   * `withdrawn` (409): el slug es de un recurso dado de baja y no se reutiliza.
+   * `catalog_conflict` (409): la serie ya está en otro catálogo (se mueve con `PATCH`).
    */
-  kind: 'syntax' | 'structure' | 'uri' | 'shacl' | 'limit' | 'version_removed' | 'version_immutable'
+  kind: 'syntax' | 'structure' | 'uri' | 'shacl' | 'limit' | 'catalog' | 'version_removed' | 'version_immutable' | 'withdrawn' | 'catalog_conflict'
   issues: IngestIssue[]
   /** Informe SHACL en texto (solo `kind=shacl`). */
   report: string | null
@@ -129,6 +137,8 @@ export interface DatasetCard {
   synthetic: boolean
   /** `total` de la última evaluación FAIR `done` de la versión actual (fase 4). */
   fair_total?: number | null
+  /** Catálogo del dataset (decisión 49); null si no está en ninguno. */
+  catalog?: CatalogRef | null
 }
 
 /** Esquema `DatasetPage`: respuesta de `GET /datasets`. */
@@ -264,6 +274,8 @@ export interface DatasetDetail {
   uri: string
   title: string | null
   description: string | null
+  /** Catálogo del dataset (decisión 49); null si no está en ninguno. */
+  catalog?: CatalogRef | null
   synthetic: boolean
   domain: DomainRef | null
   domains: DomainRef[]
@@ -650,4 +662,113 @@ export interface SavedQueryCreate {
   hint?: string | null
   /** 1 byte a 20 KB. */
   query: string
+}
+
+/* ------------------------------------------------------------------------ */
+/* Catálogos, edición y bajas (decisión 49).                                 */
+/* ------------------------------------------------------------------------ */
+
+/** Esquema `CatalogRef`: catálogo `{BASE_URI}catalogo/{slug}` de un dataset. */
+export interface CatalogRef {
+  slug: string
+  uri: string
+  title: string | null
+}
+
+/** Esquema `CatalogSummary`: entrada de `GET /catalogs`. */
+export interface CatalogSummary {
+  slug: string
+  uri: string
+  title: string | null
+  description: string | null
+  publisher: ResourceRef | null
+  /** Número de datasets (series) del catálogo. */
+  dataset_count: number
+}
+
+/** Esquema `CatalogPage`: respuesta de `GET /catalogs` (sin el raíz ni las bajas). */
+export interface CatalogPage {
+  items: CatalogSummary[]
+  total: number
+}
+
+/** Esquema `CatalogDatasetRef`: serie de un catálogo. */
+export interface CatalogDatasetRef {
+  slug: string
+  uri: string
+  title: string | null
+}
+
+/** Esquema `CatalogDetail`: `GET /catalogs/{slug}`, `POST /catalogs` y `PATCH /catalogs/{slug}`. */
+export interface CatalogDetail {
+  slug: string
+  uri: string
+  title: string | null
+  description: string | null
+  publisher: ResourceRef | null
+  dataset_count: number
+  /** Series del catálogo, por título. */
+  datasets: CatalogDatasetRef[]
+}
+
+/** Esquema `CatalogCreate`: cuerpo de `POST /catalogs`. */
+export interface CatalogCreate {
+  /** Minúsculas ASCII, dígitos y guiones; no cambia. */
+  slug: string
+  /** Se guarda en español (`@es`). */
+  title: string
+  /** Se guarda en español (`@es`). */
+  description: string
+  publisher_name: string
+}
+
+/** Esquema `CatalogUpdate`: cuerpo de `PATCH /catalogs/{slug}` (solo cambian los campos presentes). */
+export interface CatalogUpdate {
+  title?: string | null
+  description?: string | null
+  publisher_name?: string | null
+}
+
+/** Esquema `CatalogConflictResponse`: 409 al dar de baja un catálogo con datasets. */
+export interface CatalogConflictResponse {
+  detail: string
+  /** URIs de las series que siguen en el catálogo. */
+  datasets?: string[]
+}
+
+/** Esquema `GoneResponse`: 410, ficha mínima (lápida) de un recurso dado de baja. */
+export interface GoneResponse {
+  detail: string
+  uri: string
+  resource: 'catalog' | 'dataset'
+  title: string | null
+  /** `prov:invalidatedAtTime` (xsd:dateTime). */
+  withdrawn_at: string | null
+}
+
+/** Esquema `DatasetCreate`: cuerpo de `POST /catalogs/{slug}/datasets` (serie sin versiones). */
+export interface DatasetCreate {
+  slug: string
+  title: string
+  description: string
+  publisher_name?: string | null
+}
+
+/** Esquema `DatasetUpdate`: cuerpo de `PATCH /datasets/{slug}`; `catalog` mueve el dataset. */
+export interface DatasetUpdate {
+  title?: string | null
+  description?: string | null
+  publisher_name?: string | null
+  catalog?: string | null
+}
+
+/** Esquema `IngestResult`: respuesta de `POST /datasets` (201 nueva, 200 sustituida). */
+export interface IngestResult {
+  slug: string
+  uri: string
+  graph: string
+  versions: string[]
+  triples: number
+  created: boolean
+  changed: boolean
 }
