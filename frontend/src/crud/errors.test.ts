@@ -85,6 +85,12 @@ describe('Errores de los formularios de catálogos y datasets', () => {
     expect(describeError(apiError(status), CONTEXT).message).toBe(text)
   })
 
+  it('503 con Retry-After (bloqueo de escritura): el servidor está ocupado', () => {
+    const busy = new ApiError(503, 'x', 'Bloqueo ocupado', 5, { detail: 'Bloqueo ocupado' })
+    expect(describeError(busy, CONTEXT).message).toBe('El servidor está ocupado; inténtalo de nuevo en unos segundos.')
+    expect(describeError(apiError(503), CONTEXT).message).toBe(CRUD_TEXT.unavailable)
+  })
+
   it('410 nombra el recurso dado de baja', () => {
     expect(describeError(apiError(410, goneFixture({ title: 'Recurso X' })), CONTEXT).message).toBe('«Recurso X» se dio de baja.')
     expect(describeError(apiError(410, goneFixture({ title: null })), CONTEXT).message).toBe(CRUD_TEXT.gone)
