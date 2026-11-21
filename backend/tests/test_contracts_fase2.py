@@ -218,7 +218,7 @@ def _nullable(schema: dict) -> bool:
 # aún no los conoce.
 PENDING_FRONTEND: dict[str, set[str]] = {
     "DatasetCard": {"catalog"},  # decisión 49
-    "DatasetDetail": {"catalog"},  # decisión 49
+    "DatasetDetail": {"catalog", "publisher"},  # decisión 49
 }
 
 

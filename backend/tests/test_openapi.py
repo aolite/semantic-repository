@@ -115,5 +115,18 @@ def test_openapi_exposes_catalog_crud() -> None:
         "withdrawn_at",
     }
     assert "catalog" in components["DatasetCard"]["properties"]
+    assert "publisher" in components["DatasetDetail"]["properties"]
+    assert components["ConflictResponse"]["properties"]["kind"]["enum"] == [
+        "slug_in_use",
+        "withdrawn",
+        "catalog_not_empty",
+    ]
+    for path, method in (
+        ("/catalogs", "post"),
+        ("/catalogs/{slug}", "delete"),
+        ("/catalogs/{slug}/datasets", "post"),
+    ):
+        conflict = paths[path][method]["responses"]["409"]["content"]["application/json"]
+        assert conflict["schema"]["$ref"].endswith("/ConflictResponse"), (path, method)
     kinds = components["IngestErrorResponse"]["properties"]["kind"]["enum"]
     assert {"catalog", "withdrawn", "catalog_conflict"} <= set(kinds)

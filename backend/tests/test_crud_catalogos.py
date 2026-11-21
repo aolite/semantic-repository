@@ -112,6 +112,24 @@ def test_list_and_get_catalogs(api: TestClient) -> None:
     assert api.get("/catalogs/No_Valido").status_code == 422
 
 
+def test_detail_carries_the_series_publisher(api: TestClient, editor: dict[str, str]) -> None:
+    """El publicador de la serie, para precargar el formulario de edición."""
+    detail = api.get("/datasets/modbus-tcp-testbed").json()
+    assert detail["publisher"] == {"uri": None, "label": "Eurecat · Unidad IT&OT Security"}
+    created = api.post(
+        "/catalogs/sintetico/datasets",
+        json={**NEW_DATASET, "publisher_name": "Agente de prueba"},
+        headers=editor,
+    ).json()
+    assert created["publisher"] == {"uri": None, "label": "Agente de prueba"}
+    edited = api.patch(
+        "/datasets/nuevo", json={"publisher_name": "Otro agente"}, headers=editor
+    ).json()
+    assert edited["publisher"] == {"uri": None, "label": "Otro agente"}
+    kept = api.patch("/datasets/nuevo", json={"title": "Otro título"}, headers=editor).json()
+    assert kept["publisher"] == {"uri": None, "label": "Otro agente"}
+
+
 def test_cards_and_detail_carry_their_catalog(api: TestClient) -> None:
     cards = api.get("/datasets").json()["items"]
     assert {c["catalog"]["slug"] for c in cards} == {"sintetico"}
@@ -209,8 +227,14 @@ def test_create_catalog(
     assert "piloto" in {c["slug"] for c in api.get("/catalogs").json()["items"]}
     events = _events(session_factory, AuditAction.CATALOG_CREATED)
     assert [(e.actor_username, e.details["catalog"]) for e in events] == [("editora", body["uri"])]
-    # El slug ya existe: 409.
-    assert api.post("/catalogs", json=NEW_CATALOG, headers=editor).status_code == 409
+    # El slug ya existe: 409 slug_in_use.
+    again = api.post("/catalogs", json=NEW_CATALOG, headers=editor)
+    assert again.status_code == 409
+    assert again.json() == {
+        "detail": "Ya existe el catálogo con ese slug",
+        "kind": "slug_in_use",
+        "datasets": [],
+    }
 
 
 @pytest.mark.parametrize(
@@ -265,6 +289,7 @@ def test_withdraw_catalog_with_datasets_is_409(
 ) -> None:
     response = api.delete("/catalogs/sintetico", headers=editor)
     assert response.status_code == 409
+    assert response.json()["kind"] == "catalog_not_empty"
     assert MODBUS in response.json()["datasets"]
     assert (URIRef(SINTETICO), RDF.type, DCAT.Catalog) in loaded_store.get_graph(SINTETICO)
     assert BAJAS not in loaded_store.graph_names()
@@ -309,8 +334,10 @@ def test_withdraw_empty_catalog(
     assert (
         api.post("/catalogs/piloto/datasets", json=NEW_DATASET, headers=editor).status_code == 410
     )
-    # El slug no se reutiliza.
-    assert api.post("/catalogs", json=NEW_CATALOG, headers=editor).status_code == 409
+    # El slug no se reutiliza: 409 withdrawn (distinto de slug_in_use).
+    reused = api.post("/catalogs", json=NEW_CATALOG, headers=editor)
+    assert reused.status_code == 409
+    assert reused.json()["kind"] == "withdrawn" and reused.json()["datasets"] == []
 
 
 def test_withdrawn_catalog_uri_answers_410_in_html_and_rdf(
@@ -348,11 +375,13 @@ def test_create_dataset_in_catalog(
     assert [e.details["series"] for e in _events(session_factory, AuditAction.DATASET_CREATED)] == [
         uri
     ]
+    assert body["publisher"] is None  # el formulario no lo indicó
     again = api.post("/catalogs/sintetico/datasets", json=NEW_DATASET, headers=editor)
     assert again.status_code == 409
+    assert again.json()["kind"] == "slug_in_use"
     # El slug de un dataset es único en todo el repositorio, no por catálogo.
     other = api.post("/catalogs/pruebas/datasets", json=NEW_DATASET, headers=editor)
-    assert other.status_code == 409
+    assert other.status_code == 409 and other.json()["kind"] == "slug_in_use"
     missing = api.post("/catalogs/no-existe/datasets", json=NEW_DATASET, headers=editor)
     assert missing.status_code == 404
 
@@ -607,6 +636,7 @@ def test_withdrawn_slug_is_not_reused(
         "/catalogs/pruebas/datasets", json={**NEW_DATASET, "slug": "prueba"}, headers=editor
     )
     assert again.status_code == 409
+    assert again.json()["kind"] == "withdrawn"
 
 
 def test_withdrawn_resources_leave_listings_and_sparql(
