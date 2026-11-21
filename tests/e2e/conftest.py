@@ -508,3 +508,33 @@ def member(stack: Stack, admin: Account) -> Account:
 @pytest.fixture(scope="session")
 def editor(stack: Stack, admin: Account) -> Account:
     return _create_account(stack, admin, "editor")
+
+
+E2E_CATALOG = "e2e-pruebas"
+
+
+def create_catalog(
+    stack: Stack, token: str | None, slug: str, title: str = "Catálogo de las pruebas e2e"
+) -> Response:
+    """``POST /catalogs`` con datos ficticios (decisión 49)."""
+    return http(
+        "POST",
+        f"{stack.api}/catalogs",
+        json_body={
+            "slug": slug,
+            "title": title,
+            "description": "Catálogo ficticio creado por las pruebas de extremo a extremo.",
+            "publisher_name": "Pruebas de QA",
+        },
+        token=token,
+    )
+
+
+@pytest.fixture(scope="session")
+def e2e_catalog(stack: Stack, admin: Account) -> str:
+    """Catálogo en el que publican las series de las pruebas (decisión 49: cada serie está
+    en uno). Se crea por la API la primera vez que se pide, nunca antes de ``load-semantic``
+    de G2."""
+    response = create_catalog(stack, admin.token, E2E_CATALOG)
+    assert response.status in (201, 409), response.text
+    return E2E_CATALOG

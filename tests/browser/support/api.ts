@@ -81,8 +81,33 @@ export function seriesTurtle(slug: string, title: string, versions: Record<strin
   return out.join('\n') + '\n'
 }
 
-export async function publishSeries(token: string, turtle: string): Promise<number> {
-  const response = await api('/datasets', {
+/** Catálogo de las series que publican las pruebas (decisión 49: cada serie está en uno). */
+export const BROWSER_CATALOG = 'browser-pruebas'
+
+/** Crea el catálogo de las pruebas. Idempotente: si ya existe (409), no hace nada. */
+export async function ensureCatalog(token: string, slug: string = BROWSER_CATALOG): Promise<void> {
+  const response = await api('/catalogs', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      slug,
+      title: 'Catálogo de las pruebas de pantallas',
+      description: 'Catálogo ficticio creado por las pruebas de Playwright.',
+      publisher_name: 'Pruebas de QA',
+    }),
+    token,
+  })
+  if (![201, 409].includes(response.status)) {
+    throw new Error(`crear el catálogo falló: ${response.status} ${(await response.text()).slice(0, 300)}`)
+  }
+}
+
+export async function publishSeries(
+  token: string,
+  turtle: string,
+  catalog: string = BROWSER_CATALOG,
+): Promise<number> {
+  const response = await api(`/datasets?catalog=${encodeURIComponent(catalog)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'text/turtle' },
     body: turtle,
