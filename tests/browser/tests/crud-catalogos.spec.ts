@@ -299,7 +299,9 @@ test('el slug de un recurso dado de baja no se puede reutilizar desde los formul
   const cat = uniqueSlug('pw-slug')
   const goneCat = uniqueSlug('pw-slug-c')
   const goneDs = uniqueSlug('pw-slug-ds')
+  const liveDs = uniqueSlug('pw-slug-vivo')
   await apiCreateCatalog(owner, cat, `Catálogo ${cat}`)
+  await apiCreateDataset(owner, cat, liveDs, `Dataset ${liveDs}`)
   await apiCreateCatalog(owner, goneCat, `Catálogo ${goneCat}`)
   await apiCreateDataset(owner, cat, goneDs, `Dataset ${goneDs}`)
   await apiWithdraw(owner, 'datasets', goneDs)
@@ -315,7 +317,10 @@ test('el slug de un recurso dado de baja no se puede reutilizar desde los formul
   await newCatalog.getByLabel('Descripción (en español)').fill('Descripción ficticia.')
   await newCatalog.getByLabel('Publicador').fill('Pruebas de QA')
   await newCatalog.getByRole('button', { name: 'Crear catálogo' }).click()
-  await expect(newCatalog.getByRole('alert')).toContainText('dado de baja')
+  await expect(newCatalog.getByRole('alert')).toContainText('Ese slug es de un recurso dado de baja y no se reutiliza')
+  await newCatalog.getByLabel('Slug').fill(cat)
+  await newCatalog.getByRole('button', { name: 'Crear catálogo' }).click()
+  await expect(newCatalog.getByRole('alert')).toContainText('Ya existe un recurso con ese slug')
 
   await newCatalog.getByRole('button', { name: 'Cancelar' }).click()
   await page.getByRole('list', { name: 'Catálogos' }).getByRole('link', { name: `Catálogo ${cat}` }).click()
@@ -325,7 +330,13 @@ test('el slug de un recurso dado de baja no se puede reutilizar desde los formul
   await newDataset.getByLabel('Título (en español)').fill('Otro dataset')
   await newDataset.getByLabel('Descripción (en español)').fill('Descripción ficticia.')
   await newDataset.getByRole('button', { name: 'Crear dataset' }).click()
-  await expect(newDataset.getByRole('alert')).toContainText('dado de baja')
+  await expect(newDataset.getByRole('alert')).toContainText('Ese slug es de un recurso dado de baja y no se reutiliza')
+
+  // Slug en uso (un recurso vivo): el mensaje es otro.
+  await newDataset.getByLabel('Slug').fill(liveDs)
+  await newDataset.getByRole('button', { name: 'Crear dataset' }).click()
+  await expect(newDataset.getByRole('alert')).toContainText('Ya existe un recurso con ese slug')
+  await expect(newDataset.getByRole('alert')).not.toContainText('dado de baja')
   check()
 })
 
@@ -399,6 +410,38 @@ test('mover un dataset de catálogo desde «Editar»', async ({ page }) => {
   expect(detail.uri).toMatch(new RegExp(`/dataset/${ds}$`)) // la URI no cambia
   check()
   await apiMoveDataset(owner, ds, catA) // la API sigue permitiendo devolverlo
+})
+
+test('«Editar dataset» muestra el publicador actual y lo conserva si se deja', async ({ page }) => {
+  const owner = await token(accounts().editor)
+  const cat = uniqueSlug('pw-pub')
+  const ds = uniqueSlug('pw-pub-ds')
+  await apiCreateCatalog(owner, cat, `Catálogo ${cat}`)
+  await apiCreateDataset(owner, cat, ds, `Dataset ${ds}`, 'Editorial ficticia')
+  const check = watchConsole(page)
+
+  await signIn(page, accounts().editor)
+  await openCatalog(page, `Catálogo ${cat}`)
+  await openDatasetFromCatalog(page, `Dataset ${ds}`)
+  await expect(page.getByText('Editorial ficticia')).toBeVisible()
+  await page.getByRole('button', { name: 'Editar', exact: true }).click()
+  const edit = page.getByRole('region', { name: 'Editar dataset' })
+  await expect(edit.getByLabel('Publicador (opcional)')).toHaveValue('Editorial ficticia')
+  await edit.getByLabel('Título (en español)').fill(`Dataset ${ds} editado`)
+  await edit.getByRole('button', { name: 'Guardar cambios' }).click()
+  await expect(page.getByRole('status').filter({ hasText: 'Cambios guardados.' })).toBeVisible()
+  const detail = (await (await api(`/datasets/${ds}`)).json()) as { publisher: { label: string } | null }
+  expect(detail.publisher?.label).toBe('Editorial ficticia') // sigue igual
+
+  await page.getByRole('button', { name: 'Editar', exact: true }).click()
+  const again = page.getByRole('region', { name: 'Editar dataset' })
+  await again.getByLabel('Publicador (opcional)').fill('Otra editorial')
+  await again.getByRole('button', { name: 'Guardar cambios' }).click()
+  await expect(page.getByRole('status').filter({ hasText: 'Cambios guardados.' })).toBeVisible()
+  expect(((await (await api(`/datasets/${ds}`)).json()) as { publisher: { label: string } }).publisher.label).toBe(
+    'Otra editorial',
+  )
+  check()
 })
 
 // --- Baja de un dataset y diálogo con teclado ----------------------------------------------

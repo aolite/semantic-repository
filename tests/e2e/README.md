@@ -61,12 +61,9 @@ Puntuación real de F-UJI 4.0.1 con los datos sintéticos (versión actual de ca
 6. Auditoría de cada operación, sin títulos ni secretos.
 7. `load-semantic` conserva lo hecho desde la aplicación (catálogos, datasets, traslados) y no resucita lo dado de baja.
 
-Las pruebas de la forma `xfail(strict=True)` documentan defectos conocidos: cuando se corrijan, la prueba pasará y `strict` obligará a quitar la marca.
+### Defectos de la decisión 49
 
-### Defectos conocidos (decisión 49)
-
-- **QA-49-01** (backend): las altas de catálogos y las bajas simultáneas pierden enlaces del raíz y lápidas (lectura y reescritura del grafo entero, `app/bajas.py`). Pruebas: `test_altas_simultaneas_de_catalogos_no_pierden_enlaces_del_raiz` y `test_bajas_simultaneas_no_pierden_lapidas`.
-- **QA-49-02** (backend): la baja de un dataset solo borra los ficheros que tienen fila en `distribution_files`; uno huérfano queda en disco. Prueba: `test_un_fichero_huerfano_en_disco_tambien_se_elimina`.
+**QA-49-01** (altas y bajas simultáneas perdían enlaces del raíz y lápidas) y **QA-49-02** (un fichero huérfano quedaba en disco al dar de baja un dataset) están corregidos: sus pruebas pasan sin marca. Además se comprueba que ráfagas de 30 escrituras no agotan el pool ni dejan el advisory lock retenido, y que `load-semantic` y la API se serializan.
 
 ## Puerta G3 · vocabularios cargados
 

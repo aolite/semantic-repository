@@ -352,6 +352,7 @@ def test_el_catalogo_con_datasets_da_409_con_su_lista(
     assert _dataset(stack, editor.token, c, d).status == 201
     response = _api(stack, "DELETE", f"/catalogs/{c}", editor.token)
     assert response.status == 409, response.text
+    assert _json(response)["kind"] == "catalog_not_empty"
     assert _json(response)["datasets"] == [f"{_base(stack)}dataset/{d}"]
     assert http("GET", f"{stack.api}/catalogs/{c}").status == 200  # sigue vivo
     assert _api(stack, "DELETE", f"/datasets/{d}", editor.token).status == 204
@@ -370,7 +371,9 @@ def test_crear_editar_y_publicar_versiones_de_un_dataset(
         created = _dataset(stack, actor.token, cat, slug, "Título")
         assert created.status == 201, created.text
         assert _json(created)["uri"] == f"{base}dataset/{slug}"  # la URI no lleva el catálogo
-        assert _dataset(stack, actor.token, cat, slug).status == 409  # slug en uso
+        duplicate = _dataset(stack, actor.token, cat, slug)
+        assert duplicate.status == 409  # slug en uso
+        assert _json(duplicate)["kind"] == "slug_in_use" and _json(duplicate).get("datasets", []) == []
         assert slug in [d["slug"] for d in _json(http("GET", f"{stack.api}/catalogs/{cat}"))["datasets"]]  # type: ignore[index]
         listed = _json(http("GET", f"{stack.api}/datasets?catalog={cat}&page_size=100"))
         assert slug in {i["slug"] for i in listed["items"]}  # type: ignore[index]
@@ -399,6 +402,31 @@ def test_publicar_versiones_y_editar_no_toca_las_versiones(
     fresh = _slug("qs")
     assert _publish(stack, _series_ttl(fresh, None, {"csv": "PUBLIC"}), editor.token, "?catalog=no-existe").status == 422
     assert http("GET", f"{stack.api}/datasets/{fresh}").status == 404
+
+
+def test_el_publicador_de_la_serie_viaja_en_el_detalle_y_se_edita(
+    stack: Stack, editor: Account, cat: str
+) -> None:
+    slug = _slug("pub")
+    created = _api(
+        stack,
+        "POST",
+        f"/catalogs/{cat}/datasets",
+        editor.token,
+        {"slug": slug, "title": "Con publicador", "description": "d", "publisher_name": "Editorial ficticia"},
+    )
+    assert created.status == 201, created.text
+    assert _json(created)["publisher"] == {"uri": None, "label": "Editorial ficticia"}
+    assert _json(http("GET", f"{stack.api}/datasets/{slug}"))["publisher"]["label"] == "Editorial ficticia"  # type: ignore[index]
+    patched = _api(stack, "PATCH", f"/datasets/{slug}", editor.token, {"publisher_name": "Otra editorial"})
+    assert patched.status == 200 and _json(patched)["publisher"]["label"] == "Otra editorial"  # type: ignore[index]
+    # Un título nuevo no toca el publicador.
+    after = _api(stack, "PATCH", f"/datasets/{slug}", editor.token, {"title": "Otro título"})
+    assert _json(after)["publisher"]["label"] == "Otra editorial"  # type: ignore[index]
+    # Sin publicador, el campo es null.
+    bare = _slug("pub")
+    assert _dataset(stack, editor.token, cat, bare).status == 201
+    assert _json(http("GET", f"{stack.api}/datasets/{bare}"))["publisher"] is None
 
 
 def test_mover_un_dataset_de_catalogo(stack: Stack, editor: Account) -> None:
@@ -529,8 +557,12 @@ def test_un_slug_dado_de_baja_no_se_reutiliza(
     stack: Stack, editor: Account, admin: Account, withdrawn: dict, cat: str
 ) -> None:
     slug, c = withdrawn["slug"], withdrawn["catalog"]
-    assert _dataset(stack, editor.token, cat, slug).status == 409
-    assert _catalog(stack, admin.token, c).status == 409
+    dataset_409 = _dataset(stack, editor.token, cat, slug)
+    assert dataset_409.status == 409 and _json(dataset_409)["kind"] == "withdrawn"
+    catalog_409 = _catalog(stack, admin.token, c)
+    assert catalog_409.status == 409 and _json(catalog_409)["kind"] == "withdrawn"
+    live = _catalog(stack, admin.token, cat)
+    assert live.status == 409 and _json(live)["kind"] == "slug_in_use"
     response = _publish(stack, _series_ttl(slug, cat, {"csv": "PUBLIC"}), editor.token)
     assert response.status == 409 and "withdrawn" in response.text
     assert _publish(stack, _series_ttl(slug, None, {"csv": "PUBLIC"}), editor.token, f"?catalog={cat}").status == 409
@@ -879,11 +911,6 @@ def test_dar_de_baja_un_dataset_de_defensa_no_deja_ficheros(
     assert not _fuseki(stack, f"ASK {{ GRAPH ?g {{ <{_base(stack)}dataset/{slug}/1.0.0/cerrada> ?p ?o }} }}")["boolean"]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="QA-49-02: la baja solo borra las claves de distribution_files; un fichero huérfano "
-    "(sin fila) queda en disco",
-)
 def test_un_fichero_huerfano_en_disco_tambien_se_elimina(
     stack: Stack, editor: Account, cat: str
 ) -> None:
@@ -956,11 +983,6 @@ def _parallel(calls: list) -> list:
     return results
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="QA-49-01: add_to_root lee y reescribe el grafo del raíz entero (pérdida de "
-    "actualizaciones con altas simultáneas)",
-)
 def test_altas_simultaneas_de_catalogos_no_pierden_enlaces_del_raiz(
     stack: Stack, editor: Account
 ) -> None:
@@ -981,11 +1003,6 @@ def test_altas_simultaneas_de_catalogos_no_pierden_enlaces_del_raiz(
     assert missing == [], f"enlaces del raíz perdidos: {missing}"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="QA-49-01: add_tombstone lee y reescribe el grafo bajas entero (pérdida de "
-    "lápidas con bajas simultáneas)",
-)
 def test_bajas_simultaneas_no_pierden_lapidas(stack: Stack, editor: Account) -> None:
     """Las lápidas se añaden leyendo y reescribiendo el grafo ``bajas`` entero: con bajas
     simultáneas ninguna puede perderse (el slug quedaría reutilizable y el 410 sería 404)."""
@@ -996,6 +1013,69 @@ def test_bajas_simultaneas_no_pierden_lapidas(stack: Stack, editor: Account) -> 
     assert statuses == [204] * 8, statuses
     lost = [s for s in cats if http("GET", f"{stack.api}/catalogs/{s}").status != 410]
     assert lost == [], f"lápidas perdidas: {lost}"
+
+
+def test_muchas_escrituras_simultaneas_no_agotan_el_pool_ni_el_bloqueo(
+    stack: Stack, editor: Account
+) -> None:
+    """El bloqueo de las escrituras (advisory lock de PostgreSQL) hace esperar a las demás: con
+    más peticiones que conexiones del pool (5 + 10 de desbordamiento), todas tienen que
+    terminar bien (ni 500 ni 503) y la API tiene que seguir respondiendo a las lecturas."""
+    n = 30
+    cats = [_slug("pool") for _ in range(n)]
+    statuses = _parallel([lambda s=s: _catalog(stack, editor.token, s).status for s in cats])
+    assert statuses == [201] * n, sorted(set(statuses))
+    assert http("GET", f"{stack.api}/health/ready").status == 200
+    listed = {c["slug"] for c in _json(http("GET", f"{stack.api}/catalogs"))["items"]}  # type: ignore[index]
+    assert set(cats) <= listed
+    base = _base(stack)
+    linked = {
+        r["c"]["value"]
+        for r in _fuseki(
+            stack,
+            f"SELECT ?c WHERE {{ GRAPH <{base}catalogo> {{ <{base}catalogo> <http://www.w3.org/ns/dcat#catalog> ?c }} }}",
+        )["results"]["bindings"]
+    }
+    assert all(f"{base}catalogo/{s}" in linked for s in cats)
+    statuses = _parallel([lambda s=s: _api(stack, "DELETE", f"/catalogs/{s}", editor.token).status for s in cats])
+    assert statuses == [204] * n, sorted(set(statuses))
+    assert all(http("GET", f"{stack.api}/catalogs/{s}").status == 410 for s in cats)
+
+
+def test_el_bloqueo_se_libera_y_no_quedan_conexiones_colgadas(stack: Stack, editor: Account) -> None:
+    """Tras las ráfagas, no queda ningún advisory lock retenido ni conexiones en espera."""
+    locks = stack.psql("select count(*) from pg_locks where locktype = 'advisory'")
+    assert locks == ["0"], locks
+    waiting = stack.psql(
+        "select count(*) from pg_stat_activity where wait_event_type = 'Lock' and wait_event = 'advisory'"
+    )
+    assert waiting == ["0"], waiting
+    assert _catalog(stack, editor.token, _slug("tras")).status == 201  # y se puede volver a escribir
+
+
+def test_load_semantic_y_la_api_se_serializan_con_el_mismo_bloqueo(
+    stack: Stack, editor: Account, cat: str
+) -> None:
+    """``load-semantic`` (otro proceso) y las escrituras de la API no se pisan: se lanzan juntos
+    y todo lo creado desde la aplicación sigue ahí al terminar."""
+    cats = [_slug("ls") for _ in range(5)]
+    results = _parallel(
+        [lambda: _load_semantic(stack)[0]]
+        + [lambda s=s: _catalog(stack, editor.token, s).status for s in cats]
+    )
+    assert results[0] == 0
+    assert results[1:] == [201] * 5, results
+    listed = {c["slug"] for c in _json(http("GET", f"{stack.api}/catalogs"))["items"]}  # type: ignore[index]
+    assert set(cats) <= listed and "sintetico" in listed
+    base = _base(stack)
+    linked = {
+        r["c"]["value"]
+        for r in _fuseki(
+            stack,
+            f"SELECT ?c WHERE {{ GRAPH <{base}catalogo> {{ <{base}catalogo> <http://www.w3.org/ns/dcat#catalog> ?c }} }}",
+        )["results"]["bindings"]
+    }
+    assert all(f"{base}catalogo/{s}" in linked for s in cats)
 
 
 # --- 11. load-semantic conserva lo hecho desde la aplicación -----------------------------

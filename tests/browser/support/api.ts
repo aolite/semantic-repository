@@ -150,11 +150,13 @@ export async function apiCreateDataset(
   catalog: string,
   slug: string,
   title = `Dataset ${slug}`,
+  publisherName?: string,
 ): Promise<void> {
   const response = await jsonCall('POST', `/catalogs/${catalog}/datasets`, token, {
     slug,
     title,
     description: 'Dataset ficticio de las pruebas de pantallas.',
+    ...(publisherName ? { publisher_name: publisherName } : {}),
   })
   if (response.status !== 201) throw new Error(`crear dataset ${slug}: ${response.status}`)
 }
