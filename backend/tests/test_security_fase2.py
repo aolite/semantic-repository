@@ -38,14 +38,20 @@ from rdflib.namespace import RDF
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
-from app import catalog
+from app import bajas, catalog
 from app.config import Settings, get_settings
 from app.deps import get_triplestore
 from app.models import AuditAction, AuditEvent, Role, User
 from app.sparql import literal, render
 from app.triplestore import FusekiStore, MemoryStore
 from app.uris import DCAT, DCT, SKOS, Uris
-from tests.conftest import BASE_URI
+from tests.conftest import (
+    BASE_URI,
+    TEST_CATALOG_URI,
+    fake_fuseki_read,
+    user_graphs,
+    without_membership,
+)
 
 TURTLE = {"Content-Type": "text/turtle"}
 JSONLD = {"Content-Type": "application/ld+json"}
@@ -71,6 +77,7 @@ MINIMAL = f"""
     dcat:distribution <dataset/prueba/1.0.0/csv> .
 <dataset/prueba/1.0.0/csv> a dcat:Distribution ;
     dcat:accessURL <dataset/prueba/1.0.0/csv> .
+<catalogo/pruebas> dcat:dataset <dataset/prueba> .
 """
 
 # Credenciales ficticias de Fuseki: lo que nunca debe aparecer en una respuesta o un log.
@@ -150,14 +157,18 @@ def _minimal_graph() -> Graph:
     return Graph().parse(data=MINIMAL, format="turtle", publicID=BASE_URI)
 
 
+def _stored_minimal_graph() -> Graph:
+    """La serie mínima tal como se guarda: sin el triple de pertenencia (decisión 49)."""
+    return without_membership(_minimal_graph())
+
+
 def _snapshot(store: MemoryStore) -> dict[str, Graph]:
     """Copia de todos los grafos con nombre (para comprobar después que no cambian).
 
-    Fase 4 (decisión 29): publicar la serie ``prueba`` por la API añade
-    ``<catálogo> dcat:dataset <serie>`` al grafo del catálogo. Ese triple es el único
-    cambio permitido fuera del grafo de la serie, así que no se copia (y un catálogo que
-    solo tenga ese triple no cuenta como grafo)."""
-    link = (URIRef(f"{BASE_URI}catalogo"), DCAT.dataset, URIRef(PRUEBA))
+    Decisiones 29 y 49: publicar la serie ``prueba`` por la API añade
+    ``<catalogo/pruebas> dcat:dataset <serie>`` al grafo de su catálogo. Ese triple es el
+    único cambio permitido fuera del grafo de la serie, así que no se copia."""
+    link = (URIRef(TEST_CATALOG_URI), DCAT.dataset, URIRef(PRUEBA))
     result: dict[str, Graph] = {}
     for name in sorted(store.graph_names()):
         copy = Graph()
@@ -194,8 +205,21 @@ def _assert_only_fixed_queries(store: MemoryStore) -> None:
     uris = Uris(BASE_URI)
     vocab = catalog.vocab_params(uris)
     fixed = {
-        render(catalog.CATALOG_QUERY, dataset_ns=literal(uris.dataset_ns), **vocab),
+        render(
+            catalog.CATALOG_QUERY,
+            dataset_ns=literal(uris.dataset_ns),
+            catalog_ns=literal(uris.catalog_ns),
+            **vocab,
+        ),
         catalog.SERIES_GRAPH_QUERY,
+        # Decisión 49: el catálogo de la serie y su lápida (prefijos fijos; la serie,
+        # variable).
+        catalog.SERIES_CATALOG_QUERY.replace("$catalog_ns", literal(uris.catalog_ns).text).replace(
+            "$series", "$graph"
+        ),
+        bajas._SUBJECT_QUERY.replace("$s", "$graph").replace(
+            "GRAPH $graph", f"GRAPH <{uris.withdrawn_graph}>"
+        ),
         # Los parámetros del vocabulario son fijos (salen de BASE_URI); el grafo de la
         # serie, variable.
         catalog.THEME_LABELS_QUERY.replace("$vocab_ns", vocab["vocab_ns"].text).replace(
@@ -531,6 +555,7 @@ def test_query_templates_take_only_escaped_terms() -> None:
     """Las plantillas solo tienen los marcadores previstos y ``render`` exige términos."""
     assert set(re.findall(r"\$[a-z_]+", catalog.CATALOG_QUERY)) == {
         "$dataset_ns",
+        "$catalog_ns",
         "$vocab_ns",
         "$dominio",
     }
@@ -613,7 +638,7 @@ def test_ingest_rejects_iris_with_forbidden_characters(
     body = MINIMAL + f"<dataset/prueba> dct:relation {bad} .\n"
     response = _post(lenient, editor_headers, body)
     assert response.status_code == 422, response.text
-    assert store.graph_names() == set()
+    assert user_graphs(store) == set()
 
 
 def test_published_series_can_always_be_read_back(
@@ -621,7 +646,7 @@ def test_published_series_can_always_be_read_back(
 ) -> None:
     body = MINIMAL + "<dataset/prueba> dct:relation <http://x.example/a b> .\n"
     _post(lenient, editor_headers, body)
-    if PRUEBA not in store.graph_names():
+    if PRUEBA not in user_graphs(store):
         return  # rechazada en la ingesta: nada que leer
     for path in ("/datasets/prueba", "/datasets/prueba/rdf", "/dataset/prueba"):
         response = lenient.get(path, headers={"Accept": "text/turtle"})
@@ -775,7 +800,7 @@ def test_valid_ingest_only_touches_its_own_graph(
     assert set(after) == set(before) | {PRUEBA}
     for name, graph in before.items():
         assert isomorphic(graph, after[name]), name
-    assert isomorphic(after[PRUEBA], _minimal_graph())
+    assert isomorphic(after[PRUEBA], _stored_minimal_graph())
 
 
 def test_network_guard_detects_a_remote_context(no_network: list[str]) -> None:
@@ -831,7 +856,7 @@ def test_json_ld_remote_contexts_never_leave_the_server(
     assert response.status_code == 422, response.text
     assert "contextos remotos" in response.json()["detail"]
     assert "root:" not in response.text
-    assert store.graph_names() == set()
+    assert user_graphs(store) == set()
 
 
 INDIRECT_FETCHES = [
@@ -905,7 +930,7 @@ def test_body_at_the_limit_is_accepted_and_one_byte_more_is_not(
     too_big = exact + b" "
     rejected = _post(client, editor_headers, too_big)
     assert rejected.status_code == 413
-    assert store.graph_names() == set()
+    assert user_graphs(store) == set()
     assert _post(client, editor_headers, exact).status_code == 201
 
 
@@ -925,7 +950,7 @@ def test_streamed_body_without_content_length_is_cut_at_the_limit(
     response = client.post("/datasets", content=chunks(), headers=editor_headers | TURTLE)
     assert "content-length" not in {k.lower() for k in response.request.headers}
     assert response.status_code == 413
-    assert store.graph_names() == set()
+    assert user_graphs(store) == set()
 
 
 def test_oversized_body_is_rejected_before_parsing(
@@ -972,7 +997,7 @@ def test_deeply_nested_json_ld_is_a_422(
 ) -> None:
     response = _post(lenient, editor_headers, document, JSONLD)
     assert response.status_code == 422, response.status_code
-    assert store.graph_names() == set()
+    assert user_graphs(store) == set()
 
 
 @pytest.mark.parametrize(
@@ -989,7 +1014,7 @@ def test_deeply_nested_turtle_is_a_422(
     response = _post(lenient, editor_headers, MINIMAL + tail)
     assert response.status_code == 422, response.status_code
     assert response.json()["kind"] == "syntax"
-    assert store.graph_names() == set()
+    assert user_graphs(store) == set()
 
 
 def test_ingest_errors_have_a_bounded_size(
@@ -1021,7 +1046,7 @@ def test_xml_entity_bomb_is_not_parsed_as_xml(
         response = _post(lenient, editor_headers, bomb, ctype)
         assert response.status_code == 422
         assert "root:" not in response.text
-    assert store.graph_names() == set()
+    assert user_graphs(store) == set()
 
 
 @pytest.mark.parametrize(
@@ -1055,7 +1080,7 @@ def test_other_content_types_are_415(
         headers["Content-Type"] = ctype
     response = client.post("/datasets", content=MINIMAL.encode(), headers=headers)
     assert response.status_code == 415, response.text
-    assert store.graph_names() == set()
+    assert user_graphs(store) == set()
 
 
 def test_sparql_update_disguised_as_turtle_is_not_executed(
@@ -1085,7 +1110,7 @@ def test_declared_format_decides_the_parser(
     for response in (wrong_1, wrong_2):
         assert response.status_code == 422, response.text
         assert response.json()["kind"] == "syntax"
-    assert store.graph_names() == set()
+    assert user_graphs(store) == set()
 
 
 @pytest.mark.parametrize(
@@ -1134,13 +1159,13 @@ def test_ingest_by_role_and_audit(
     events = _published_events(session_factory)
     if expected == 403:
         assert events == []
-        assert store.graph_names() == set()
+        assert user_graphs(store) == set()
         return
-    # Fase 4 (decisión 29): además, el catálogo enlaza la serie.
-    assert store.graph_names() == {PRUEBA, f"{BASE_URI}catalogo"}
-    assert set(store.get_graph(f"{BASE_URI}catalogo")) == {
-        (URIRef(f"{BASE_URI}catalogo"), DCAT.dataset, URIRef(PRUEBA))
-    }
+    # Decisiones 29 y 49: además, su catálogo enlaza la serie (y el raíz no).
+    assert user_graphs(store) == {PRUEBA}
+    assert (URIRef(TEST_CATALOG_URI), DCAT.dataset, URIRef(PRUEBA)) in store.get_graph(
+        TEST_CATALOG_URI
+    )
     assert len(events) == 1
     event = events[0]
     assert event.actor_id == user.id
@@ -1148,9 +1173,10 @@ def test_ingest_by_role_and_audit(
     assert event.details == {
         "series": PRUEBA,
         "slug": "prueba",
+        "catalog": TEST_CATALOG_URI,
         "graph": PRUEBA,
         "versions": ["1.0.0"],
-        "triples": len(_minimal_graph()),
+        "triples": len(_stored_minimal_graph()),
         "created": True,
         "changed": True,
         "new_versions": [f"{PRUEBA}/1.0.0"],  # fase 4: versiones encoladas para F-UJI
@@ -1178,7 +1204,7 @@ def test_anonymous_and_bad_tokens_cannot_ingest(
     ):
         response = _post(client, headers, MINIMAL)
         assert response.status_code == 401, headers
-    assert store.graph_names() == set()
+    assert user_graphs(store) == set()
     assert _published_events(session_factory) == []
 
 
@@ -1207,7 +1233,7 @@ def test_role_and_account_changes_apply_to_ingest_immediately(
     user.is_active = False
     db.commit()
     assert _post(client, headers, MINIMAL).status_code == 401
-    assert store.graph_names() == set()
+    assert user_graphs(store) == set()
 
 
 def test_rejected_ingests_leave_no_audit_event_and_no_data(
@@ -1233,16 +1259,17 @@ def test_rejected_ingests_leave_no_audit_event_and_no_data(
     ]
     for response, expected in attempts:
         assert response.status_code == expected, response.text
-    assert store.graph_names() == set()
+    assert user_graphs(store) == set()
     assert _published_events(session_factory) == []
 
 
 def test_only_get_and_post_exist_on_the_catalog(
     api: TestClient, loaded_store: MemoryStore, editor_headers: dict[str, str]
 ) -> None:
-    """No hay borrado ni modificación parcial. El endpoint SPARQL público llega en la fase 4
-    (``/sparql``, solo lectura: ver test_fase4_sparql.py); el resto de rutas de Fuseki no
-    existen en el backend."""
+    """Ni PUT ni modificación de las URIs persistentes. Desde la decisión 49 la serie admite
+    ``PATCH`` y ``DELETE`` en ``/datasets/{slug}`` (test_crud_catalogos.py), pero no ``PUT``.
+    El endpoint SPARQL público llega en la fase 4 (``/sparql``, solo lectura: ver
+    test_fase4_sparql.py); el resto de rutas de Fuseki no existen en el backend."""
     before = _snapshot(loaded_store)
     for method in ("PUT", "PATCH", "DELETE"):
         for path in (
@@ -1252,6 +1279,8 @@ def test_only_get_and_post_exist_on_the_catalog(
             "/dataset/modbus-tcp-testbed",
             "/dataset/modbus-tcp-testbed/2.1.0",
         ):
+            if path == "/datasets/modbus-tcp-testbed" and method != "PUT":
+                continue
             response = api.request(method, path, headers=editor_headers)
             assert response.status_code == 405, f"{method} {path}"
     for path in ("/query", "/update", "/data", "/itot/sparql", "/itot/update"):
@@ -1329,7 +1358,8 @@ def _echo_everything(status: int) -> Callable[[httpx.Request], httpx.Response]:
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.method != "PUT":
-            return httpx.Response(200, text="", headers={"Content-Type": "application/n-triples"})
+            text = fake_fuseki_read(request)  # el catálogo existe (decisión 49)
+            return httpx.Response(200, text=text, headers={"Content-Type": "application/n-triples"})
         echoed = f"{request.url} {dict(request.headers)} {FUSEKI_TEST_PASSWORD}"
         return httpx.Response(status, text=echoed)
 
@@ -1339,7 +1369,8 @@ def _echo_everything(status: int) -> Callable[[httpx.Request], httpx.Response]:
 def _network_failure(exc_type: type[httpx.HTTPError]) -> Callable[[httpx.Request], httpx.Response]:
     def handler(request: httpx.Request) -> httpx.Response:
         if request.method != "PUT":
-            return httpx.Response(200, text="", headers={"Content-Type": "application/n-triples"})
+            text = fake_fuseki_read(request)  # el catálogo existe (decisión 49)
+            return httpx.Response(200, text=text, headers={"Content-Type": "application/n-triples"})
         raise exc_type(
             f"fallo hacia http://{FUSEKI_TEST_USER}:{FUSEKI_TEST_PASSWORD}@fuseki.test:3030/"
         )
@@ -1394,13 +1425,14 @@ def test_successful_write_does_not_log_credentials(
             return httpx.Response(201)
         # Las lecturas van sin credenciales.
         assert "authorization" not in request.headers
-        return httpx.Response(200, text="", headers={"Content-Type": "application/n-triples"})
+        text = fake_fuseki_read(request)  # el catálogo existe (decisión 49)
+        return httpx.Response(200, text=text, headers={"Content-Type": "application/n-triples"})
 
     lenient.app.dependency_overrides[get_triplestore] = lambda: _fuseki_that(handler)
     with caplog.at_level(logging.DEBUG):
         response = _post(lenient, editor_headers, MINIMAL)
     assert response.status_code == 201, response.text
-    # Fase 4 (decisión 29): dos escrituras, la serie y el enlace desde el catálogo.
+    # Decisiones 29 y 49: dos escrituras, la serie y el enlace desde su catálogo.
     assert seen == [f"Basic {FUSEKI_TEST_BASIC}"] * 2
     assert _leaks(response.text) == []
     assert _leaks("\n".join(record.getMessage() for record in caplog.records)) == []
@@ -1528,7 +1560,14 @@ def test_series_rdf_contains_only_triples_of_its_own_graph(
     api: TestClient, loaded_store: MemoryStore
 ) -> None:
     for slug in PUBLISHED_SLUGS:
-        own = loaded_store.dataset.graph(URIRef(f"{BASE_URI}dataset/{slug}"))
+        series = URIRef(f"{BASE_URI}dataset/{slug}")
+        own = Graph()
+        for triple in loaded_store.dataset.graph(series):
+            own.add(triple)
+        # Decisión 49: la URI de la serie añade su triple de pertenencia, que vive en el
+        # grafo de su catálogo («<catalogo/{slug}> dcat:dataset <serie>»). Nada más.
+        sintetico = URIRef(f"{BASE_URI}catalogo/sintetico")
+        own.add((sintetico, DCAT.dataset, series))
         for path in (f"/dataset/{slug}", f"/datasets/{slug}/rdf"):
             text = api.get(path, headers={"Accept": "text/turtle"}).text
             returned = Graph().parse(data=text, format="turtle")

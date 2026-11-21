@@ -15,9 +15,10 @@ from rdflib import Graph, URIRef
 
 from app import ingest
 from app.deps import get_triplestore
+from app.models import Role
 from app.triplestore import FusekiStore, TriplestoreConfigError
 from app.uris import Uris
-from tests.conftest import BASE_URI, load_ontology_graphs, load_schemes
+from tests.conftest import BASE_URI, load_ontology_graphs, load_schemes, without_membership
 
 URL = os.environ.get("TEST_FUSEKI_URL")
 USER = os.environ.get("TEST_FUSEKI_USER")
@@ -50,7 +51,12 @@ def _load(fuseki: FusekiStore, semantic_dir: Path) -> None:
     data = semantic_dir / "data"
     load_schemes(fuseki, semantic_dir, uris)  # type: ignore[arg-type]
     load_ontology_graphs(fuseki, semantic_dir, uris)  # type: ignore[arg-type]
-    ingest.store_graph(fuseki, uris.catalog, ingest.parse_file(data / "catalogo.ttl", BASE_URI))
+    root = ingest.parse_file(data / "catalogo.ttl", BASE_URI)
+    ingest.store_graph(fuseki, uris.root_catalog, root)
+    for path in sorted((data / "catalogos").glob("*.ttl")):
+        uri = uris.catalog(path.stem)
+        loaded = ingest.parse_file(path, BASE_URI)
+        ingest.store_graph(fuseki, uri, ingest.merge_catalog(Graph(), loaded, uri))
     for path in sorted((data / "sintetico").glob("*.ttl")):
         graph = ingest.parse_file(path, BASE_URI)
         ingest.publish(fuseki, ingest.prepare_series(graph, uris, semantic_dir))
@@ -62,8 +68,8 @@ def test_load_read_and_idempotency(
     _load(fuseki, semantic_dir)
     series = f"{BASE_URI}dataset/modbus-tcp-testbed"
     stored = fuseki.get_graph(series)
-    expected = ingest.parse_file(
-        semantic_dir / "data" / "sintetico" / "modbus-tcp-testbed.ttl", BASE_URI
+    expected = without_membership(
+        ingest.parse_file(semantic_dir / "data" / "sintetico" / "modbus-tcp-testbed.ttl", BASE_URI)
     )
     created, changed = ingest.store_graph(fuseki, series, expected)
     assert (created, changed) == (False, False)  # isomorfo: no se reescribe
@@ -143,3 +149,39 @@ def test_vocabularies_and_ontologies_on_real_fuseki(
     )
     payload = '" } UNION { ?s ?p ?o } #'
     assert fuseki_client.get("/vocabularies", params={"q": payload}).json()["total"] == 0
+
+
+def test_withdrawn_graph_is_not_visible_in_public_sparql(
+    fuseki: FusekiStore,
+    fuseki_client: TestClient,
+    semantic_dir: Path,
+    make_user,
+    login,
+) -> None:
+    """Decisión 49: con un Fuseki real, la descripción del dataset en el protocolo
+    (default-graph-uri / named-graph-uri) deja fuera el grafo {BASE_URI}bajas."""
+    from app.routers.sparql import get_query_runner
+    from app.sparql_public import FusekiQueryRunner
+
+    _load(fuseki, semantic_dir)
+    fuseki_client.app.dependency_overrides[get_query_runner] = lambda: FusekiQueryRunner(
+        URL.rstrip("/"),  # type: ignore[union-attr]
+        DATASET,
+    )
+    make_user("editora-fuseki", Role.EDITOR)
+    editor = login("editora-fuseki")
+    response = fuseki_client.post(
+        "/catalogs",
+        json={"slug": "fuseki-baja", "title": "T", "description": "D", "publisher_name": "P"},
+        headers=editor,
+    )
+    assert response.status_code in (201, 409), response.text
+    fuseki_client.delete("/catalogs/fuseki-baja", headers=editor)
+    assert fuseki_client.get("/catalogs/fuseki-baja").status_code == 410
+    bajas = f"{BASE_URI}bajas"
+    query = "SELECT DISTINCT ?g WHERE { GRAPH ?g { ?s ?p ?o } }"
+    rows = fuseki_client.get("/sparql", params={"query": query}).json()["results"]["bindings"]
+    graphs = {row["g"]["value"] for row in rows}
+    assert graphs and bajas not in graphs
+    ask = "ASK { ?s <http://www.w3.org/ns/prov#invalidatedAtTime> ?t }"
+    assert fuseki_client.get("/sparql", params={"query": ask}).json()["boolean"] is False

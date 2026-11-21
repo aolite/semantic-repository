@@ -22,7 +22,7 @@ from app.config import get_settings
 from app.models import AuditEvent, OntologyMetricsRecord, Role, User
 from app.triplestore import MemoryStore
 from app.uris import Uris
-from tests.conftest import BASE_URI
+from tests.conftest import BASE_URI, user_graphs
 from tests.test_vocab_ingest import _onto, _scheme
 
 TTL = {"Content-Type": "text/turtle"}
@@ -56,7 +56,7 @@ def no_pellet(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _nothing_written(store: MemoryStore, session_factory: sessionmaker[Session]) -> None:
-    assert store.graph_names() == set()
+    assert user_graphs(store) == set()
     with session_factory() as session:
         assert session.scalars(select(AuditEvent)).first() is None or all(
             e.action.startswith(("login", "user")) for e in session.scalars(select(AuditEvent))
@@ -213,7 +213,7 @@ def test_load_semantic_analyzes_before_writing(
     assert result.exit_code == 1, result.output
     assert "1.2.0.ttl" in result.output
     assert "no se ha cargado nada" in result.output
-    assert store.graph_names() == set()
+    assert user_graphs(store) == set()
     with session_factory() as session:
         assert session.scalars(select(OntologyMetricsRecord)).first() is None
 
@@ -288,7 +288,7 @@ def test_hierarchy_deeper_than_the_limit_is_rejected(
     too_deep = client.post("/schemes", content=_chain(depth + 2), headers=editor | TTL)
     assert too_deep.status_code == 422
     assert too_deep.json()["kind"] == "limit"
-    assert store.graph_names() == set()
+    assert user_graphs(store) == set()
     ok = client.post("/schemes", content=_chain(depth + 1), headers=editor | TTL)
     assert ok.status_code == 201, ok.text
     node, levels = client.get("/schemes/prueba").json()["tree"][0], 0
@@ -415,7 +415,7 @@ def test_triple_limit_applies_to_every_ingest(
     response = client.post(path, content=body, headers=editor | TTL)
     assert response.status_code == 422
     assert response.json()["kind"] == "limit"
-    assert store.graph_names() == set()
+    assert user_graphs(store) == set()
 
 
 # --- QA-G3-10: SHACL con tiempo y memoria limitados ----------------------------------------
@@ -438,7 +438,7 @@ def test_shacl_timeout_kills_the_worker(
     body = response.json()
     assert body["kind"] == "limit"
     assert "tiempo" in body["detail"] and "SHACL_TIMEOUT_SECONDS" in body["detail"]
-    assert store.graph_names() == set()
+    assert user_graphs(store) == set()
     assert [p for p in multiprocessing.active_children() if p.is_alive()] == []
 
 

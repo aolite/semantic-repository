@@ -9,7 +9,7 @@ from rdflib import URIRef
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app import ingest
+from app import bajas, ingest
 from app.models import AuditAction, AuditEvent, FairEvaluation, User
 from app.triplestore import MemoryStore
 from app.uris import DCAT, Uris
@@ -113,23 +113,37 @@ def test_reserved_distribution_slug_is_rejected(client: TestClient, editor) -> N
     assert response.json()["kind"] == "uri"
 
 
-def test_series_is_linked_from_catalog(
+def test_series_is_linked_from_its_catalog(
     client: TestClient, editor, store: MemoryStore, uris: Uris
 ) -> None:
+    """Decisiones 29 y 49: el backend mantiene «<catalogo/{slug}> dcat:dataset <serie>» en
+    el grafo del catálogo de la serie, no en el raíz ni en el grafo de la serie."""
     publish(client, editor, series(V1))
-    catalog = store.get_graph(uris.catalog)
-    assert (URIRef(uris.catalog), DCAT.dataset, URIRef(uris.series("prueba"))) in catalog
+    catalog = store.get_graph(uris.catalog("pruebas"))
+    assert (URIRef(uris.catalog("pruebas")), DCAT.dataset, URIRef(uris.series("prueba"))) in catalog
+    assert not list(store.get_graph(uris.root_catalog).triples((None, DCAT.dataset, None)))
+    assert not list(store.get_graph(uris.series("prueba")).triples((None, DCAT.dataset, None)))
 
 
-def test_load_semantic_catalog_keeps_api_series(
+def test_load_semantic_catalogs_keep_api_state(
     loaded_store: MemoryStore, semantic_dir: Path, uris: Uris
 ) -> None:
-    ingest.ensure_in_catalog(loaded_store, uris.catalog, uris.series("prueba"))
-    loaded = ingest.parse_file(semantic_dir / "data" / "catalogo.ttl", uris.base)
-    merged = ingest.merge_catalog(loaded_store.get_graph(uris.catalog), loaded, uris)
-    assert (URIRef(uris.catalog), DCAT.dataset, URIRef(uris.series("prueba"))) in merged
-    for triple in loaded:
-        assert triple in merged
+    sintetico = uris.catalog("sintetico")
+    bajas.add_membership(loaded_store, sintetico, uris.series("prueba"))
+    bajas.add_to_root(loaded_store, uris, uris.catalog("api"))
+    loaded = ingest.parse_file(semantic_dir / "data" / "catalogos" / "sintetico.ttl", uris.base)
+    merged = ingest.merge_catalog(loaded_store.get_graph(sintetico), loaded, sintetico)
+    assert (URIRef(sintetico), DCAT.dataset, URIRef(uris.series("prueba"))) in merged
+    root_file = ingest.parse_file(semantic_dir / "data" / "catalogo.ttl", uris.base)
+    root = ingest.merge_root_catalog(loaded_store.get_graph(uris.root_catalog), root_file, uris)
+    assert (URIRef(uris.root_catalog), DCAT.catalog, URIRef(uris.catalog("api"))) in root
+    for triple in root_file:
+        assert triple in root
+    # Un catálogo dado de baja no vuelve al raíz.
+    withdrawn = ingest.merge_root_catalog(
+        loaded_store.get_graph(uris.root_catalog), root_file, uris, {sintetico}
+    )
+    assert (URIRef(uris.root_catalog), DCAT.catalog, URIRef(sintetico)) not in withdrawn
 
 
 def test_publish_audits_new_versions(client: TestClient, editor, db: Session) -> None:
