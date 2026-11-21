@@ -1,10 +1,10 @@
 # Catálogo RAÍZ de la unidad (dcat:Catalog), identificador «itot-catalogo» en
 # el prototipo. URI: {BASE_URI}catalogo (ver semantic/uris.md).
 #
-# Decisión 49 (varios catálogos) [PROPUESTA de semantico]: esta URI se
+# Decidido (2026-11-21, decisión 49): esta URI se
 # conserva y sigue siendo el catálogo de todo el repositorio, pero ya no
 # lista series. Agrupa con dcat:catalog los catálogos {BASE_URI}catalogo/{slug}
-# (uno por fichero en semantic/data/catalogos/), y cada uno de ellos lista sus
+# (uno por fichero en semantic/data/catalogos/, [PROPUESTA]), y cada uno de ellos lista sus
 # series con dcat:dataset. Cuando se crea un catálogo, se añade aquí; cuando
 # se da de baja, se quita. El raíz no se crea, edita ni borra desde la
 # aplicación.

@@ -169,9 +169,9 @@ itsh:Distribution-mediaType
     sh:message "Regla IT&OT: dcat:mediaType, si aparece, es una sola IRI de IANA (http://www.iana.org/assignments/media-types/…)."@es .
 
 # --- dcat:Catalog -----------------------------------------------------------
-# Decisión 49: varios catálogos. El catálogo raíz {BASE_URI}catalogo agrupa
-# los catálogos con dcat:catalog y cada catálogo {BASE_URI}catalogo/{slug}
-# lista sus series con dcat:dataset [PROPUESTA] (semantic/uris.md). Que el
+# Decidido (2026-11-21, decisión 49): varios catálogos, el raíz fijo
+# {BASE_URI}catalogo agrupa los catálogos con dcat:catalog y cada catálogo
+# {BASE_URI}catalogo/{slug} lista sus series con dcat:dataset (semantic/uris.md). Que el
 # raíz no liste series ni los demás catálogos aniden otros no es contrato de
 # ingesta (el raíz no se crea desde la API) y lo comprueba validate.py.
 itsh:ItotCatalogShape

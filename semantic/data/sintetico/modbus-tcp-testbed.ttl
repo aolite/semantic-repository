@@ -156,7 +156,8 @@ itota:extraccion-caracteristicas
 
 # --- Pertenencia al catálogo (decisión 49) ---------------------------------
 # Cada dataset pertenece a exactamente un catálogo (itsh:DatasetSeries-catalog).
-# El catálogo se describe en semantic/data/catalogos/sintetico.ttl [PROPUESTA].
+# Catálogo «sintetico»: Decidido (2026-11-21, decisión 49). Se describe en
+# semantic/data/catalogos/sintetico.ttl (fichero por catálogo: [PROPUESTA]).
 <catalogo/sintetico> dcat:dataset itotd:modbus-tcp-testbed .
 
 # --- Agente -----------------------------------------------------------------

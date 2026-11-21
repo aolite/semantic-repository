@@ -1,12 +1,12 @@
 # Catálogo de los datasets SINTÉTICOS de demostración (puerta G2).
 # URI: {BASE_URI}catalogo/sintetico; grafo con nombre, el mismo
-# (ver semantic/uris.md). Fichero: semantic/data/catalogos/{slug}.ttl.
+# (ver semantic/uris.md). Fichero: semantic/data/catalogos/{slug}.ttl [PROPUESTA].
 #
-# [PROPUESTA de semantico, decisión 49] Los tres datasets sintéticos van a un
+# Decidido (2026-11-21, decisión 49): los tres datasets sintéticos van a un
 # catálogo propio, separado de los reales que lleguen en el piloto: así se
 # distinguen en los listados y, cuando ya no hagan falta, se retiran juntos.
-# El slug, el título y la descripción no salen del prototipo: son
-# [PROPUESTA] y los valida el responsable.
+# El slug y el título no salen del prototipo y los validó el responsable
+# (misma decisión). La descripción es [PROPUESTA].
 #
 # Lista con dcat:dataset las series del catálogo (en DCAT 3 una
 # dcat:DatasetSeries es un dcat:Dataset). Cada fichero de

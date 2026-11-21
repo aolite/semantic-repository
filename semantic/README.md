@@ -108,7 +108,7 @@ Varios catálogos, cada dataset en uno solo, y borrado lógico con 410. El patr�
 
 - **Decidido (2026-11-21, decisión 49):** `{BASE_URI}catalogo` conserva su URI y pasa a ser el catálogo raíz, fijo; los catálogos son `{BASE_URI}catalogo/{slug}` y las URIs de los datasets no llevan el catálogo.
 - **[PROPUESTA]** El grafo que se ingesta con una serie lleva `<{BASE_URI}catalogo/{slug}> dcat:dataset <serie>` (forma `itsh:DatasetSeries-catalog`, exactamente uno).
-- **Decidido (2026-11-21, decisión 49):** un recurso dado de baja queda como lápida en el grafo `{BASE_URI}bajas` (no publicado): `rdf:type prov:Entity`, `dct:title`, `adms:status …/Withdrawn` y `prov:invalidatedAtTime` (forma cerrada `itsh:BajaShape`).
+- **[PROPUESTA]** Un recurso dado de baja queda como lápida en el grafo `{BASE_URI}bajas` (no publicado): `rdf:type prov:Entity`, `dct:title`, `adms:status …/Withdrawn` y `prov:invalidatedAtTime` (forma cerrada `itsh:BajaShape`).
 - **Decidido (2026-11-21, decisión 49):** un catálogo con datasets no se puede dar de baja (409): primero se mueven o se dan de baja sus datasets.
 
 ## Supuestos de validación
