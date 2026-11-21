@@ -365,10 +365,10 @@ Varios catálogos `{BASE_URI}catalogo/{slug}`, cada dataset (serie) en exactamen
 |---|---|---|---|
 | `GET /catalogs` | público | 200 | Catálogos (sin el raíz ni las bajas), por título, con `dataset_count` |
 | `GET /catalogs/{slug}` | público | 200, 404, 410 | Ficha del catálogo con sus datasets |
-| `POST /catalogs` | editor, admin | 201, 401, 403, 409, 422 | Crea un catálogo vacío y lo añade al raíz (`dcat:catalog`) |
+| `POST /catalogs` | editor, admin | 201, 401, 403, 409, 422 | Crea un catálogo vacío y lo añade al raíz (`dcat:catalog`). 409 con `kind` `slug_in_use` o `withdrawn` |
 | `PATCH /catalogs/{slug}` | editor, admin | 200, 401, 403, 404, 410, 422 | Edita título, descripción o publicador (solo los campos presentes) |
-| `DELETE /catalogs/{slug}` | editor, admin | 204, 401, 403, 404, 409, 410 | Da de baja un catálogo **vacío**; con datasets, 409 con `datasets` |
-| `POST /catalogs/{slug}/datasets` | editor, admin | 201, 401, 403, 404, 409, 410, 422 | Crea un dataset (serie sin versiones) en el catálogo |
+| `DELETE /catalogs/{slug}` | editor, admin | 204, 401, 403, 404, 409, 410 | Da de baja un catálogo **vacío**; con datasets, 409 `kind=catalog_not_empty` con `datasets` |
+| `POST /catalogs/{slug}/datasets` | editor, admin | 201, 401, 403, 404, 409, 410, 422 | Crea un dataset (serie sin versiones) en el catálogo. 409 con `kind` `slug_in_use` o `withdrawn` |
 | `PATCH /datasets/{slug}` | editor, admin | 200, 401, 403, 404, 410, 422 | Edita los metadatos de la serie y, con `catalog`, la mueve de catálogo |
 | `DELETE /datasets/{slug}` | editor, admin | 204, 401, 403, 404, 410 | Da de baja el dataset y elimina sus ficheros |
 | `GET /catalogo`, `GET /catalogo/{slug}` | público | 200, 303, 404, 406, 410 | URIs persistentes del raíz y de un catálogo: RDF con `Accept` de RDF; si no, 303 a `{FRONTEND_BASE_URL}/` o `{FRONTEND_BASE_URL}/catalogos/{slug}` |
@@ -376,6 +376,10 @@ Varios catálogos `{BASE_URI}catalogo/{slug}`, cada dataset (serie) en exactamen
 El catálogo raíz no se crea, edita ni borra por la API: cambia solo con `data/catalogo.ttl` y `load-semantic`.
 
 **Formularios en JSON.** Los cuerpos de catálogos y datasets son JSON con los campos que exigen las formas (`slug`, `title`, `description`, `publisher_name`; `catalog` para mover), sin campos extra (422). El backend los convierte a RDF (`title` y `description` en `@es`; el publicador, un nodo en blanco `foaf:Agent` con `foaf:name`, porque los agentes aún no tienen URI) y los valida con **todas** las formas SHACL, igual que una ingesta. Las versiones se siguen publicando con `POST /datasets` en RDF, porque una versión DCAT-AP (distribuciones, procedencia PROV, temas) no cabe en un formulario plano y la inmutabilidad se comprueba sobre el RDF.
+
+**Conflictos (409).** El cuerpo es `ConflictResponse`: `detail`, `kind` y `datasets`. `kind` distingue `slug_in_use` (ya existe un recurso con ese slug), `withdrawn` (el slug es de un recurso dado de baja y no se reutiliza) y `catalog_not_empty` (dar de baja un catálogo con datasets; `datasets` lleva sus URIs). En `POST /datasets` (RDF) los 409 siguen siendo `IngestErrorResponse`, con `kind` `withdrawn`, `catalog_conflict`, `version_removed` o `version_immutable`.
+
+**Publicador de la serie.** `DatasetDetail.publisher` es el `dct:publisher` de la serie, con la misma forma que en el detalle del catálogo (`ResourceRef`: `label` es el `foaf:name` y `uri` es `null` si es un nodo en blanco). Es el valor que edita `publisher_name` en `PATCH /datasets/{slug}`; el de cada versión sigue en `version.metadata.publisher`.
 
 **Editar no toca las versiones.** `PATCH /datasets/{slug}` cambia solo triples de la serie; las versiones publicadas siguen siendo inmutables (decisión 28). Mover un dataset quita el triple del catálogo de origen y lo añade al de destino; ninguna URI cambia.
 

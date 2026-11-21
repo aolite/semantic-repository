@@ -270,6 +270,12 @@ class DatasetDetail(BaseModel):
     catalog: CatalogRef | None = Field(
         default=None, description="Catálogo del dataset (decisión 49); null si no está en ninguno"
     )
+    publisher: ResourceRef | None = Field(
+        default=None,
+        description="dct:publisher de la serie (label = su foaf:name; uri = null si es un nodo "
+        "en blanco), igual que en el detalle del catálogo. Es lo que edita "
+        "PATCH /datasets/{slug} con publisher_name; null si la serie no lo declara",
+    )
     synthetic: bool
     domain: DomainRef | None = Field(description="Dominio de la serie (temas de dcat:last)")
     domains: list[DomainRef]
@@ -877,10 +883,19 @@ class GoneResponse(BaseModel):
     withdrawn_at: str | None = Field(description="prov:invalidatedAtTime (xsd:dateTime)")
 
 
-class CatalogConflictResponse(BaseModel):
-    """409 al dar de baja un catálogo que todavía tiene datasets."""
+ConflictKind = Literal["slug_in_use", "withdrawn", "catalog_not_empty"]
+
+
+class ConflictResponse(BaseModel):
+    """409 del CRUD de catálogos y datasets (decisión 49)."""
 
     detail: str
+    kind: ConflictKind = Field(
+        description="slug_in_use: ya existe un recurso con ese slug. withdrawn: el slug es de "
+        "un recurso dado de baja y no se reutiliza. catalog_not_empty: el catálogo tiene "
+        "datasets (en datasets) y no se puede dar de baja"
+    )
     datasets: list[str] = Field(
-        default_factory=list, description="URIs de las series que siguen en el catálogo"
+        default_factory=list,
+        description="Solo con catalog_not_empty: URIs de las series que siguen en el catálogo",
     )

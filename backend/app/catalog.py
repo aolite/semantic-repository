@@ -742,6 +742,7 @@ def get_dataset(
         title=view.title(),
         description=view.description(),
         catalog=view.catalog(),
+        publisher=resource_ref(view.graph, view.graph.value(view.node, DCT.publisher)),
         synthetic=view.is_synthetic(current),
         domain=domains[0] if domains else None,
         domains=domains,

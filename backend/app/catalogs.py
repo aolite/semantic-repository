@@ -46,6 +46,7 @@ class CrudError(Exception):
     detail: str
     tombstone: bajas.Tombstone | None = None
     datasets: list[str] = field(default_factory=list)
+    kind: str | None = None  # 409: schemas.ConflictKind
 
     def __str__(self) -> str:
         return self.detail
@@ -61,9 +62,11 @@ def _missing(store: TripleStore, uris: Uris, uri: str, what: str) -> CrudError:
 
 def _check_slug_free(store: TripleStore, uris: Uris, uri: str, exists: bool, what: str) -> None:
     if bajas.get_tombstone(store, uris, uri) is not None:
-        raise CrudError(409, f"{what} con ese slug se dio de baja: el slug no se reutiliza")
+        raise CrudError(
+            409, f"{what} con ese slug se dio de baja: el slug no se reutiliza", kind="withdrawn"
+        )
     if exists:
-        raise CrudError(409, f"Ya existe {what.lower()} con ese slug")
+        raise CrudError(409, f"Ya existe {what.lower()} con ese slug", kind="slug_in_use")
 
 
 def _set_text(graph: Graph, node: URIRef, prop: URIRef, value: str | None) -> None:
@@ -199,6 +202,7 @@ def withdraw_catalog(
             409,
             "El catálogo tiene datasets: muévelos a otro catálogo o dalos de baja antes",
             datasets=datasets,
+            kind="catalog_not_empty",
         )
     titles = sorted((t for t in graph.objects(node, DCT.title) if isinstance(t, Literal)), key=str)
     _tombstone(store, uris, uri, titles, settings)
