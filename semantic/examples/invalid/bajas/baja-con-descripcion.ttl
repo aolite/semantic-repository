@@ -1,0 +1,20 @@
+# Ejemplo INVÁLIDO: Dataset dado de baja que conserva metadatos (dct:description); la forma es cerrada.
+# Todo lo demás es válido, así que solo debe fallar la forma indicada.
+# validate.py lee las líneas «expect-violation» (nombre local en {BASE_URI}shapes#).
+# La fecha de baja es ficticia, solo para el ejemplo.
+# expect-violation: BajaShape
+
+@prefix itotd: <dataset/> .
+@prefix dcat:  <http://www.w3.org/ns/dcat#> .
+@prefix dct:   <http://purl.org/dc/terms/> .
+@prefix foaf:  <http://xmlns.com/foaf/0.1/> .
+@prefix prov:  <http://www.w3.org/ns/prov#> .
+@prefix adms:  <http://www.w3.org/ns/adms#> .
+@prefix xsd:   <http://www.w3.org/2001/XMLSchema#> .
+
+itotd:prueba
+    a prov:Entity ;
+    dct:title "Serie de prueba"@es ;
+    adms:status <http://purl.org/adms/status/Withdrawn> ;
+    prov:invalidatedAtTime "2026-01-01T00:00:00Z"^^xsd:dateTime ;
+    dct:description "Serie mínima para probar las formas."@es .

@@ -1,0 +1,25 @@
+# Ejemplo INVÁLIDO: Catálogo vivo con adms:status Withdrawn, sin pasar por el borrado lógico.
+# Solo deben fallar las formas indicadas.
+# validate.py lee las líneas «expect-violation» (nombre local en {BASE_URI}shapes#).
+# Withdrawn sin fecha de baja: también falla itsh:RetiradoShape.
+# expect-violation: Catalog-status
+# expect-violation: RetiradoShape
+
+@prefix itotd: <dataset/> .
+@prefix dcat:  <http://www.w3.org/ns/dcat#> .
+@prefix dct:   <http://purl.org/dc/terms/> .
+@prefix foaf:  <http://xmlns.com/foaf/0.1/> .
+@prefix prov:  <http://www.w3.org/ns/prov#> .
+@prefix adms:  <http://www.w3.org/ns/adms#> .
+@prefix xsd:   <http://www.w3.org/2001/XMLSchema#> .
+
+<catalogo/prueba>
+    a dcat:Catalog ;
+    dct:title "Catálogo de prueba"@es ;
+    dct:description "Catálogo mínimo para probar las formas."@es ;
+    adms:status <http://purl.org/adms/status/Withdrawn> ;
+    dct:publisher _:unidad .
+
+_:unidad
+    a foaf:Agent , prov:Agent ;
+    foaf:name "Agente de prueba" .

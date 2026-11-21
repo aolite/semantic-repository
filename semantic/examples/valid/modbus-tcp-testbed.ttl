@@ -112,3 +112,6 @@ itota:extraccion-caracteristicas
 _:unidad-itot
     a foaf:Agent , prov:Agent ;
     foaf:name "Eurecat · Unidad IT&OT Security" .
+
+# --- Pertenencia al catálogo (decisión 49, itsh:DatasetSeries-catalog) ------
+<catalogo/sintetico> dcat:dataset itotd:modbus-tcp-testbed .
