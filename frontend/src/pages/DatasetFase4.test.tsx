@@ -171,7 +171,7 @@ describe('Ficha de dataset · Distribuciones', () => {
     expect(within(row('Distribución D')).queryByRole('button')).not.toBeInTheDocument()
   })
 
-  it('no muestra «Solicitar», «Solicitar acceso» ni «Nueva versión»', async () => {
+  it('no muestra «Solicitar» ni «Solicitar acceso»; al anónimo tampoco «Nueva versión» (decisión 49)', async () => {
     mockDataset(distributionsDetail())
     await renderDataset()
     expect(screen.queryByText('Solicitar')).not.toBeInTheDocument()

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import {
+  listCatalogs,
   listDatasets,
   listVocabularies,
   type DatasetCard,
@@ -8,18 +9,18 @@ import {
   type VocabularyCard,
   type VocabularyPage,
 } from '../api'
-import { accessLabel, DOMAINS, DOMAIN_SLUGS, formatsLine, resourceCount, themeLabel } from '../catalog/labels'
+import { DOMAINS, DOMAIN_SLUGS, resourceCount } from '../catalog/labels'
 import {
-  catalogSearch,
   readCatalogParams,
   writeCatalogParams,
   type CatalogUrlState,
   type DomainFilter,
   type TypeFilter,
 } from '../catalog/urlState'
-import { DomainTag, SyntheticTag, TypeTag } from '../components/Tags'
+import { DatasetCardView } from '../components/DatasetCardView'
+import { Notice } from '../components/Notice'
+import { Pager } from '../components/Pager'
 import { VocabularyCardView } from '../components/VocabularyCardView'
-import { fairWidth } from '../dataset/fair'
 import { useApiLoad } from '../hooks/useApiLoad'
 import '../styles/catalog.css'
 
@@ -58,7 +59,7 @@ function pageCount(page: DatasetPage | null | undefined): number {
 
 export function CatalogPage() {
   const [searchParams, setSearchParams] = useSearchParams()
-  const { q, domain, type, page } = readCatalogParams(searchParams)
+  const { q, domain, type, catalog, page } = readCatalogParams(searchParams)
 
   // El campo de búsqueda se edita en local y llega a la URL con debounce
   // (sustituyendo la entrada del historial, para no crear una por búsqueda).
@@ -86,23 +87,30 @@ export function CatalogPage() {
   }
 
   const fetchesDatasets = type !== 'vocab'
-  const fetchesVocabularies = type !== 'dataset'
+  // Los vocabularios no pertenecen a ningún catálogo: con un catálogo elegido solo se piden datasets.
+  const fetchesVocabularies = type !== 'dataset' && !(catalog && fetchesDatasets)
+
+  // Catálogos para el filtro (decisión 49). Si la lista falla, el filtro no se muestra.
+  const catalogs = useApiLoad(listCatalogs)
+  const catalogItems = catalogs.state.status === 'ok' ? catalogs.state.data.items : []
 
   const loader = useCallback(
     async (signal: AbortSignal): Promise<CatalogResult> => {
       const domainParam = domain === 'all' ? undefined : domain
       const [datasets, vocabularies] = await Promise.all([
-        fetchesDatasets ? listDatasets({ q, domain: domainParam, page, pageSize: PAGE_SIZE }, signal) : null,
+        fetchesDatasets
+          ? listDatasets({ q, domain: domainParam, catalog: catalog ?? undefined, page, pageSize: PAGE_SIZE }, signal)
+          : null,
         fetchesVocabularies ? listVocabularies({ q, domain: domainParam }, signal) : null,
       ])
       return { datasets, vocabularies }
     },
-    [fetchesDatasets, fetchesVocabularies, q, domain, page],
+    [fetchesDatasets, fetchesVocabularies, q, domain, catalog, page],
   )
   const { state, retry } = useApiLoad(fetchesDatasets || fetchesVocabularies ? loader : null)
 
   const loading = state.status === 'loading'
-  const failed = state.status === 'error' || state.status === 'not-found'
+  const failed = state.status === 'error' || state.status === 'not-found' || state.status === 'gone'
   const data = state.status === 'ok' ? state.data : null
   const totalPages = fetchesDatasets ? pageCount(data?.datasets) : 1
   // «Todo» muestra primero los datasets y después los vocabularios y
@@ -172,7 +180,33 @@ export function CatalogPage() {
             ))}
           </div>
         </div>
+        {fetchesDatasets && (catalogItems.length > 0 || catalog) && (
+          <div className="catalog__catalog-row">
+            <label htmlFor="filtro-catalogo" className="catalog__search-label">
+              Catálogo
+            </label>
+            <select
+              id="filtro-catalogo"
+              className="select"
+              value={catalog ?? ''}
+              onChange={(e) => update({ catalog: e.target.value || null })}
+            >
+              <option value="">Todos los catálogos</option>
+              {catalog && !catalogItems.some((c) => c.slug === catalog) && <option value={catalog}>{catalog}</option>}
+              {catalogItems.map((c) => (
+                <option key={c.slug} value={c.slug}>
+                  {c.title ?? c.slug}
+                </option>
+              ))}
+            </select>
+            <Link to="/catalogos" className="catalog__catalogs-link">
+              Ver los catálogos
+            </Link>
+          </div>
+        )}
       </div>
+
+      <Notice />
 
       <div className="section-bar">
         <h2 className="section-bar__title">Recursos</h2>
@@ -218,72 +252,5 @@ export function CatalogPage() {
 
       {showPager && <Pager params={searchParams} page={page} totalPages={totalPages} />}
     </div>
-  )
-}
-
-/**
- * Paginación de los datasets (no está en el prototipo). Son enlaces con la
- * página en la URL, así que se pueden abrir en otra pestaña o compartir.
- */
-function Pager({ params, page, totalPages }: { params: URLSearchParams; page: number; totalPages: number }) {
-  const previous = Math.min(page - 1, totalPages)
-  return (
-    <nav aria-label="Paginación" className="pager">
-      {page > 1 && (
-        <Link to={{ search: catalogSearch(params, { page: previous }) }} className="button button--secondary" rel="prev">
-          Anterior
-        </Link>
-      )}
-      <span className="pager__status">
-        Página {page} de {totalPages}
-      </span>
-      {page < totalPages && (
-        <Link to={{ search: catalogSearch(params, { page: page + 1 }) }} className="button button--secondary" rel="next">
-          Siguiente
-        </Link>
-      )}
-    </nav>
-  )
-}
-
-function DatasetCardView({ item }: { item: DatasetCard }) {
-  const access = accessLabel(item.access_rights)
-  const formats = formatsLine(item.formats, item.current_version)
-  const hasFair = item.fair_total !== null && item.fair_total !== undefined
-  return (
-    <article className="card">
-      <div className="card__tags">
-        <TypeTag>dcat:Dataset</TypeTag>
-        {item.domain && <DomainTag slug={item.domain.slug} />}
-        {item.synthetic && <SyntheticTag />}
-        {access && <span className="card__access">{access}</span>}
-      </div>
-      <Link to={`/datasets/${encodeURIComponent(item.slug)}`} className="card__title">
-        {item.title ?? item.slug}
-      </Link>
-      {item.description && <p className="card__desc">{item.description}</p>}
-      {item.themes.length > 0 && (
-        <ul className="card__themes" aria-label="Temas">
-          {item.themes.map((theme) => (
-            <li key={theme.uri} className="theme-pill">
-              {themeLabel(theme)}
-            </li>
-          ))}
-        </ul>
-      )}
-      {(formats || hasFair) && (
-        <div className="card__footer">
-          {formats && <span className="mono card__formats">{formats}</span>}
-          {hasFair && (
-            <span className="card__fair">
-              <span className="card__fair-label">FAIR {item.fair_total}</span>
-              <span className="card__fair-bar" aria-hidden="true">
-                <span className="card__fair-fill" style={{ width: fairWidth(item.fair_total ?? null) }} />
-              </span>
-            </span>
-          )}
-        </div>
-      )}
-    </article>
   )
 }

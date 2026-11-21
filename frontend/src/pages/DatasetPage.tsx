@@ -1,11 +1,18 @@
-import { useEffect, useState } from 'react'
-import { Link, useParams, useSearchParams } from 'react-router'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import {
   ApiError,
   fetchDataset,
   fetchDatasetRdf,
   isAbortError,
+  listCatalogs,
+  updateDataset,
+  withdrawDataset,
+  type CatalogRef,
   type DatasetDetail,
+  type DatasetUpdate,
+  type GoneResponse,
+  type IngestResult,
   type DcatMetadata,
   type DomainRef,
   type ProvenanceStep,
@@ -24,16 +31,28 @@ import {
   resourceLabel,
   themeLabel,
 } from '../catalog/labels'
+import { useAuth } from '../auth/useAuth'
+import { canEdit } from '../auth/roles'
+import { ConfirmDialog } from '../components/ConfirmDialog'
 import { CopyUriButton } from '../components/CopyUriButton'
+import { GoneView } from '../components/GoneView'
+import { Notice } from '../components/Notice'
+import { describeError, goneFromError } from '../crud/errors'
+import { catalogRoute, datasetRoute, noticeState } from '../crud/navigation'
+import { ResourceForm, type ResourceFormValues } from '../crud/ResourceForm'
+import { VersionForm } from '../crud/VersionForm'
+import { useApiLoad } from '../hooks/useApiLoad'
 import { DistributionsSection } from '../dataset/DistributionsSection'
 import { FairSection } from '../dataset/FairSection'
 import { DomainTag, SyntheticTag, TypeTag } from '../components/Tags'
 import { conceptRouteFromUri, ontologyRouteFromUri } from '../vocab/routes'
 import '../styles/dataset.css'
+import '../styles/crud.css'
 
 type Load =
-  | { key: string; status: 'ok'; data: DatasetDetail }
+  | { key: string; base: string; status: 'ok'; data: DatasetDetail }
   | { key: string; status: 'not-found' }
+  | { key: string; status: 'gone'; gone: GoneResponse }
   | { key: string; status: 'error' }
 
 /** Enlace a la ficha de una versión: `?version=` salvo la actual. */
@@ -48,21 +67,28 @@ export function DatasetPage() {
   const version = searchParams.get('version')
   const [reload, setReload] = useState(0)
   const [load, setLoad] = useState<Load | null>(null)
+  const base = JSON.stringify({ slug, version })
   const key = JSON.stringify({ slug, version, reload })
 
   useEffect(() => {
     const controller = new AbortController()
     fetchDataset(slug, version, controller.signal)
-      .then((data) => setLoad({ key, status: 'ok', data }))
+      .then((data) => setLoad({ key, base, status: 'ok', data }))
       .catch((error: unknown) => {
         if (isAbortError(error) || controller.signal.aborted) return
+        const gone = goneFromError(error)
+        if (gone) {
+          setLoad({ key, status: 'gone', gone })
+          return
+        }
         const notFound = error instanceof ApiError && (error.status === 404 || error.status === 422)
         setLoad({ key, status: notFound ? 'not-found' : 'error' })
       })
     return () => controller.abort()
-  }, [slug, version, key])
+  }, [slug, version, key, base])
 
-  const current = load?.key === key ? load : null
+  // Tras editar o publicar se vuelve a pedir la ficha: mientras tanto se sigue mostrando la anterior.
+  const current = load?.key === key ? load : load?.status === 'ok' && load.base === base ? load : null
 
   if (!current) {
     return (
@@ -71,6 +97,9 @@ export function DatasetPage() {
       </p>
     )
   }
+
+  // 410: dataset dado de baja (decisión 49), con su ficha mínima.
+  if (current.status === 'gone') return <GoneView gone={current.gone} />
 
   if (current.status === 'not-found') {
     return (
@@ -99,13 +128,21 @@ export function DatasetPage() {
     )
   }
 
-  return <DatasetView data={current.data} requestedVersion={version} />
+  return (
+    <DatasetView data={current.data} requestedVersion={version} onChanged={() => setReload((n) => n + 1)} />
+  )
 }
 
-function Breadcrumbs({ domain }: { domain?: DomainRef | null }) {
+function Breadcrumbs({ domain, catalog }: { domain?: DomainRef | null; catalog?: CatalogRef | null }) {
   return (
     <nav aria-label="Migas de pan" className="breadcrumbs">
       <Link to="/">Catálogo</Link>
+      {catalog && (
+        <>
+          <span aria-hidden="true">/</span>
+          <Link to={catalogRoute(catalog.slug)}>{catalog.title ?? catalog.slug}</Link>
+        </>
+      )}
       {domain && (
         <>
           <span aria-hidden="true">/</span>
@@ -118,7 +155,14 @@ function Breadcrumbs({ domain }: { domain?: DomainRef | null }) {
   )
 }
 
-function DatasetView({ data, requestedVersion }: { data: DatasetDetail; requestedVersion: string | null }) {
+interface DatasetViewProps {
+  data: DatasetDetail
+  requestedVersion: string | null
+  /** Vuelve a pedir la ficha tras editarla o publicar una versión. */
+  onChanged: () => void
+}
+
+function DatasetView({ data, requestedVersion, onChanged }: DatasetViewProps) {
   const v = data.version
   const isCurrent = !!v && (v.version === data.current_version || !requestedVersion)
   const title = v?.title ?? data.title ?? data.slug
@@ -130,27 +174,29 @@ function DatasetView({ data, requestedVersion }: { data: DatasetDetail; requeste
 
   return (
     <div className="dataset">
-      <Breadcrumbs domain={data.domain} />
+      <Breadcrumbs domain={data.domain} catalog={data.catalog} />
 
-      <header className="dataset__header">
-        <div className="dataset__tags">
-          <TypeTag>dcat:Dataset</TypeTag>
-          {data.domain && <DomainTag slug={data.domain.slug} />}
-          {access && <span className="tag tag--neutral">Acceso {access.toLowerCase()}</span>}
-          {synthetic && <SyntheticTag />}
-          {v?.version && (
-            <span className="tag tag--version mono">
-              v{v.version}
-              {isCurrent ? ' · actual' : ''}
-            </span>
-          )}
-        </div>
-        <h1 className="page-title dataset__title">{title}</h1>
-        <div className="dataset__uri-row">
-          <span className="mono dataset__uri">{uri}</span>
-          <CopyUriButton uri={uri} />
-        </div>
-      </header>
+      <DatasetActions data={data} onChanged={onChanged}>
+        <header className="dataset__header">
+          <div className="dataset__tags">
+            <TypeTag>dcat:Dataset</TypeTag>
+            {data.domain && <DomainTag slug={data.domain.slug} />}
+            {access && <span className="tag tag--neutral">Acceso {access.toLowerCase()}</span>}
+            {synthetic && <SyntheticTag />}
+            {v?.version && (
+              <span className="tag tag--version mono">
+                v{v.version}
+                {isCurrent ? ' · actual' : ''}
+              </span>
+            )}
+          </div>
+          <h1 className="page-title dataset__title">{title}</h1>
+          <div className="dataset__uri-row">
+            <span className="mono dataset__uri">{uri}</span>
+            <CopyUriButton uri={uri} />
+          </div>
+        </header>
+      </DatasetActions>
 
       <div className="dataset__columns">
         <div className="dataset__main">
@@ -467,5 +513,201 @@ function MetadataAside({ metadata: m, domains }: { metadata: DcatMetadata; domai
         </div>
       </dl>
     </aside>
+  )
+}
+
+type Panel = 'none' | 'edit' | 'version'
+
+interface DatasetActionsProps {
+  data: DatasetDetail
+  onChanged: () => void
+  /** Cabecera de la ficha: las acciones van a su derecha. */
+  children: ReactNode
+}
+
+/**
+ * Acciones del editor y el admin en la ficha (decisión 49): «Editar» (metadatos
+ * de la serie y catálogo), «Nueva versión» (botón del prototipo, con subida
+ * del RDF) y «Dar de baja» con confirmación. El miembro y el anónimo no las
+ * ven.
+ */
+function DatasetActions({ data, onChanged, children }: DatasetActionsProps) {
+  const { user, token } = useAuth()
+  const navigate = useNavigate()
+  const editor = canEdit(user?.role) && !!token
+  const [panel, setPanel] = useState<Panel>('none')
+  const [saved, setSaved] = useState<string | null>(null)
+  const [confirming, setConfirming] = useState(false)
+  const [withdrawing, setWithdrawing] = useState(false)
+  const [withdrawError, setWithdrawError] = useState<string | null>(null)
+  const editButton = useRef<HTMLButtonElement>(null)
+  const versionButton = useRef<HTMLButtonElement>(null)
+  // Los catálogos (para mover el dataset) solo se piden si hacen falta.
+  const catalogs = useApiLoad(editor && panel !== 'none' ? listCatalogs : null)
+  const catalogItems = catalogs.state.status === 'ok' ? catalogs.state.data.items : undefined
+
+  const title = data.title ?? data.slug
+  const initial: ResourceFormValues = {
+    slug: data.slug,
+    title: data.title ?? '',
+    description: data.description ?? '',
+    publisher_name: '',
+    catalog: data.catalog?.slug ?? '',
+  }
+
+  function toggle(next: Panel) {
+    setSaved(null)
+    setPanel(panel === next ? 'none' : next)
+  }
+
+  function closePanel(focus: HTMLButtonElement | null) {
+    setPanel('none')
+    focus?.focus()
+  }
+
+  async function handleEdit(values: ResourceFormValues) {
+    const body: DatasetUpdate = {}
+    if (values.title.trim() !== initial.title) body.title = values.title.trim()
+    if (values.description.trim() !== initial.description) body.description = values.description.trim()
+    // La API no devuelve el publicador de la serie: solo se manda si se escribe uno.
+    if (values.publisher_name.trim()) body.publisher_name = values.publisher_name.trim()
+    if (values.catalog && values.catalog !== initial.catalog) body.catalog = values.catalog
+    if (Object.keys(body).length > 0) await updateDataset(data.slug, body, token ?? '')
+    setSaved(
+      Object.keys(body).length === 0
+        ? 'No había cambios que guardar.'
+        : body.catalog
+          ? 'Cambios guardados. El dataset se ha movido de catálogo.'
+          : 'Cambios guardados.',
+    )
+    closePanel(editButton.current)
+    onChanged()
+  }
+
+  function handlePublished(result: IngestResult) {
+    const versions = result.versions.join(', ')
+    const message = !result.changed
+      ? 'El RDF era idéntico al publicado: no ha cambiado nada.'
+      : versions
+        ? `RDF publicado. Versiones de la serie: ${versions}.`
+        : 'RDF publicado.'
+    setPanel('none')
+    if (result.slug !== data.slug) {
+      navigate(datasetRoute(result.slug), { state: noticeState(message) })
+      return
+    }
+    setSaved(message)
+    versionButton.current?.focus()
+    onChanged()
+  }
+
+  async function handleWithdraw() {
+    setWithdrawing(true)
+    setWithdrawError(null)
+    try {
+      await withdrawDataset(data.slug, token ?? '')
+      const notice = noticeState(`Dataset «${title}» dado de baja.`)
+      navigate(data.catalog ? catalogRoute(data.catalog.slug) : '/', { state: notice })
+    } catch (error) {
+      setWithdrawError(
+        describeError(error, {
+          notFound: 'El dataset no existe.',
+          fallback: 'No se ha podido dar de baja el dataset.',
+        }).message,
+      )
+      setWithdrawing(false)
+    }
+  }
+
+  return (
+    <>
+      <div className="crud-header">
+        <div className="crud-header__text">{children}</div>
+        {editor && (
+          <div className="crud-actions" role="group" aria-label="Acciones del dataset">
+            <button
+              ref={editButton}
+              type="button"
+              className="button button--secondary"
+              aria-expanded={panel === 'edit'}
+              onClick={() => toggle('edit')}
+            >
+              Editar
+            </button>
+            <button
+              ref={versionButton}
+              type="button"
+              className="button button--primary"
+              aria-expanded={panel === 'version'}
+              onClick={() => toggle('version')}
+            >
+              Nueva versión
+            </button>
+            <button
+              type="button"
+              className="button button--danger-outline"
+              onClick={() => {
+                setWithdrawError(null)
+                setConfirming(true)
+              }}
+            >
+              Dar de baja
+            </button>
+          </div>
+        )}
+      </div>
+
+      <Notice />
+      {saved && (
+        <p role="status" className="notice">
+          {saved}
+        </p>
+      )}
+
+      {editor && panel === 'edit' && (
+        <ResourceForm
+          heading="Editar dataset"
+          mode="edit"
+          initial={initial}
+          requirePublisher={false}
+          publisherHint="Déjalo vacío para no cambiarlo."
+          catalogs={catalogItems}
+          submitLabel="Guardar cambios"
+          errorContext={{ notFound: 'El dataset no existe.', fallback: 'No se han podido guardar los cambios.' }}
+          onSubmit={handleEdit}
+          onCancel={() => closePanel(editButton.current)}
+        />
+      )}
+
+      {editor && panel === 'version' && token && (
+        <VersionForm
+          catalog={data.catalog ?? null}
+          catalogs={catalogItems}
+          token={token}
+          onPublished={handlePublished}
+          onCancel={() => closePanel(versionButton.current)}
+        />
+      )}
+
+      {confirming && (
+        <ConfirmDialog
+          title="Dar de baja el dataset"
+          confirmLabel="Dar de baja"
+          busy={withdrawing}
+          error={withdrawError && <p>{withdrawError}</p>}
+          onConfirm={handleWithdraw}
+          onCancel={() => setConfirming(false)}
+        >
+          <p>
+            «{title}» y todas sus versiones dejarán de aparecer en los listados y en las consultas SPARQL, y sus URIs
+            responderán que se dio de baja. Su slug no se podrá reutilizar.
+          </p>
+          <p>
+            <strong>Se eliminarán los ficheros de todas sus distribuciones.</strong> Esta acción no se puede deshacer
+            desde la aplicación.
+          </p>
+        </ConfirmDialog>
+      )}
+    </>
   )
 }

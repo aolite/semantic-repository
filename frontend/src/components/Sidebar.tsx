@@ -11,7 +11,7 @@ import { CatalogIcon, LogoIcon, SparqlIcon, VocabularyIcon } from './icons'
 const VOCAB_SECTION = ['/vocabularios/', '/ontologias/']
 
 const NAV_LINKS: { to: string; label: string; Icon: typeof CatalogIcon; section?: string[] }[] = [
-  { to: '/', label: 'Catálogo', Icon: CatalogIcon, section: ['/datasets/'] },
+  { to: '/', label: 'Catálogo', Icon: CatalogIcon, section: ['/datasets/', '/catalogos'] },
   { to: '/vocabularios', label: 'Vocabularios', Icon: VocabularyIcon, section: VOCAB_SECTION },
   { to: '/sparql', label: 'Consulta SPARQL', Icon: SparqlIcon },
 ]
