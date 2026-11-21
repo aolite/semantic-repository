@@ -41,6 +41,7 @@ export const CRUD_TEXT = {
   tooLarge: 'El fichero supera el tamaño máximo que admite la API.',
   unsupported: 'Formato no admitido: sube un fichero Turtle (.ttl) o JSON-LD (.jsonld).',
   unavailable: 'El repositorio no está disponible ahora mismo. Inténtalo más tarde.',
+  busy: 'El servidor está ocupado; inténtalo de nuevo en unos segundos.',
   invalidFields: 'Revisa los campos marcados.',
   invalidField: 'Valor no válido.',
   catalogHasDatasets:
@@ -191,7 +192,8 @@ export function describeError(error: unknown, context: ErrorContext): FormErrorI
       break
     }
     case 503:
-      info.message = CRUD_TEXT.unavailable
+      // Con `Retry-After`, otra escritura tiene el bloqueo del catálogo (QA-49-03): es pasajero.
+      info.message = error.retryAfter !== null ? CRUD_TEXT.busy : CRUD_TEXT.unavailable
       break
   }
   return info

@@ -121,6 +121,17 @@ describe('Catálogos (/catalogos)', () => {
     expect(screen.getByLabelText('Slug')).toHaveAttribute('aria-invalid', 'true')
   })
 
+  it('503 con Retry-After: el servidor está ocupado', async () => {
+    const { user } = await openForm('editor', () =>
+      new Response(JSON.stringify({ detail: 'x' }), { status: 503, headers: { 'Content-Type': 'application/json', 'Retry-After': '5' } }),
+    )
+    await fill(user)
+    await user.click(screen.getByRole('button', { name: 'Crear catálogo' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(CRUD_TEXT.busy)
+    // El formulario sigue abierto para reintentar.
+    expect(screen.getByRole('button', { name: 'Crear catálogo' })).toBeEnabled()
+  })
+
   it('422 SHACL: muestra el mensaje y las incidencias', async () => {
     const body = {
       detail: 'No cumple las formas',

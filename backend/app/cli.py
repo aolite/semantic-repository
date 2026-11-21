@@ -186,6 +186,50 @@ def _check_files(
     return failed
 
 
+def _write_catalogs_and_series(
+    store: TripleStore, session: Session, settings: Settings, uris: Uris, plan: _Plan
+) -> None:
+    for name, graph_uri, graph in plan.catalogs:
+        # Decisión 49: se conservan los dcat:catalog del raíz y los dcat:dataset de cada
+        # catálogo que ya están publicados (lo hecho desde la aplicación).
+        current = store.get_graph(graph_uri)
+        if graph_uri == uris.root_catalog:
+            graph = ingest.merge_root_catalog(current, graph, uris, plan.withdrawn)
+        else:
+            graph = ingest.merge_catalog(current, graph, graph_uri)
+        _created, changed = ingest.store_graph(store, graph_uri, graph)
+        typer.echo(f"{name} -> <{graph_uri}>: {'cargado' if changed else 'sin cambios'}")
+    for name, series in plan.series:
+        published = ingest.publish_and_audit(
+            store, session, series, actor_username=CLI_ACTOR, via="cli", other="keep"
+        )
+        state = "cargado" if published.changed else "sin cambios"
+        fair_note = (
+            f"; evaluación FAIR encolada para {len(published.new_versions)}"
+            if published.new_versions
+            else ""
+        )
+        typer.echo(
+            f"{name} -> <{published.graph_uri}>: {state} "
+            f"(versiones {', '.join(published.versions) or '-'}{fair_note})"
+        )
+    if plan.files:
+        file_storage = get_file_storage(settings)
+        for name, path, (slug, version, dist) in plan.files:
+            info = distributions.lookup(store, uris, slug, version, dist)
+            with path.open("rb") as handle:
+                uploaded = distributions.upload(
+                    session,
+                    file_storage,
+                    info,
+                    handle,
+                    actor_username=CLI_ACTOR,
+                    via="cli",
+                )
+            state = "subido" if uploaded.created else "sin cambios"
+            typer.echo(f"{name} -> {info.storage_key}: {state}")
+
+
 def _skip_withdrawn_meanwhile(store: TripleStore, uris: Uris, plan: _Plan) -> None:
     """Quita del plan lo que se dio de baja desde la aplicación después de validar."""
     fresh = bajas.withdrawn_uris(store, uris) - plan.withdrawn
@@ -454,77 +498,45 @@ def load_semantic() -> None:
             typer.echo("Validación fallida: no se ha cargado nada.", err=True)
             raise typer.Exit(code=1)
 
-        # 2. Escribir, con el bloqueo de las escrituras del catálogo (QA-49-01): ninguna
-        # petición de la API cambia catálogos o series a la vez. Lo dado de baja mientras se
-        # validaba también se omite.
+        # 2. Escribir. Esquemas, ontologías externas y versiones de ontología no comparten
+        # grafos con el CRUD de catálogos: van fuera del bloqueo (las métricas y el
+        # razonador ya se calcularon al validar).
+        for name, scheme in plan.schemes:
+            result = vocab_ingest.publish_scheme_and_audit(
+                store, session, scheme, actor_username=CLI_ACTOR, via="cli"
+            )
+            state = "cargado" if result.changed else "sin cambios"
+            typer.echo(f"{name} -> <{result.graph_uri}>: {state} ({result.concepts} conceptos)")
+        for name, graph_uri, graph in plan.plain:
+            _created, changed = ingest.store_graph(store, graph_uri, graph)
+            typer.echo(f"{name} -> <{graph_uri}>: {'cargado' if changed else 'sin cambios'}")
+        for name, ontology, analysis in plan.ontologies:
+            onto = vocab_ingest.publish_ontology_and_audit(
+                store,
+                session,
+                ontology,
+                settings,
+                analysis=analysis,
+                actor_username=CLI_ACTOR,
+                via="cli",
+            )
+            state = "cargado" if onto.changed else "sin cambios"
+            metrics = "métricas calculadas" if onto.metrics_recomputed else "métricas al día"
+            typer.echo(f"{name} -> <{onto.graph_uri}>: {state}, {metrics}")
+        # 3. Catálogos, series y ficheros, con el bloqueo de las escrituras del catálogo
+        # (QA-49-01 y QA-49-03): solo esta fase, y lo dado de baja mientras se validaba
+        # también se omite.
         with write_lock.catalog_write_lock(session):
             _skip_withdrawn_meanwhile(store, uris, plan)
-            for name, scheme in plan.schemes:
-                result = vocab_ingest.publish_scheme_and_audit(
-                    store, session, scheme, actor_username=CLI_ACTOR, via="cli"
-                )
-                state = "cargado" if result.changed else "sin cambios"
-                typer.echo(f"{name} -> <{result.graph_uri}>: {state} ({result.concepts} conceptos)")
-            for name, graph_uri, graph in plan.plain:
-                _created, changed = ingest.store_graph(store, graph_uri, graph)
-                typer.echo(f"{name} -> <{graph_uri}>: {'cargado' if changed else 'sin cambios'}")
-            for name, graph_uri, graph in plan.catalogs:
-                # Decisión 49: se conservan los dcat:catalog del raíz y los dcat:dataset de cada
-                # catálogo que ya están publicados (lo hecho desde la aplicación).
-                current = store.get_graph(graph_uri)
-                if graph_uri == uris.root_catalog:
-                    graph = ingest.merge_root_catalog(current, graph, uris, plan.withdrawn)
-                else:
-                    graph = ingest.merge_catalog(current, graph, graph_uri)
-                _created, changed = ingest.store_graph(store, graph_uri, graph)
-                typer.echo(f"{name} -> <{graph_uri}>: {'cargado' if changed else 'sin cambios'}")
-            for name, ontology, analysis in plan.ontologies:
-                onto = vocab_ingest.publish_ontology_and_audit(
-                    store,
-                    session,
-                    ontology,
-                    settings,
-                    analysis=analysis,
-                    actor_username=CLI_ACTOR,
-                    via="cli",
-                )
-                state = "cargado" if onto.changed else "sin cambios"
-                metrics = "métricas calculadas" if onto.metrics_recomputed else "métricas al día"
-                typer.echo(f"{name} -> <{onto.graph_uri}>: {state}, {metrics}")
-            for name, series in plan.series:
-                published = ingest.publish_and_audit(
-                    store, session, series, actor_username=CLI_ACTOR, via="cli", other="keep"
-                )
-                state = "cargado" if published.changed else "sin cambios"
-                fair_note = (
-                    f"; evaluación FAIR encolada para {len(published.new_versions)}"
-                    if published.new_versions
-                    else ""
-                )
-                typer.echo(
-                    f"{name} -> <{published.graph_uri}>: {state} "
-                    f"(versiones {', '.join(published.versions) or '-'}{fair_note})"
-                )
-            if plan.files:
-                file_storage = get_file_storage(settings)
-                for name, path, (slug, version, dist) in plan.files:
-                    info = distributions.lookup(store, uris, slug, version, dist)
-                    with path.open("rb") as handle:
-                        uploaded = distributions.upload(
-                            session,
-                            file_storage,
-                            info,
-                            handle,
-                            actor_username=CLI_ACTOR,
-                            via="cli",
-                        )
-                    state = "subido" if uploaded.created else "sin cambios"
-                    typer.echo(f"{name} -> {info.storage_key}: {state}")
+            _write_catalogs_and_series(store, session, settings, uris, plan)
     except TriplestoreError as exc:
         typer.echo(f"Error del triplestore: {exc}", err=True)
         raise typer.Exit(code=1) from None
     except StorageError as exc:
         typer.echo(f"Error del almacenamiento: {exc}", err=True)
+        raise typer.Exit(code=1) from None
+    except write_lock.CatalogLockTimeoutError as exc:
+        typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(code=1) from None
     finally:
         session.close()

@@ -152,7 +152,8 @@ src/
   - 409 `ConflictResponse` al crear, en el slug: `slug_in_use` («Ya existe un recurso con ese slug. Elige otro.») y `withdrawn` («Ese slug es de un recurso dado de baja y no se reutiliza. Elige otro.»). Un 409 sin `kind` muestra un texto que cubre los dos casos.
   - `IngestErrorResponse` por `kind`: `withdrawn`, `catalog_conflict`, `version_removed`, `version_immutable` (409) y `catalog`, `shacl`, `syntax`, `structure`, `uri`, `limit` (422), con un texto propio para cada uno y la lista de incidencias (`issues`, con el último segmento de `path` o `focus_node`, hasta 10).
   - 422 de validación de FastAPI: marca los campos por su `loc` (sin mostrar valores).
-  - 401, 403, 404, 410, 413, 415, 503 y sin conexión, con su mensaje.
+  - 503 con `Retry-After` (otra escritura tiene el bloqueo del catálogo, QA-49-03): «El servidor está ocupado; inténtalo de nuevo en unos segundos.», con el formulario abierto para reintentar. Sin `Retry-After`, «El repositorio no está disponible ahora mismo…».
+  - 401, 403, 404, 410, 413, 415 y sin conexión, con su mensaje.
 
 ### Nueva versión
 
