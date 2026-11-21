@@ -47,6 +47,11 @@ def test_list_returns_cards(api: TestClient) -> None:
         "uri": MODBUS,
         "title": "Tráfico Modbus/TCP del banco de pruebas OT",
         "description": card["description"],
+        "catalog": {  # decisión 49
+            "slug": "sintetico",
+            "uri": f"{BASE_URI}catalogo/sintetico",
+            "title": "Datasets sintéticos de demostración",
+        },
         "domain": {"slug": "ot", "uri": f"{BASE_URI}vocab/dominio/ot", "label": "OT / ICS"},
         "domains": [{"slug": "ot", "uri": f"{BASE_URI}vocab/dominio/ot", "label": "OT / ICS"}],
         "themes": [
@@ -381,6 +386,7 @@ HIDDEN_SERIES = """
     dcat:last <dataset/oculta/1.0.0> .
 <dataset/oculta/1.0.0> a dcat:Dataset ; dct:title "TEXTO"@es ; dct:description "d"@es ;
     dcat:version "1.0.0" ; dcat:inSeries <dataset/oculta> .
+<catalogo/pruebas> dcat:dataset <dataset/oculta> .
 """.replace("TEXTO", SECRET)
 
 
@@ -422,6 +428,7 @@ def test_theme_labels_come_only_from_the_vocabulary_graph(
         '    dcat:version "1.0.0" ; dcat:inSeries <dataset/prueba> ;\n'
         f"    dct:accessRights <{PUBLIC}> ;\n"
         f"    dcat:theme <{hidden}> .\n"
+        "<catalogo/pruebas> dcat:dataset <dataset/prueba> .\n"
     )
     response = api.post(
         "/datasets", content=series.encode(), headers=editor_headers_factory() | TURTLE_CT

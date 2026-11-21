@@ -80,6 +80,10 @@ class Storage(Protocol):
         """Contenido en trozos (streaming). ``FileNotFoundError`` si no existe."""
         ...
 
+    def delete(self, key: str) -> None:
+        """Borra el fichero (baja de un dataset, decisión 49). No falla si no existe."""
+        ...
+
 
 class DiskStorage:
     def __init__(self, root: str | Path) -> None:
@@ -136,6 +140,25 @@ class DiskStorage:
 
         return chunks()
 
+    def delete(self, key: str) -> None:
+        try:
+            path = self._path(key)
+        except OutsideRootError:
+            return
+        try:
+            path.unlink(missing_ok=True)
+        except OSError as exc:
+            raise StorageError("No se puede borrar del almacenamiento de disco") from exc
+        # Carpetas {slug}/{version} vacías: se quitan, sin salir nunca de la raíz.
+        root = self.root.resolve()
+        for parent in (path.parent, path.parent.parent):
+            if parent == root or root not in parent.parents:
+                break
+            try:
+                parent.rmdir()
+            except OSError:
+                break
+
 
 class R2Storage:
     """Cloudflare R2: pendiente de decidir cliente y credenciales (ver el docstring)."""
@@ -155,6 +178,9 @@ class R2Storage:
         raise self._fail()
 
     def open_stream(self, key: str) -> Iterator[bytes]:
+        raise self._fail()
+
+    def delete(self, key: str) -> None:
         raise self._fail()
 
 

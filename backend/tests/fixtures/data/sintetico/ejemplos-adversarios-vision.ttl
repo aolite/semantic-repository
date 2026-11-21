@@ -75,6 +75,12 @@ itotd:ejemplos-adversarios-vision
     dcat:mediaType <http://www.iana.org/assignments/media-types/application/json> ;
     dcat:accessURL <dataset/ejemplos-adversarios-vision/0.9.0/json> .
 
+# --- Pertenencia al catálogo (decisión 49) ---------------------------------
+# Cada dataset pertenece a exactamente un catálogo (itsh:DatasetSeries-catalog).
+# Catálogo «sintetico»: Decidido (2026-11-21, decisión 49). Se describe en
+# semantic/data/catalogos/sintetico.ttl (fichero por catálogo: [PROPUESTA]).
+<catalogo/sintetico> dcat:dataset itotd:ejemplos-adversarios-vision .
+
 # --- Agente -----------------------------------------------------------------
 _:unidad-itot
     a foaf:Agent , prov:Agent ;

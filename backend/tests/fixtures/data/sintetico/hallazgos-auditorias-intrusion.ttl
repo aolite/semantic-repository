@@ -75,6 +75,12 @@ itotd:hallazgos-auditorias-intrusion
     dcat:mediaType <http://www.iana.org/assignments/media-types/text/turtle> ;
     dcat:accessURL <dataset/hallazgos-auditorias-intrusion/1.3.0/rdf> .
 
+# --- Pertenencia al catálogo (decisión 49) ---------------------------------
+# Cada dataset pertenece a exactamente un catálogo (itsh:DatasetSeries-catalog).
+# Catálogo «sintetico»: Decidido (2026-11-21, decisión 49). Se describe en
+# semantic/data/catalogos/sintetico.ttl (fichero por catálogo: [PROPUESTA]).
+<catalogo/sintetico> dcat:dataset itotd:hallazgos-auditorias-intrusion .
+
 # --- Agente -----------------------------------------------------------------
 _:unidad-itot
     a foaf:Agent , prov:Agent ;

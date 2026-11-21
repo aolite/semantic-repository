@@ -15,7 +15,7 @@ from app.config import Settings
 from app.models import AuditAction, AuditEvent, OntologyMetricsRecord, Role, User
 from app.triplestore import MemoryStore
 from app.uris import SKOS, Uris
-from tests.conftest import BASE_URI, FIXTURE_SEMANTIC_DIR
+from tests.conftest import BASE_URI, FIXTURE_SEMANTIC_DIR, user_graphs
 
 ONTO_DIR = FIXTURE_SEMANTIC_DIR / "ontologias" / "itot"
 VOCAB_DIR = FIXTURE_SEMANTIC_DIR / "vocabularios"
@@ -108,7 +108,7 @@ def test_ingest_ontology_computes_and_stores_metrics(
     assert body["documentation"]["percent"] == expected["documentation"]["percent"]
 
     # Solo escribe en el grafo de su versionIRI.
-    assert store.graph_names() == {version_iri}
+    assert user_graphs(store) == {version_iri}
     with session_factory() as session:
         record = session.get(OntologyMetricsRecord, version_iri)
         assert record is not None
@@ -274,7 +274,7 @@ def test_member_is_forbidden(
     make_user("miembro1", Role.MIEMBRO)
     response = client.post(path, content=SCHEME_OT, headers=login("miembro1") | TTL)
     assert response.status_code == 403
-    assert store.graph_names() == set()
+    assert user_graphs(store) == set()
 
 
 @pytest.mark.parametrize("path", ["/ontologies", "/schemes"])
@@ -291,7 +291,7 @@ def test_anonymous_gets_401_before_body_checks(
 ) -> None:
     response = client.post(path, content=b"x", headers=headers)
     assert response.status_code == 401
-    assert store.graph_names() == set()
+    assert user_graphs(store) == set()
 
 
 def test_unsupported_media_and_too_large(
@@ -367,7 +367,7 @@ def test_invalid_ontology_is_rejected(
     response = client.post("/ontologies", content=content, headers=editor | TTL)
     assert response.status_code == 422, response.text
     assert response.json()["kind"] == kind
-    assert store.graph_names() == set()
+    assert user_graphs(store) == set()
     assert _events(session_factory, AuditAction.ONTOLOGY_PUBLISHED) == []
     with session_factory() as session:
         assert session.scalars(select(OntologyMetricsRecord)).first() is None
@@ -383,7 +383,7 @@ def test_external_subjects_are_allowed_in_ontology(
     )
     response = client.post("/ontologies", content=body, headers=editor | TTL)
     assert response.status_code == 201, response.text
-    assert store.graph_names() == {f"{BASE_URI}onto/prueba/1.0.0"}
+    assert user_graphs(store) == {f"{BASE_URI}onto/prueba/1.0.0"}
 
 
 def test_deep_nesting_is_rejected(client: TestClient, editor: dict[str, str]) -> None:
@@ -427,7 +427,7 @@ def test_ingest_domain_scheme(
         "created": True,
         "changed": True,
     }
-    assert store.graph_names() == {f"{BASE_URI}vocab/ot"}
+    assert user_graphs(store) == {f"{BASE_URI}vocab/ot"}
     again = client.post("/schemes", content=SCHEME_OT, headers=editor | TTL)
     assert again.status_code == 200
     assert again.json()["changed"] is False
@@ -443,7 +443,7 @@ def test_ingest_corp_scheme(client: TestClient, editor: dict[str, str], store: M
     assert response.json()["corp"] is True
     assert response.json()["slug"] == "trl"
     assert response.json()["concepts"] == 9
-    assert store.graph_names() == {f"{BASE_URI}vocab/corp/trl"}
+    assert user_graphs(store) == {f"{BASE_URI}vocab/corp/trl"}
 
 
 def _scheme(body: str, uri: str = "vocab/prueba", *, description: bool = True) -> bytes:
@@ -490,7 +490,7 @@ def test_invalid_scheme_is_rejected(
     response = client.post("/schemes", content=content, headers=editor | TTL)
     assert response.status_code == 422, response.text
     assert response.json()["kind"] == kind
-    assert store.graph_names() == set()
+    assert user_graphs(store) == set()
     assert _events(session_factory, AuditAction.SCHEME_PUBLISHED) == []
 
 
@@ -523,7 +523,7 @@ def test_shacl_violations_reject_ontology_and_scheme(
     scheme = client.post("/schemes", content=_scheme("", description=False), headers=editor | TTL)
     assert scheme.status_code == 422
     assert scheme.json()["kind"] == "shacl"
-    assert store.graph_names() == set()
+    assert user_graphs(store) == set()
 
 
 @pytest.mark.parametrize(

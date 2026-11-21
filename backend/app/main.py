@@ -14,8 +14,10 @@ from app.config import Settings, get_settings
 from app.db import get_sessionmaker
 from app.routers import (
     auth,
+    catalogs,
     dataset_files,
     datasets,
+    gone,
     health,
     linked_data,
     linked_data_vocab,
@@ -104,14 +106,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.add_exception_handler(RequestValidationError, validation_exception_handler)
     app.add_exception_handler(TriplestoreError, triplestore_exception_handler)
+    app.add_exception_handler(gone.GoneError, gone.gone_exception_handler)
 
     app.include_router(health.router)
     app.include_router(auth.router)
     app.include_router(users.router)
+    app.include_router(catalogs.router)
     app.include_router(datasets.router)
     app.include_router(dataset_files.router)
     app.include_router(sparql.router)
     app.include_router(linked_data.router)
+    app.include_router(linked_data.catalog_router)
     app.include_router(vocabularies.router)
     app.include_router(ontologies.router)
     app.include_router(schemes.router)

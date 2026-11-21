@@ -14,9 +14,10 @@ from collections.abc import Callable
 import pytest
 from fastapi.testclient import TestClient
 
-from app import catalog, vocabularies
+from app import bajas, catalog, vocabularies
 from app.models import Role, User
 from app.triplestore import MemoryStore
+from tests.conftest import user_graphs
 from tests.test_security_fase2 import INJECTIONS
 
 _IRI = r'<[^<>"{}|^`\\\x00-\x20]+>'
@@ -27,6 +28,11 @@ TEMPLATES = [
     catalog.CATALOG_QUERY,
     catalog.SERIES_GRAPH_QUERY,
     catalog.THEME_LABELS_QUERY,
+    # Decisión 49: catálogo de una serie, catálogos y lápidas.
+    catalog.SERIES_CATALOG_QUERY,
+    catalog.CATALOGS_QUERY,
+    bajas._SUBJECT_QUERY,
+    bajas._MEMBERSHIP_QUERY,
     vocabularies.ONTOLOGY_HEADERS_QUERY,
     vocabularies.GRAPH_QUERY,
     vocabularies.SCHEMES_QUERY,
@@ -180,7 +186,7 @@ def test_hostile_literals_in_scheme_are_stored_as_data(
         headers=login("editora") | {"Content-Type": "text/turtle"},
     )
     assert response.status_code == 201, response.text
-    assert store.graph_names() == {response.json()["graph"]}
+    assert user_graphs(store) == {response.json()["graph"]}
     store.queries.clear()
     detail = client.get("/schemes/corp/hostil").json()
     assert detail["title"] == payload
