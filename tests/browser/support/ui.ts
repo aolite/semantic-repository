@@ -23,12 +23,20 @@ export function syntheticFile(slug: string, version: string, name: string): Buff
   return readFileSync(join(REPO_ROOT, 'semantic', 'data', 'sintetico', 'ficheros', slug, version, name))
 }
 
-/** Falla la prueba si la página escribe errores en la consola o lanza excepciones. */
-export function watchConsole(page: Page): () => void {
+/**
+ * Falla la prueba si la página escribe errores en la consola o lanza excepciones.
+ * `httpStatuses`: códigos HTTP que la prueba provoca a propósito (409, 410…): Chromium escribe
+ * «Failed to load resource … (410 Gone)» en la consola aunque la aplicación los gestione bien.
+ */
+export function watchConsole(page: Page, httpStatuses: number[] = []): () => void {
   const problems: string[] = []
+  const expected = httpStatuses.map((status) => `the server responded with a status of ${status}`)
   page.on('pageerror', (error) => problems.push(`excepción: ${error.message}`))
   page.on('console', (message) => {
-    if (message.type() === 'error') problems.push(`consola: ${message.text()}`)
+    if (message.type() !== 'error') return
+    const text = message.text()
+    if (text.startsWith('Failed to load resource') && expected.some((e) => text.includes(e))) return
+    problems.push(`consola: ${text}`)
   })
   return () => expect(problems, 'errores de consola o excepciones').toEqual([])
 }

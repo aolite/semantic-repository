@@ -8,6 +8,7 @@ Pruebas con Chromium sobre el Compose real (decisión 34). Comprueban lo que las
 | `tests/dataset-fair.spec.ts` | La sección FAIR repite la evaluación real de F-UJI y enlaza el informe; «Descargar» / «Iniciar sesión para descargar» / solo metadatos según `download`; descarga con enlace firmado tras iniciar sesión |
 | `tests/sparql.spec.ts` | Consulta de referencia sin sesión (Tabla, JSON, CSV), errores de validación, guardar una consulta personal con sesión y que otro miembro no la vea |
 | `tests/catalogo.spec.ts` | Paginación (20 por página) y filtros de dominio, tipo y búsqueda en la URL |
+| `tests/crud-catalogos.spec.ts` | CRUD de catálogos y datasets (decisión 49): botones por rol (anónimo, miembro, editor y admin), crear, editar y mover, «Nueva versión» (200, 201 y los 409 `version_immutable`, `catalog_conflict` y `withdrawn`), 409 al dar de baja un catálogo con datasets, 410 en la API y en la ficha, 409 por slug dado de baja, 303 de `/catalogo/{slug}`, filtro `/?catalogo=` y el diálogo de baja con teclado (Tab atrapado, Escape y vuelta del foco). La sesión vive en memoria: se navega con los enlaces de la app |
 
 ## Ejecución
 

@@ -119,6 +119,56 @@ export async function publishSeries(
   return response.status
 }
 
+/** Un slug nuevo y único para los recursos que crea una prueba. */
+export function uniqueSlug(prefix: string): string {
+  return `${prefix}-${Math.random().toString(16).slice(2, 8)}`
+}
+
+async function jsonCall(method: string, path: string, token: string, body?: unknown): Promise<Response> {
+  return api(path, {
+    method,
+    headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+    token,
+  })
+}
+
+/** Crea un catálogo por la API (datos ficticios). Falla si no es 201. */
+export async function apiCreateCatalog(token: string, slug: string, title = `Catálogo ${slug}`): Promise<void> {
+  const response = await jsonCall('POST', '/catalogs', token, {
+    slug,
+    title,
+    description: 'Catálogo ficticio de las pruebas de pantallas.',
+    publisher_name: 'Pruebas de QA',
+  })
+  if (response.status !== 201) throw new Error(`crear catálogo ${slug}: ${response.status}`)
+}
+
+/** Crea un dataset (serie sin versiones) en un catálogo por la API. */
+export async function apiCreateDataset(
+  token: string,
+  catalog: string,
+  slug: string,
+  title = `Dataset ${slug}`,
+): Promise<void> {
+  const response = await jsonCall('POST', `/catalogs/${catalog}/datasets`, token, {
+    slug,
+    title,
+    description: 'Dataset ficticio de las pruebas de pantallas.',
+  })
+  if (response.status !== 201) throw new Error(`crear dataset ${slug}: ${response.status}`)
+}
+
+export async function apiWithdraw(token: string, kind: 'catalogs' | 'datasets', slug: string): Promise<void> {
+  const response = await jsonCall('DELETE', `/${kind}/${slug}`, token)
+  if (response.status !== 204) throw new Error(`dar de baja ${slug}: ${response.status}`)
+}
+
+export async function apiMoveDataset(token: string, slug: string, catalog: string): Promise<void> {
+  const response = await jsonCall('PATCH', `/datasets/${slug}`, token, { catalog })
+  if (response.status !== 200) throw new Error(`mover ${slug}: ${response.status}`)
+}
+
 export async function uploadFile(
   token: string,
   slug: string,
