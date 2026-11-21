@@ -551,7 +551,7 @@ function DatasetActions({ data, onChanged, children }: DatasetActionsProps) {
     slug: data.slug,
     title: data.title ?? '',
     description: data.description ?? '',
-    publisher_name: '',
+    publisher_name: data.publisher?.label ?? '',
     catalog: data.catalog?.slug ?? '',
   }
 
@@ -569,8 +569,10 @@ function DatasetActions({ data, onChanged, children }: DatasetActionsProps) {
     const body: DatasetUpdate = {}
     if (values.title.trim() !== initial.title) body.title = values.title.trim()
     if (values.description.trim() !== initial.description) body.description = values.description.trim()
-    // La API no devuelve el publicador de la serie: solo se manda si se escribe uno.
-    if (values.publisher_name.trim()) body.publisher_name = values.publisher_name.trim()
+    // Vaciar el publicador no lo borra (el contrato no lo admite): solo se manda si cambia a otro valor.
+    if (values.publisher_name.trim() && values.publisher_name.trim() !== initial.publisher_name) {
+      body.publisher_name = values.publisher_name.trim()
+    }
     if (values.catalog && values.catalog !== initial.catalog) body.catalog = values.catalog
     if (Object.keys(body).length > 0) await updateDataset(data.slug, body, token ?? '')
     setSaved(
@@ -670,7 +672,7 @@ function DatasetActions({ data, onChanged, children }: DatasetActionsProps) {
           mode="edit"
           initial={initial}
           requirePublisher={false}
-          publisherHint="Déjalo vacío para no cambiarlo."
+          publisherHint={initial.publisher_name ? 'Si lo dejas vacío, se conserva el actual.' : undefined}
           catalogs={catalogItems}
           submitLabel="Guardar cambios"
           errorContext={{ notFound: 'El dataset no existe.', fallback: 'No se han podido guardar los cambios.' }}

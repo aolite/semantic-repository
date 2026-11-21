@@ -12,7 +12,7 @@ const CATALOG = { slug: 'catalogo-prueba', uri: 'http://uri.test/itot/catalogo/c
 type Handler = Parameters<typeof mockFetch>[0][string]
 
 function withCatalog(overrides: Partial<DatasetDetail> = {}): DatasetDetail {
-  return detailFixture({ catalog: CATALOG, ...overrides })
+  return detailFixture({ catalog: CATALOG, publisher: { uri: null, label: 'Publicador de la serie' }, ...overrides })
 }
 
 function mockDataset({ role, dataset, ingest }: { role?: Role; dataset?: Handler; ingest?: Handler } = {}) {
@@ -93,7 +93,9 @@ describe('Ficha de dataset · catálogo y bajas (decisión 49)', () => {
     await user.click(screen.getByRole('button', { name: 'Editar' }))
     const region = screen.getByRole('region', { name: 'Editar dataset' })
     expect(within(region).getByLabelText('Título (en español)')).toHaveValue('Dataset de prueba')
-    expect(within(region).getByLabelText('Publicador (opcional)')).toHaveAccessibleDescription('Déjalo vacío para no cambiarlo.')
+    const publisher = within(region).getByLabelText('Publicador (opcional)')
+    expect(publisher).toHaveValue('Publicador de la serie')
+    expect(publisher).toHaveAccessibleDescription('Si lo dejas vacío, se conserva el actual.')
     const select = await within(region).findByLabelText('Catálogo')
     expect(select).toHaveValue('catalogo-prueba')
     await user.selectOptions(select, 'otro')
@@ -102,6 +104,19 @@ describe('Ficha de dataset · catálogo y bajas (decisión 49)', () => {
 
     expect(await screen.findByText('Cambios guardados. El dataset se ha movido de catálogo.')).toBeInTheDocument()
     expect(lastBody(fetchMock, 'PATCH', PATH)).toEqual({ title: 'Dataset de prueba 2', catalog: 'otro' })
+  })
+
+  it('editar: el publicador precargado se manda solo si cambia', async () => {
+    const { user, fetchMock } = await renderEditor({
+      dataset: (_url, init) => (init?.method === 'PATCH' ? jsonResponse(withCatalog()) : jsonResponse(withCatalog())),
+    })
+    await user.click(screen.getByRole('button', { name: 'Editar' }))
+    const publisher = screen.getByLabelText('Publicador (opcional)')
+    await user.clear(publisher)
+    await user.type(publisher, 'Otro publicador')
+    await user.click(screen.getByRole('button', { name: 'Guardar cambios' }))
+    expect(await screen.findByText('Cambios guardados.')).toBeInTheDocument()
+    expect(lastBody(fetchMock, 'PATCH', PATH)).toEqual({ publisher_name: 'Otro publicador' })
   })
 
   it('editar: 422 de catálogo de destino inexistente marca el catálogo', async () => {

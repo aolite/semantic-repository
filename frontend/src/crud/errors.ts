@@ -3,7 +3,7 @@
  * 49) a partir de los errores de la API. Los textos son del frontend: el
  * prototipo no tiene estas pantallas.
  */
-import { ApiError, type GoneResponse, type IngestErrorResponse } from '../api'
+import { ApiError, type ConflictResponse, type GoneResponse, type IngestErrorResponse } from '../api'
 import { lastSegment } from '../catalog/labels'
 
 export type FormField = 'slug' | 'title' | 'description' | 'publisher_name' | 'catalog' | 'file'
@@ -35,6 +35,8 @@ export const CRUD_TEXT = {
   forbidden: 'Tu cuenta no tiene permiso para esta acción: hace falta el rol editor o admin.',
   slugTaken:
     'El slug ya está en uso o es de un recurso dado de baja (un slug dado de baja no se reutiliza). Elige otro.',
+  slugInUse: 'Ya existe un recurso con ese slug. Elige otro.',
+  slugWithdrawn: 'Ese slug es de un recurso dado de baja y no se reutiliza. Elige otro.',
   gone: 'El recurso se dio de baja.',
   tooLarge: 'El fichero supera el tamaño máximo que admite la API.',
   unsupported: 'Formato no admitido: sube un fichero Turtle (.ttl) o JSON-LD (.jsonld).',
@@ -87,7 +89,16 @@ export function goneFromError(error: unknown): GoneResponse | null {
   }
 }
 
-/** URIs de las series de un 409 `CatalogConflictResponse` (baja de un catálogo con datasets). */
+/** `kind` de un 409 `ConflictResponse` del CRUD, si lo es. */
+export function conflictKind(error: unknown): ConflictResponse['kind'] | null {
+  if (!(error instanceof ApiError) || error.status !== 409 || !isObject(error.body)) return null
+  // `IngestErrorResponse` (409 de `POST /datasets`) también tiene `kind` (`withdrawn`), pero trae `issues`.
+  if (Array.isArray(error.body.issues)) return null
+  const kind = error.body.kind
+  return kind === 'slug_in_use' || kind === 'withdrawn' || kind === 'catalog_not_empty' ? kind : null
+}
+
+/** URIs de las series de un 409 `ConflictResponse` `catalog_not_empty` (baja de un catálogo con datasets). */
 export function conflictDatasets(error: unknown): string[] {
   if (!(error instanceof ApiError) || error.status !== 409 || !isObject(error.body)) return []
   const datasets = error.body.datasets
@@ -120,6 +131,18 @@ function validationFields(body: unknown): Partial<Record<FormField, string>> | n
 export function describeError(error: unknown, context: ErrorContext): FormErrorInfo {
   const info: FormErrorInfo = { message: context.fallback, fields: {}, issues: [] }
   if (!(error instanceof ApiError)) return info
+
+  // 409 del CRUD (`ConflictResponse`): slug en uso, slug dado de baja o catálogo con datasets.
+  const conflict = conflictKind(error)
+  if (conflict === 'slug_in_use' || conflict === 'withdrawn') {
+    info.message = conflict === 'slug_in_use' ? CRUD_TEXT.slugInUse : CRUD_TEXT.slugWithdrawn
+    info.fields.slug = info.message
+    return info
+  }
+  if (conflict === 'catalog_not_empty') {
+    info.message = CRUD_TEXT.catalogHasDatasets
+    return info
+  }
 
   const ingest = ingestError(error)
   if (ingest) {
