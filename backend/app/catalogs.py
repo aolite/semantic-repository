@@ -18,7 +18,9 @@ con **todas** las formas SHACL (como cualquier ingesta) y se escriben en el trip
 """
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
+from functools import wraps
 from typing import Any
 
 from rdflib import BNode, Graph, Literal, URIRef
@@ -32,8 +34,24 @@ from app.models import AuditAction, DistributionFile, FairEvaluation, User
 from app.storage import Storage, StorageError
 from app.triplestore import TripleStore
 from app.uris import DCAT, DCT, FOAF, PROV, Uris
+from app.write_lock import catalog_write_lock
 
 logger = logging.getLogger(__name__)
+
+
+def _locked[**P, R](function: Callable[P, R]) -> Callable[P, R]:
+    """Toda la operación (comprobaciones y escrituras) con el bloqueo de las escrituras del
+    catálogo (``app.write_lock``, QA-49-01). La sesión es el segundo argumento."""
+
+    @wraps(function)
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+        session = args[1]
+        assert isinstance(session, Session)  # noqa: S101 - firma de las operaciones del CRUD
+        with catalog_write_lock(session):
+            return function(*args, **kwargs)
+
+    return wrapper
+
 
 LANG = "es"
 
@@ -117,6 +135,7 @@ def _tombstone(
 # --- Catálogos --------------------------------------------------------------------------
 
 
+@_locked
 def create_catalog(
     store: TripleStore,
     session: Session,
@@ -147,6 +166,7 @@ def create_catalog(
     return uri
 
 
+@_locked
 def update_catalog(
     store: TripleStore,
     session: Session,
@@ -182,6 +202,7 @@ def update_catalog(
     return uri
 
 
+@_locked
 def withdraw_catalog(
     store: TripleStore,
     session: Session,
@@ -237,6 +258,7 @@ def _catalog_or_error(store: TripleStore, uris: Uris, slug: str, *, status_missi
     )
 
 
+@_locked
 def create_series(
     store: TripleStore,
     session: Session,
@@ -269,6 +291,7 @@ def create_series(
     return uri
 
 
+@_locked
 def update_series(
     store: TripleStore,
     session: Session,
@@ -321,6 +344,7 @@ def update_series(
     return uri
 
 
+@_locked
 def withdraw_series(
     store: TripleStore,
     session: Session,
@@ -359,6 +383,12 @@ def withdraw_series(
             continue
         deleted.append(row.storage_key)
         session.delete(row)
+    # QA-49-02: también lo que haya en {slug}/ sin fila en distribution_files (huérfanos).
+    try:
+        deleted.extend(key for key in storage.delete_prefix(slug) if key not in deleted)
+    except StorageError:
+        logger.warning("No se ha podido borrar la carpeta %s/ del almacenamiento", slug)
+        failed.append(f"{slug}/")
     # Evaluaciones FAIR pendientes de versiones que ya no existen.
     session.execute(
         update(FairEvaluation)

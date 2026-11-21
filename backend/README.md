@@ -391,6 +391,10 @@ El catálogo raíz no se crea, edita ni borra por la API: cambia solo con `data/
 
 **Auditoría.** `catalog_created`, `catalog_updated`, `catalog_withdrawn`, `dataset_created`, `dataset_updated` (con `moved_from`) y `dataset_withdrawn`.
 
+**Concurrencia (QA-49-01).** Ninguna escritura de catálogos, pertenencias o lápidas lee un grafo entero para reescribirlo: añadir triples es un `POST` del Graph Store Protocol (`append_graph`, se añade sin tocar lo demás) y quitarlos, un SPARQL Update `DELETE DATA` o `DELETE … WHERE` solo con IRIs validadas; mover un dataset de catálogo es una sola petición de Update. Además, las operaciones que comprueban y escriben (slug libre y crear, catálogo vacío y dar de baja, editar metadatos, publicar una serie y la escritura de `load-semantic`) se serializan con `app.write_lock`: un **advisory lock** de PostgreSQL (`pg_advisory_lock`, en una conexión propia; vale entre workers y réplicas y con la CLI) más un `RLock` del proceso, reentrante en el mismo hilo. Es un único bloqueo global porque estas escrituras son pocas y tocan grafos compartidos (raíz, bajas, catálogo de origen y de destino); así no hay riesgo de interbloqueo. El usuario de Fuseki del backend necesita permiso en `/update` además de `/data` (el `infra/fuseki/assembler.ttl` actual ya lo da). `load-semantic` vuelve a leer las bajas dentro del bloqueo y omite lo que se haya dado de baja mientras validaba.
+
+**Ficheros huérfanos (QA-49-02).** Al dar de baja un dataset se borran los ficheros con fila en `distribution_files` y, después, toda la carpeta `{slug}/` del almacenamiento (`Storage.delete_prefix`), también lo que no tenga fila. Solo ese slug: `prueba-otra/` no se toca al dar de baja `prueba`.
+
 ## Roles y autorización
 
 - `lector`: anónimo, sin cuenta. Ve lo público.
