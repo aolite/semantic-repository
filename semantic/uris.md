@@ -47,7 +47,7 @@ Los patrones marcados con *(prototipo)* aparecen literalmente en la pantalla «F
 | Consulta de referencia | `{BASE_URI}consulta/{id}` | — | `{BASE_URI}consulta/ot-datasets` | **[PROPUESTA del orquestador, fase 4]** |
 | Catálogo raíz | `{BASE_URI}catalogo` | `dcat:Catalog` | `{BASE_URI}catalogo` (`dct:identifier "itot-catalogo"`) | **[PROPUESTA]** (fase 1); raíz fijo: **Decidido (2026-11-21, decisión 49)** |
 | Catálogo | `{BASE_URI}catalogo/{slug}` | `dcat:Catalog` | `{BASE_URI}catalogo/sintetico` | **Decidido (2026-11-21, decisión 49)** |
-| Grafo de bajas (lápidas) | `{BASE_URI}bajas` | — | `{BASE_URI}bajas` | **[PROPUESTA]** (decisión 49) |
+| Grafo de bajas (lápidas) | `{BASE_URI}bajas` | — | `{BASE_URI}bajas` | **Decidido (2026-11-21, decisión 49)** |
 | Esquema de tipos de dataset | `{BASE_URI}vocab/tipo-dataset` | `skos:ConceptScheme` | `{BASE_URI}vocab/tipo-dataset` | **[PROPUESTA del orquestador]** |
 | Tipo de dataset | `{BASE_URI}vocab/tipo-dataset/{slug}` | `skos:Concept` | `{BASE_URI}vocab/tipo-dataset/sintetico` | **[PROPUESTA del orquestador]** |
 | Formas SHACL | `{BASE_URI}shapes#{Nombre}` | `sh:NodeShape`, `sh:PropertyShape` | `{BASE_URI}shapes#DatasetShape` | **[PROPUESTA]** |
@@ -91,7 +91,7 @@ Los tres datasets sintéticos son hoy `RESTRICTED` en todas sus versiones; ningu
 
 ## Catálogos y borrado lógico (decisión 49)
 
-Decidido por el responsable (2026-11-21): varios `dcat:Catalog`, cada dataset en **un solo** catálogo, creados, editados y borrados desde la aplicación por el editor y el admin; borrado **lógico**, con 410 Gone y ficha mínima en la URI, y los ficheros eliminados. Las versiones publicadas siguen siendo inmutables (decisión 28). El responsable validó el mismo día las propuestas de `semantico` sobre el catálogo raíz fijo, el patrón `catalogo/{slug}`, las URIs de los datasets sin catálogo, el catálogo «sintetico» con su título y el 409 al borrar un catálogo con datasets: van marcadas **Decidido (2026-11-21, decisión 49)**. Lo demás de esta sección, incluida la lápida, sigue siendo **[PROPUESTA]** de `semantico`.
+Decidido por el responsable (2026-11-21): varios `dcat:Catalog`, cada dataset en **un solo** catálogo, creados, editados y borrados desde la aplicación por el editor y el admin; borrado **lógico**, con 410 Gone y ficha mínima en la URI, y los ficheros eliminados. Las versiones publicadas siguen siendo inmutables (decisión 28). El responsable validó el mismo día las propuestas de `semantico` sobre el catálogo raíz fijo, el patrón `catalogo/{slug}`, las URIs de los datasets sin catálogo, el catálogo «sintetico» con su título y el 409 al borrar un catálogo con datasets, y después la lápida del borrado lógico (grafo `bajas`, solo para catálogo y serie, 410 por prefijo y slugs no reutilizables): van marcadas **Decidido (2026-11-21, decisión 49)**. Lo demás de esta sección sigue siendo **[PROPUESTA]** de `semantico`.
 
 ### Patrón de URIs de los catálogos · Decidido (2026-11-21, decisión 49)
 
@@ -99,7 +99,7 @@ Decidido por el responsable (2026-11-21): varios `dcat:Catalog`, cada dataset en
 |---|---|---|---|
 | Catálogo raíz | `{BASE_URI}catalogo` | `{BASE_URI}catalogo` | `data/catalogo.ttl` |
 | Catálogo | `{BASE_URI}catalogo/{slug}` | `{BASE_URI}catalogo/{slug}` | `data/catalogos/{slug}.ttl` **[PROPUESTA]** |
-| Lápidas de los recursos dados de baja | — | `{BASE_URI}bajas` **[PROPUESTA]** | ninguno (los escribe el backend) |
+| Lápidas de los recursos dados de baja | — | `{BASE_URI}bajas` | ninguno (los escribe el backend) |
 
 - **El catálogo actual no rompe su URI.** `{BASE_URI}catalogo` sigue existiendo, sigue siendo un `dcat:Catalog` con el mismo título, descripción e identificador, y se convierte en el **catálogo raíz**: el de todo el repositorio. Ya no lista series con `dcat:dataset`; agrupa los catálogos con `dcat:catalog` (DCAT 3 y DCAT-AP 3 lo prevén para catálogos dentro de un catálogo). Las series siguen siendo alcanzables desde él: raíz → `dcat:catalog` → `dcat:dataset`.
 - El raíz es **único y fijo**: no se crea, edita ni borra desde la aplicación; cambia solo con `data/catalogo.ttl` y `load-semantic`. Al crear un catálogo, el backend añade `<{BASE_URI}catalogo> dcat:catalog <{BASE_URI}catalogo/{slug}>` al grafo del raíz; al darlo de baja, lo quita.
@@ -118,7 +118,7 @@ Que cada dataset pertenece a un solo catálogo es de la decisión 49; cómo se e
 - Que la serie no esté ya en **otro** catálogo del triplestore lo comprueba el backend: SHACL solo ve el grafo que valida.
 - **Mover un dataset de catálogo** es editar metadatos de la serie: se quita el triple del catálogo de origen y se añade al de destino. No cambia ninguna URI ni ninguna versión publicada.
 
-### Borrado lógico: la lápida **[PROPUESTA]**
+### Borrado lógico: la lápida · Decidido (2026-11-21, decisión 49)
 
 Al dar de baja un catálogo o un dataset, su descripción sale de los grafos publicados (el grafo de la serie o del catálogo se borra, y el triple que lo enlazaba desde su catálogo o desde el raíz se quita), sus ficheros se eliminan y queda una **lápida** en el grafo `{BASE_URI}bajas`. Ese grafo no está entre los publicados: no aparece en SPARQL (decisión 42) ni en los listados. Solo lo lee el backend para responder 410.
 
@@ -243,7 +243,7 @@ Los esquemas auxiliares `vocab/dominio` y `vocab/tipo-dataset` no tienen dominio
 | Borrador | `adms:status <http://purl.org/adms/status/UnderDevelopment>` |
 | Referenciada | Sin `adms:status`: es el estado de toda ontología externa |
 
-Lo llevan las ontologías propias (cada versión) y todos los esquemas. Las formas SHACL no admiten otros valores (`Deprecated`, `Withdrawn`) hasta que la interfaz los contemple. `Withdrawn` se usa solo en las lápidas de los recursos dados de baja (**[PROPUESTA]** de la decisión 49, ver «Catálogos y borrado lógico»), que no son ontologías ni esquemas. En la ficha de ontología, «Actual» o «Sustituida» no es un estado: una versión está sustituida si otra la cita como `owl:priorVersion`.
+Lo llevan las ontologías propias (cada versión) y todos los esquemas. Las formas SHACL no admiten otros valores (`Deprecated`, `Withdrawn`) hasta que la interfaz los contemple. `Withdrawn` se usa solo en las lápidas de los recursos dados de baja (decisión 49, ver «Catálogos y borrado lógico»), que no son ontologías ni esquemas. En la ficha de ontología, «Actual» o «Sustituida» no es un estado: una versión está sustituida si otra la cita como `owl:priorVersion`.
 
 ### Versión de los esquemas SKOS **[PROPUESTA]**
 
@@ -310,5 +310,5 @@ Con Apache Jena: `riot --base="$BASE_URI" fichero.ttl`. Las IRIs absolutas (voca
 - URIs de entidades PROV intermedias (p. ej. «Capturas PCAP en bruto») y de actividades sin URI en el prototipo («Captura en banco de pruebas»): nodos en blanco por ahora.
 - Si la versión de los esquemas SKOS debe ser semver, como la de las ontologías.
 - Si se admiten versiones preliminares de SemVer.
-- Decisión 49: lo que sigue marcado **[PROPUESTA]** en «Catálogos y borrado lógico» (pertenencia en el grafo de ingesta, un solo nivel de catálogos, fichero por catálogo, toda la lápida del borrado lógico con el grafo `bajas`, el 410 por prefijo y los slugs no reutilizables, y descripción del catálogo «sintetico»).
+- Decisión 49: lo que sigue marcado **[PROPUESTA]** en «Catálogos y borrado lógico» (pertenencia en el grafo de ingesta, un solo nivel de catálogos, fichero por catálogo y descripción del catálogo «sintetico»).
 - Qué devuelve cada URI al resolverla (negociación de contenido HTML / Turtle / JSON-LD) y cómo se sirve la descarga de una distribución restringida: lo implementa `backend` según el contrato de la fase 4 (decisiones 31 y 40).

@@ -197,8 +197,9 @@ itsh:Catalog-catalog
     sh:message "Regla IT&OT: cada dcat:catalog es la IRI de un catálogo."@es .
 
 # --- Recurso dado de baja (borrado lógico, decisión 49) ---------------------
-# [PROPUESTA] Al borrar un catálogo o un dataset (serie), su descripción
-# desaparece de los grafos publicados y queda solo esta «lápida» en el grafo
+# Decidido (2026-11-21, decisión 49). Al borrar un catálogo o un dataset
+# (serie), su descripción desaparece de los grafos publicados y queda solo
+# esta «lápida» en el grafo
 # {BASE_URI}bajas, que no se publica en SPARQL ni en los listados. El backend
 # la usa para responder 410 Gone con una ficha mínima en la URI dada de baja
 # y en las que cuelgan de ella (versiones, distribuciones y ficheros).
