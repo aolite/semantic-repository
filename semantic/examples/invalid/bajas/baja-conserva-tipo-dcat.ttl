@@ -1,0 +1,23 @@
+# Ejemplo INVÁLIDO: Dataset dado de baja que conserva rdf:type dcat:DatasetSeries.
+# Solo deben fallar las formas indicadas.
+# validate.py lee las líneas «expect-violation» (nombre local en {BASE_URI}shapes#).
+# La fecha de baja es ficticia, solo para el ejemplo.
+# Además de Baja-type, fallan las formas de la serie: por eso la lápida pierde su
+# tipo DCAT (ver itsh:BajaShape).
+# expect-violation: Baja-type
+# expect-violation: DatasetSeries-description
+# expect-violation: DatasetSeries-catalog
+
+@prefix itotd: <dataset/> .
+@prefix dcat:  <http://www.w3.org/ns/dcat#> .
+@prefix dct:   <http://purl.org/dc/terms/> .
+@prefix foaf:  <http://xmlns.com/foaf/0.1/> .
+@prefix prov:  <http://www.w3.org/ns/prov#> .
+@prefix adms:  <http://www.w3.org/ns/adms#> .
+@prefix xsd:   <http://www.w3.org/2001/XMLSchema#> .
+
+itotd:prueba
+    a prov:Entity , dcat:DatasetSeries ;
+    dct:title "Serie de prueba"@es ;
+    adms:status <http://purl.org/adms/status/Withdrawn> ;
+    prov:invalidatedAtTime "2026-01-01T00:00:00Z"^^xsd:dateTime .

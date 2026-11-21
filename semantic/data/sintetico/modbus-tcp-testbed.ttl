@@ -154,6 +154,11 @@ itota:extraccion-caracteristicas
     prov:used _:capturas-pcap ;
     prov:wasAssociatedWith _:unidad-itot .
 
+# --- Pertenencia al catálogo (decisión 49) ---------------------------------
+# Cada dataset pertenece a exactamente un catálogo (itsh:DatasetSeries-catalog).
+# El catálogo se describe en semantic/data/catalogos/sintetico.ttl [PROPUESTA].
+<catalogo/sintetico> dcat:dataset itotd:modbus-tcp-testbed .
+
 # --- Agente -----------------------------------------------------------------
 _:unidad-itot
     a foaf:Agent , prov:Agent ;

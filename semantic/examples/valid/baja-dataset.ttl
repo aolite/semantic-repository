@@ -1,0 +1,22 @@
+# Ejemplo VÁLIDO (decisión 49): lápida de un dataset (serie) dado de baja,
+# tal como queda en el grafo {BASE_URI}bajas. Sus versiones, distribuciones y
+# ficheros no tienen lápida propia: el backend responde 410 en ellas a partir
+# de la de la serie. La fecha de baja es ficticia.
+# Las formas que aplica están en semantic/shapes/. Ver semantic/uris.md,
+# «Catálogos y borrado lógico».
+#
+# BASE_URI: el fichero no declara @base; las URIs son relativas.
+
+@prefix itotd: <dataset/> .
+@prefix dcat:  <http://www.w3.org/ns/dcat#> .
+@prefix dct:   <http://purl.org/dc/terms/> .
+@prefix foaf:  <http://xmlns.com/foaf/0.1/> .
+@prefix prov:  <http://www.w3.org/ns/prov#> .
+@prefix adms:  <http://www.w3.org/ns/adms#> .
+@prefix xsd:   <http://www.w3.org/2001/XMLSchema#> .
+
+itotd:prueba
+    a prov:Entity ;
+    dct:title "Serie de prueba"@es ;
+    adms:status <http://purl.org/adms/status/Withdrawn> ;
+    prov:invalidatedAtTime "2026-01-01T00:00:00Z"^^xsd:dateTime .

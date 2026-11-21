@@ -1,0 +1,18 @@
+# Ejemplo INVÁLIDO: Catálogo con dct:publisher literal en lugar de un agente.
+# Todo lo demás es válido, así que solo debe fallar la forma indicada.
+# validate.py lee las líneas «expect-violation» (nombre local en {BASE_URI}shapes#).
+# expect-violation: Catalog-publisher
+
+@prefix itotd: <dataset/> .
+@prefix dcat:  <http://www.w3.org/ns/dcat#> .
+@prefix dct:   <http://purl.org/dc/terms/> .
+@prefix foaf:  <http://xmlns.com/foaf/0.1/> .
+@prefix prov:  <http://www.w3.org/ns/prov#> .
+@prefix adms:  <http://www.w3.org/ns/adms#> .
+@prefix xsd:   <http://www.w3.org/2001/XMLSchema#> .
+
+<catalogo/prueba>
+    a dcat:Catalog ;
+    dct:title "Catálogo de prueba"@es ;
+    dct:description "Catálogo mínimo para probar las formas."@es ;
+    dct:publisher "Agente de prueba" .

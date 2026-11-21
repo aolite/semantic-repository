@@ -1,7 +1,8 @@
 # Formas SHACL mínimas: propiedades OBLIGATORIAS de DCAT-AP 3.
 #
 # Solo recoge las cardinalidades mínimas que DCAT-AP 3 marca como obligatorias
-# para las tres clases que usa la fase 1. Lo recomendado y lo opcional de
+# para las clases que usa el catálogo (Dataset, DatasetSeries, Distribution y,
+# desde la decisión 49, Catalog). Lo recomendado y lo opcional de
 # DCAT-AP 3 no se comprueba aquí. Las reglas propias de la unidad están en
 # itot-reglas.ttl.
 #
@@ -71,3 +72,37 @@ itsh:Distribution-accessURL
     sh:path dcat:accessURL ;
     sh:minCount 1 ;
     sh:message "DCAT-AP 3: una dcat:Distribution necesita al menos un dcat:accessURL."@es .
+
+# --- dcat:Catalog -----------------------------------------------------------
+# DCAT-AP 3: dct:title, dct:description y dct:publisher son obligatorias
+# (decisión 49: varios catálogos). dcat:dataset no es obligatoria en DCAT-AP 3,
+# así que un catálogo recién creado y todavía vacío cumple las formas.
+itsh:CatalogShape
+    a sh:NodeShape ;
+    rdfs:label "DCAT-AP 3 · Catalogue (obligatorias)"@es ;
+    sh:targetClass dcat:Catalog ;
+    sh:property itsh:Catalog-title , itsh:Catalog-description , itsh:Catalog-publisher .
+
+itsh:Catalog-title
+    a sh:PropertyShape ;
+    sh:path dct:title ;
+    sh:minCount 1 ;
+    sh:nodeKind sh:Literal ;
+    sh:message "DCAT-AP 3: un dcat:Catalog necesita al menos un dct:title."@es .
+
+itsh:Catalog-description
+    a sh:PropertyShape ;
+    sh:path dct:description ;
+    sh:minCount 1 ;
+    sh:nodeKind sh:Literal ;
+    sh:message "DCAT-AP 3: un dcat:Catalog necesita al menos una dct:description."@es .
+
+# DCAT-AP 3 la marca 1..1. El agente no tiene URI todavía (semantic/uris.md,
+# «Pendiente»), así que se admite un nodo en blanco.
+itsh:Catalog-publisher
+    a sh:PropertyShape ;
+    sh:path dct:publisher ;
+    sh:minCount 1 ;
+    sh:maxCount 1 ;
+    sh:nodeKind sh:BlankNodeOrIRI ;
+    sh:message "DCAT-AP 3: un dcat:Catalog necesita exactamente un dct:publisher (un agente, no un literal)."@es .

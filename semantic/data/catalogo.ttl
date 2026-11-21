@@ -1,17 +1,20 @@
-# Catálogo de la unidad (dcat:Catalog), identificador «itot-catalogo» en el
-# prototipo. URI: {BASE_URI}catalogo (ver semantic/uris.md).
+# Catálogo RAÍZ de la unidad (dcat:Catalog), identificador «itot-catalogo» en
+# el prototipo. URI: {BASE_URI}catalogo (ver semantic/uris.md).
 #
-# Lista con dcat:dataset las series del catálogo (en DCAT 3 una
-# dcat:DatasetSeries es un dcat:Dataset). Cuando se publique un dataset nuevo,
-# su serie se añade aquí.
+# Decisión 49 (varios catálogos) [PROPUESTA de semantico]: esta URI se
+# conserva y sigue siendo el catálogo de todo el repositorio, pero ya no
+# lista series. Agrupa con dcat:catalog los catálogos {BASE_URI}catalogo/{slug}
+# (uno por fichero en semantic/data/catalogos/), y cada uno de ellos lista sus
+# series con dcat:dataset. Cuando se crea un catálogo, se añade aquí; cuando
+# se da de baja, se quita. El raíz no se crea, edita ni borra desde la
+# aplicación.
 #
 # Título y descripción: el h1 y el párrafo de la pantalla Catálogo del
 # prototipo, tal cual. DCAT-AP 3 los marca como obligatorios, junto con
-# dct:publisher. Las formas de semantic/shapes/ no cubren dcat:Catalog todavía.
+# dct:publisher (formas itsh:CatalogShape e itsh:ItotCatalogShape).
 #
 # BASE_URI: el fichero no declara @base; las URIs son relativas.
 
-@prefix itotd: <dataset/> .
 @prefix dcat:  <http://www.w3.org/ns/dcat#> .
 @prefix dct:   <http://purl.org/dc/terms/> .
 @prefix foaf:  <http://xmlns.com/foaf/0.1/> .
@@ -23,10 +26,7 @@
     dct:title "Datasets y vocabularios controlados"@es ;
     dct:description "Punto único para publicar, describir y enlazar los datos de la unidad. Cada recurso se describe con DCAT-AP y se clasifica con los esquemas SKOS de IT, OT/ICS, PQC e identidad, e IA adversaria."@es ;
     dct:publisher _:unidad-itot ;
-    dcat:dataset
-        itotd:modbus-tcp-testbed ,
-        itotd:hallazgos-auditorias-intrusion ,
-        itotd:ejemplos-adversarios-vision .
+    dcat:catalog <catalogo/sintetico> .
 
 _:unidad-itot
     a foaf:Agent , prov:Agent ;

@@ -1,0 +1,36 @@
+# Catálogo de los datasets SINTÉTICOS de demostración (puerta G2).
+# URI: {BASE_URI}catalogo/sintetico; grafo con nombre, el mismo
+# (ver semantic/uris.md). Fichero: semantic/data/catalogos/{slug}.ttl.
+#
+# [PROPUESTA de semantico, decisión 49] Los tres datasets sintéticos van a un
+# catálogo propio, separado de los reales que lleguen en el piloto: así se
+# distinguen en los listados y, cuando ya no hagan falta, se retiran juntos.
+# El slug, el título y la descripción no salen del prototipo: son
+# [PROPUESTA] y los valida el responsable.
+#
+# Lista con dcat:dataset las series del catálogo (en DCAT 3 una
+# dcat:DatasetSeries es un dcat:Dataset). Cada fichero de
+# semantic/data/sintetico/ repite su propio triple de pertenencia, porque la
+# forma itsh:DatasetSeries-catalog lo exige en el grafo que se ingesta.
+#
+# BASE_URI: el fichero no declara @base; las URIs son relativas.
+
+@prefix itotd: <dataset/> .
+@prefix dcat:  <http://www.w3.org/ns/dcat#> .
+@prefix dct:   <http://purl.org/dc/terms/> .
+@prefix foaf:  <http://xmlns.com/foaf/0.1/> .
+@prefix prov:  <http://www.w3.org/ns/prov#> .
+
+<catalogo/sintetico>
+    a dcat:Catalog ;
+    dct:title "Datasets sintéticos de demostración"@es ;
+    dct:description "Datasets sintéticos que reproducen el catálogo del prototipo. No contienen datos reales."@es ;
+    dct:publisher _:unidad-itot ;
+    dcat:dataset
+        itotd:modbus-tcp-testbed ,
+        itotd:hallazgos-auditorias-intrusion ,
+        itotd:ejemplos-adversarios-vision .
+
+_:unidad-itot
+    a foaf:Agent , prov:Agent ;
+    foaf:name "Eurecat · Unidad IT&OT Security" .

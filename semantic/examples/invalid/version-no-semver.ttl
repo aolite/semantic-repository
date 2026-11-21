@@ -25,3 +25,6 @@ itotd:prueba
     a dcat:Distribution ;
     dcat:accessURL <dataset/prueba/1.0.0/csv> ;
     dcat:mediaType <http://www.iana.org/assignments/media-types/text/csv> .
+
+# --- Pertenencia al catálogo (decisión 49, itsh:DatasetSeries-catalog) ------
+<catalogo/prueba> dcat:dataset itotd:prueba .

@@ -7,18 +7,19 @@ Zona del agente `semantico`. Contiene contratos que consumen otras capas: el pat
 | Ruta | Qué es | Consumidores |
 |---|---|---|
 | `uris.md` | Patrón de URIs persistentes a partir de `BASE_URI` | `backend`, `frontend` |
-| `shapes/dcat-ap-3-minimo.ttl` | Propiedades obligatorias de DCAT-AP 3 para `dcat:Dataset`, `dcat:DatasetSeries` y `dcat:Distribution` | `backend` (ingesta), `qa` |
-| `shapes/itot-reglas.ttl` | Reglas propias de la unidad, cada una justificada en un comentario | `backend` (ingesta), `qa` |
+| `shapes/dcat-ap-3-minimo.ttl` | Propiedades obligatorias de DCAT-AP 3 para `dcat:Dataset`, `dcat:DatasetSeries`, `dcat:Distribution` y `dcat:Catalog` | `backend` (ingesta), `qa` |
+| `shapes/itot-reglas.ttl` | Reglas propias de la unidad, cada una justificada en un comentario. Desde la decisión 49, también la pertenencia de cada serie a un solo catálogo y la lápida de los recursos dados de baja | `backend` (ingesta), `qa` |
 | `shapes/ontologias-vocabularios.ttl` | Formas de `owl:Ontology` (propia y externa), `skos:ConceptScheme` y `skos:Concept`, cada regla justificada | `backend` (ingesta), `qa` |
 | `examples/valid/` | Datos de ejemplo del prototipo que deben cumplir las formas | `backend`, `frontend`, `qa` |
-| `examples/invalid/` | Un fichero por regla, que debe fallar exactamente en la forma indicada. En la raíz, los de datasets (los que pasan por la ingesta de datasets); en `ontologias-vocabularios/`, los de esquemas SKOS y ontologías | `backend`, `qa` |
+| `examples/invalid/` | Un fichero por regla, que debe fallar exactamente en la forma indicada. En la raíz, los de datasets (los que pasan por la ingesta de datasets); en `ontologias-vocabularios/`, los de esquemas SKOS y ontologías; en `catalogos/`, los de catálogos, y en `bajas/`, los de lápidas (decisión 49) | `backend`, `qa` |
 | `data/sintetico/` | Datasets **sintéticos** del catálogo del prototipo para la puerta G2, un fichero por dataset (serie, versiones y distribuciones), marcados con `dct:type <{BASE_URI}vocab/tipo-dataset/sintetico>` | `backend` (comando de carga), `frontend`, `qa` |
 | `data/vocab-minimo.ttl` | Esquemas **auxiliares** del catálogo: `vocab/dominio` (los cuatro dominios del filtro) y `vocab/tipo-dataset` (marca de sintético). Desde la fase 3 ya no lleva los esquemas de dominio ni los temas | `backend`, `frontend`, `qa` |
 | `vocabularios/{slug}.ttl` | Esquemas SKOS **de dominio** sintéticos (`it`, `ot`, `pqc`, `did`, `ia`), uno por fichero con sus conceptos. `ot` tiene los 13 conceptos del prototipo | `backend` (carga), `frontend`, `qa` |
 | `vocabularios/corp/{slug}.ttl` | Esquemas SKOS **corporativos** sintéticos (`organizacion`, `financiacion`, `trl`, `sectores`) | `backend` (carga), `frontend`, `qa` |
 | `ontologias/{slug}/{version}.ttl` | Ontologías propias sintéticas, una versión por fichero: `itot` 1.0.0, 1.1.0 y 1.2.0; `pqcm` 0.4.0 (borrador); `didx` 1.0.0 | `backend` (carga y métricas), `frontend`, `qa` |
 | `ontologias/externas.ttl` | Ontologías externas (SAREF, SOSA/SSN, D3FEND), solo por referencia y con su IRI oficial | `backend`, `frontend` |
-| `data/catalogo.ttl` | El `dcat:Catalog` «itot-catalogo» con sus series | `backend`, `frontend` |
+| `data/catalogo.ttl` | El `dcat:Catalog` raíz «itot-catalogo», que agrupa los catálogos con `dcat:catalog` (decisión 49) | `backend`, `frontend` |
+| `data/catalogos/{slug}.ttl` | Un `dcat:Catalog` `{BASE_URI}catalogo/{slug}` por fichero, con sus series (`dcat:dataset`). Hoy solo `sintetico`, el de los tres datasets sintéticos **[PROPUESTA]** | `backend`, `frontend` |
 | `data/sintetico/ficheros/{slug}/{version}/{dist}.{ext}` | Ficheros **sintéticos** de distribución (fase 4): uno mínimo y marcado por cada distribución `PUBLIC` o `RESTRICTED` de `data/sintetico/`, ninguno para `NON_PUBLIC` | `backend` (`load-semantic` los sube), `qa` |
 | `consultas/{id}.rq` | Consultas SPARQL de referencia de la Consola SPARQL (fase 4), con cabecera `# title:` / `# hint:` y el marcador `{BASE_URI}` | `backend` (`GET /sparql/queries`), `frontend`, `qa` |
 | `scripts/ficheros_sinteticos.py` | Genera `data/sintetico/ficheros/` a partir de las distribuciones, sin red | `semantico`, `qa` |
@@ -34,7 +35,7 @@ uv run semantic/scripts/validate.py
 
 El script declara sus dependencias con metadatos PEP 723, así que no hace falta instalar nada aparte de uv. Las versiones están fijadas (`rdflib==7.6.0` y `pyshacl==0.40.2`) y son las mismas del `uv.lock` del backend, para que el CI, el workflow de publicación y la ingesta validen igual. Si el backend las actualiza, hay que cambiarlas aquí también. Además fija `pyarrow==26.0.0`, que el backend no usa: `validate.py` regenera en memoria los ficheros sintéticos de distribución para compararlos, y el Parquet se escribe con pyarrow (ver más abajo). Comprueba la sintaxis de todos los `.ttl`, que las formas sean SHACL válido, que los ejemplos válidos las cumplan y que cada ejemplo inválido falle exactamente en las formas que indican sus líneas `# expect-violation: <NombreLocal>`. Sale con código 1 si algo falla. El CI usa este mismo comando.
 
-Para `data/`, valida cada fichero de `data/sintetico/` por separado (tal como lo ingesta el backend) y después todo `data/**/*.ttl` en un grafo. Sobre ese grafo conjunto hace además comprobaciones de coherencia que no son SHACL, porque cruzan datos y vocabulario: cada tema es un concepto de un esquema de `vocabularios/` con dominio (`dct:subject`) y los de una versión son de un solo dominio; las series y versiones de `data/sintetico/` llevan la marca de sintético; `dcat:inSeries`, `dcat:previousVersion`, `dcat:first` y `dcat:last` apuntan a recursos descritos de la misma serie; las URIs de versiones y distribuciones siguen `uris.md`; `dcat:accessURL` es la URI de la propia distribución, y el catálogo lista todas las series. Son reglas de los datos de este repositorio, no del contrato de ingesta: el backend puede recibir versiones cuyos conceptos están en otro grafo.
+Para `data/`, valida cada fichero de `data/sintetico/` por separado (tal como lo ingesta el backend) y después todo `data/**/*.ttl` en un grafo. Sobre ese grafo conjunto hace además comprobaciones de coherencia que no son SHACL, porque cruzan datos y vocabulario: cada tema es un concepto de un esquema de `vocabularios/` con dominio (`dct:subject`) y los de una versión son de un solo dominio; las series y versiones de `data/sintetico/` llevan la marca de sintético; `dcat:inSeries`, `dcat:previousVersion`, `dcat:first` y `dcat:last` apuntan a recursos descritos de la misma serie; las URIs de versiones y distribuciones siguen `uris.md`; `dcat:accessURL` es la URI de la propia distribución, y los catálogos son coherentes: el raíz agrupa con `dcat:catalog` todos los de `data/catalogos/` y no lista series, cada `data/catalogos/{slug}.ttl` describe solo `{BASE_URI}catalogo/{slug}`, ningún catálogo anida otros y todo `dcat:dataset` sale de uno de ellos hacia una serie descrita (que cada serie esté en exactamente un catálogo lo comprueba SHACL). Son reglas de los datos de este repositorio, no del contrato de ingesta: el backend puede recibir versiones cuyos conceptos están en otro grafo.
 
 Para `vocabularios/` y `ontologias/`, valida cada fichero por separado (un fichero es un grafo con nombre) y comprueba además:
 
@@ -100,6 +101,15 @@ graph.parse(path, format="turtle", publicID=base_uri)
 ```
 
 El script toma `BASE_URI` del entorno y, si no está definida, usa el valor por defecto (`https://semantic.example.org/itot/`). Las formas quedan en `{BASE_URI}shapes#`, así que **el backend debe cargar formas y datos con la misma `BASE_URI`**.
+
+## Catálogos y borrado lógico (decisión 49)
+
+Varios catálogos, cada dataset en uno solo, y borrado lógico con 410. El patrón de URIs, la pertenencia, la lápida y qué pasa al borrar un catálogo con datasets están en «Catálogos y borrado lógico» de `uris.md`; todo es **[PROPUESTA]** pendiente de validar por el responsable. En resumen:
+
+- `{BASE_URI}catalogo` conserva su URI y pasa a ser el catálogo raíz; los catálogos son `{BASE_URI}catalogo/{slug}` y las URIs de los datasets no cambian.
+- El grafo que se ingesta con una serie lleva `<{BASE_URI}catalogo/{slug}> dcat:dataset <serie>` (forma `itsh:DatasetSeries-catalog`, exactamente uno).
+- Un recurso dado de baja queda como lápida en el grafo `{BASE_URI}bajas` (no publicado): `rdf:type prov:Entity`, `dct:title`, `adms:status …/Withdrawn` y `prov:invalidatedAtTime` (forma cerrada `itsh:BajaShape`).
+- **[PROPUESTA]** Un catálogo con datasets no se puede dar de baja (409): primero se mueven o se dan de baja sus datasets.
 
 ## Supuestos de validación
 

@@ -27,7 +27,9 @@ Comprueba:
      auxiliares en un grafo) cumple las formas y es coherente: temas que son
      conceptos de esquemas de dominio (semantic/vocabularios/) y de un único
      dominio, marca de sintético, referencias entre series, versiones y
-     distribuciones, y URIs según semantic/uris.md.
+     distribuciones, URIs según semantic/uris.md y catálogos (el raíz
+     agrupa con dcat:catalog los de data/catalogos/{slug}.ttl, que listan
+     las series; un fichero por catálogo).
   7. Que cada esquema de semantic/vocabularios/ (un fichero, un esquema, un
      grafo con nombre) cumple las formas por sí solo y es coherente: URI
      según la ruta del fichero, dominio (dct:subject) en los de dominio y no
@@ -79,6 +81,7 @@ VALID_DIR = SEMANTIC_DIR / "examples" / "valid"
 INVALID_DIR = SEMANTIC_DIR / "examples" / "invalid"
 DATA_DIR = SEMANTIC_DIR / "data"
 SYNTHETIC_DIR = DATA_DIR / "sintetico"
+CATALOGS_DIR = DATA_DIR / "catalogos"
 AUX_VOCAB_FILE = DATA_DIR / "vocab-minimo.ttl"
 VOCAB_DIR = SEMANTIC_DIR / "vocabularios"
 CORP_DIR = VOCAB_DIR / "corp"
@@ -275,6 +278,9 @@ def main() -> int:
     else:
         errors.append("semantic/data/: el grafo conjunto no cumple las formas")
         print(f"  FALLO  formas\n{text}")
+    for problem in catalog_files(base):
+        errors.append(problem)
+        print(f"  FALLO  {problem}")
     synthetic_subjects: set[URIRef] = set()
     for path in synthetic_files:
         graph = parse(path, base)
@@ -454,6 +460,23 @@ def distribution_files(base: str) -> list[str]:
         for path in sorted(fs.FILES_DIR.rglob("*")):
             if path.is_file() and path not in expected:
                 problems.append(f"{rel(path)}: no corresponde a ninguna distribución PUBLIC o RESTRICTED")
+    return problems
+
+
+def catalog_files(base: str) -> list[str]:
+    """data/catalogos/{slug}.ttl describe solo el catálogo {BASE_URI}catalogo/{slug}."""
+    problems: list[str] = []
+    for path in sorted(CATALOGS_DIR.glob("*.ttl")):
+        graph = parse(path, base)
+        expected = URIRef(f"{base}catalogo/{path.stem}")
+        if not SLUG.match(path.stem):
+            problems.append(f"{rel(path)}: el nombre del fichero no es un slug válido")
+        found = set(graph.subjects(RDF.type, DCAT.Catalog))
+        if found != {expected}:
+            problems.append(f"{rel(path)}: tiene que describir exactamente un dcat:Catalog, catalogo/{path.stem}")
+        for subject in set(graph.subjects()):
+            if isinstance(subject, URIRef) and subject != expected:
+                problems.append(f"{rel(path)}: describe {subject}, que no es el catálogo del fichero")
     return problems
 
 
@@ -695,13 +718,33 @@ def coherence(g: Graph, base: str, synthetic: set[URIRef], vocab: Graph) -> list
             if set(g.objects(dist, DCAT.accessURL)) != {dist}:
                 problems.append(f"{short(dist)}: dcat:accessURL tiene que ser la URI de la propia distribución")
 
-    # Catálogo: cada dcat:dataset es una serie descrita, y están todas.
-    for catalog in g.subjects(RDF.type, DCAT.Catalog):
-        listed = set(g.objects(catalog, DCAT.dataset))
-        for item in listed - series:
+    # Catálogos (decisión 49) [PROPUESTA]: el raíz {BASE_URI}catalogo agrupa
+    # con dcat:catalog los catálogos {BASE_URI}catalogo/{slug}, y solo estos
+    # listan series con dcat:dataset. Que cada serie esté en exactamente un
+    # catálogo lo comprueba la forma itsh:DatasetSeries-catalog.
+    root = URIRef(f"{base}catalogo")
+    catalogs = set(g.subjects(RDF.type, DCAT.Catalog))
+    children = catalogs - {root}
+    if root not in catalogs:
+        problems.append("falta el catálogo raíz catalogo (semantic/data/catalogo.ttl)")
+    for item in g.objects(root, DCAT.dataset):
+        problems.append(f"catalogo: el catálogo raíz no lista series; dcat:dataset {short(item)} va en un catalogo/{{slug}}")
+    listed_catalogs = set(g.objects(root, DCAT.catalog))
+    for item in listed_catalogs - children:
+        problems.append(f"catalogo: dcat:catalog {short(item)} no es un dcat:Catalog descrito")
+    for catalog in children:
+        slug = str(catalog)[len(f"{base}catalogo/"):] if str(catalog).startswith(f"{base}catalogo/") else ""
+        if not SLUG.match(slug):
+            problems.append(f"{short(catalog)}: la URI de un catálogo es catalogo/{{slug}}")
+        if catalog not in listed_catalogs:
+            problems.append(f"catalogo: falta dcat:catalog {short(catalog)}")
+        for item in g.objects(catalog, DCAT.catalog):
+            problems.append(f"{short(catalog)}: solo el catálogo raíz agrupa catálogos (dcat:catalog {short(item)})")
+    for catalog, item in g.subject_objects(DCAT.dataset):
+        if catalog not in children:
+            problems.append(f"{short(catalog)}: dcat:dataset {short(item)} desde algo que no es un catálogo catalogo/{{slug}} descrito")
+        if item not in series:
             problems.append(f"{short(catalog)}: dcat:dataset {short(item)} no es una dcat:DatasetSeries descrita")
-        for item in series - listed:
-            problems.append(f"{short(catalog)}: falta dcat:dataset {short(item)}")
 
     return sorted(problems)
 
