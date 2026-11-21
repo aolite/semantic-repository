@@ -19,7 +19,7 @@ Zona del agente `semantico`. Contiene contratos que consumen otras capas: el pat
 | `ontologias/{slug}/{version}.ttl` | Ontologías propias sintéticas, una versión por fichero: `itot` 1.0.0, 1.1.0 y 1.2.0; `pqcm` 0.4.0 (borrador); `didx` 1.0.0 | `backend` (carga y métricas), `frontend`, `qa` |
 | `ontologias/externas.ttl` | Ontologías externas (SAREF, SOSA/SSN, D3FEND), solo por referencia y con su IRI oficial | `backend`, `frontend` |
 | `data/catalogo.ttl` | El `dcat:Catalog` raíz «itot-catalogo», que agrupa los catálogos con `dcat:catalog` (decisión 49) | `backend`, `frontend` |
-| `data/catalogos/{slug}.ttl` | Un `dcat:Catalog` `{BASE_URI}catalogo/{slug}` por fichero, con sus series (`dcat:dataset`). Hoy solo `sintetico`, el de los tres datasets sintéticos **[PROPUESTA]** | `backend`, `frontend` |
+| `data/catalogos/{slug}.ttl` | Un `dcat:Catalog` `{BASE_URI}catalogo/{slug}` por fichero, con sus series (`dcat:dataset`). Hoy solo `sintetico`, el de los tres datasets sintéticos: Decidido (2026-11-21, decisión 49) | `backend`, `frontend` |
 | `data/sintetico/ficheros/{slug}/{version}/{dist}.{ext}` | Ficheros **sintéticos** de distribución (fase 4): uno mínimo y marcado por cada distribución `PUBLIC` o `RESTRICTED` de `data/sintetico/`, ninguno para `NON_PUBLIC` | `backend` (`load-semantic` los sube), `qa` |
 | `consultas/{id}.rq` | Consultas SPARQL de referencia de la Consola SPARQL (fase 4), con cabecera `# title:` / `# hint:` y el marcador `{BASE_URI}` | `backend` (`GET /sparql/queries`), `frontend`, `qa` |
 | `scripts/ficheros_sinteticos.py` | Genera `data/sintetico/ficheros/` a partir de las distribuciones, sin red | `semantico`, `qa` |
@@ -104,12 +104,12 @@ El script toma `BASE_URI` del entorno y, si no está definida, usa el valor por 
 
 ## Catálogos y borrado lógico (decisión 49)
 
-Varios catálogos, cada dataset en uno solo, y borrado lógico con 410. El patrón de URIs, la pertenencia, la lápida y qué pasa al borrar un catálogo con datasets están en «Catálogos y borrado lógico» de `uris.md`; todo es **[PROPUESTA]** pendiente de validar por el responsable. En resumen:
+Varios catálogos, cada dataset en uno solo, y borrado lógico con 410. El patrón de URIs, la pertenencia, la lápida y qué pasa al borrar un catálogo con datasets están en «Catálogos y borrado lógico» de `uris.md`; lo validado va marcado **Decidido (2026-11-21, decisión 49)** y lo demás sigue siendo **[PROPUESTA]**. En resumen:
 
-- `{BASE_URI}catalogo` conserva su URI y pasa a ser el catálogo raíz; los catálogos son `{BASE_URI}catalogo/{slug}` y las URIs de los datasets no cambian.
-- El grafo que se ingesta con una serie lleva `<{BASE_URI}catalogo/{slug}> dcat:dataset <serie>` (forma `itsh:DatasetSeries-catalog`, exactamente uno).
-- Un recurso dado de baja queda como lápida en el grafo `{BASE_URI}bajas` (no publicado): `rdf:type prov:Entity`, `dct:title`, `adms:status …/Withdrawn` y `prov:invalidatedAtTime` (forma cerrada `itsh:BajaShape`).
-- **[PROPUESTA]** Un catálogo con datasets no se puede dar de baja (409): primero se mueven o se dan de baja sus datasets.
+- **Decidido (2026-11-21, decisión 49):** `{BASE_URI}catalogo` conserva su URI y pasa a ser el catálogo raíz, fijo; los catálogos son `{BASE_URI}catalogo/{slug}` y las URIs de los datasets no llevan el catálogo.
+- **[PROPUESTA]** El grafo que se ingesta con una serie lleva `<{BASE_URI}catalogo/{slug}> dcat:dataset <serie>` (forma `itsh:DatasetSeries-catalog`, exactamente uno).
+- **Decidido (2026-11-21, decisión 49):** un recurso dado de baja queda como lápida en el grafo `{BASE_URI}bajas` (no publicado): `rdf:type prov:Entity`, `dct:title`, `adms:status …/Withdrawn` y `prov:invalidatedAtTime` (forma cerrada `itsh:BajaShape`).
+- **Decidido (2026-11-21, decisión 49):** un catálogo con datasets no se puede dar de baja (409): primero se mueven o se dan de baja sus datasets.
 
 ## Supuestos de validación
 
