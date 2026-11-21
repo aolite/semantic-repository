@@ -68,6 +68,7 @@ def http(
     headers: dict[str, str] | None = None,
     token: str | None = None,
     follow_redirects: bool = True,
+    timeout: float | None = None,
 ) -> Response:
     """Petición HTTP con urllib. Devuelve también las respuestas 4xx y 5xx.
 
@@ -90,7 +91,7 @@ def http(
     request = urllib.request.Request(url, data=data, method=method, headers=request_headers)  # noqa: S310
     opener = urllib.request.urlopen if follow_redirects else _NO_REDIRECT_OPENER.open
     try:
-        with opener(request, timeout=HTTP_TIMEOUT_SECONDS) as raw:
+        with opener(request, timeout=timeout or HTTP_TIMEOUT_SECONDS) as raw:
             content = raw.read()
             return Response(
                 raw.status,
@@ -514,7 +515,11 @@ E2E_CATALOG = "e2e-pruebas"
 
 
 def create_catalog(
-    stack: Stack, token: str | None, slug: str, title: str = "Catálogo de las pruebas e2e"
+    stack: Stack,
+    token: str | None,
+    slug: str,
+    title: str = "Catálogo de las pruebas e2e",
+    timeout: float | None = None,
 ) -> Response:
     """``POST /catalogs`` con datos ficticios (decisión 49)."""
     return http(
@@ -527,6 +532,7 @@ def create_catalog(
             "publisher_name": "Pruebas de QA",
         },
         token=token,
+        timeout=timeout,
     )
 
 

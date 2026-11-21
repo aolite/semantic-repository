@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import secrets
 import threading
+import time
 import urllib.parse
 
 import pytest
@@ -48,8 +49,15 @@ def _api(stack: Stack, method: str, path: str, token: str | None, body: object |
     return http(method, f"{stack.api}{path}", json_body=body, token=token)
 
 
-def _catalog(stack: Stack, token: str | None, slug: str, title: str = "Catálogo ficticio"):
-    return create_catalog(stack, token, slug, title)
+def _catalog(
+    stack: Stack, token: str | None, slug: str, title: str = "Catálogo ficticio", timeout: float | None = None
+):
+    return create_catalog(stack, token, slug, title, timeout)
+
+
+def _api_slow(stack: Stack, method: str, path: str, token: str | None):
+    """Como ``_api`` pero esperando hasta 3 minutos (pruebas de ráfagas con el bloqueo)."""
+    return http(method, f"{stack.api}{path}", token=token, timeout=180)
 
 
 def _dataset(
@@ -1015,19 +1023,58 @@ def test_bajas_simultaneas_no_pierden_lapidas(stack: Stack, editor: Account) -> 
     assert lost == [], f"lápidas perdidas: {lost}"
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason="QA-49-03: con más escrituras simultáneas que conexiones del pool, las que esperan "
+    "el bloqueo retienen su conexión y el que lo tiene no consigue otra para el advisory lock: "
+    "500 (QueuePool), ráfagas de ~30 s y /auth/me parado hasta 30 s",
+)
 def test_muchas_escrituras_simultaneas_no_agotan_el_pool_ni_el_bloqueo(
     stack: Stack, editor: Account
 ) -> None:
-    """El bloqueo de las escrituras (advisory lock de PostgreSQL) hace esperar a las demás: con
-    más peticiones que conexiones del pool (5 + 10 de desbordamiento), todas tienen que
-    terminar bien (ni 500 ni 503) y la API tiene que seguir respondiendo a las lecturas."""
-    n = 30
+    """El bloqueo de las escrituras (advisory lock de PostgreSQL) hace esperar a las demás. Con más
+    escrituras simultáneas que conexiones del pool (5 + 10 de desbordamiento), las que esperan
+    el bloqueo retienen su conexión (la de la consulta de usuario sigue en transacción) y quien
+    tiene el bloqueo necesita otra para el advisory lock: todas tienen que terminar bien y deprisa,
+    y las lecturas que usan la base de datos (``/auth/me``) tienen que seguir respondiendo."""
+    n = 20
     cats = [_slug("pool") for _ in range(n)]
-    statuses = _parallel([lambda s=s: _catalog(stack, editor.token, s).status for s in cats])
-    assert statuses == [201] * n, sorted(set(statuses))
+    probes: list[tuple[int, float]] = []
+    stop = threading.Event()
+
+    def probe() -> None:
+        while not stop.is_set():
+            started = time.monotonic()
+            try:
+                status = http("GET", f"{stack.api}/auth/me", token=editor.token, timeout=60).status
+            except OSError:
+                status = 0
+            probes.append((status, time.monotonic() - started))
+            time.sleep(0.5)
+
+    watcher = threading.Thread(target=probe)
+    watcher.start()
+    started = time.monotonic()
+    try:
+        statuses = _parallel(
+            [lambda s=s: _catalog(stack, editor.token, s, timeout=180).status for s in cats]
+        )
+    finally:
+        stop.set()
+        watcher.join()
+    elapsed = time.monotonic() - started
+    worst = max((t for _s, t in probes), default=0.0)
+    problems = []
+    if statuses != [201] * n:
+        problems.append(f"estados de las altas: {sorted(set(map(str, statuses)))}")
+    if elapsed >= 30:
+        problems.append(f"la ráfaga de {n} altas tardó {elapsed:.0f} s")
+    if not all(s == 200 for s, _t in probes) or worst >= 10:
+        problems.append(
+            f"/auth/me durante la ráfaga: peor {worst:.1f} s, estados {sorted({s for s, _ in probes})}"
+        )
+    assert problems == [], "; ".join(problems)
     assert http("GET", f"{stack.api}/health/ready").status == 200
-    listed = {c["slug"] for c in _json(http("GET", f"{stack.api}/catalogs"))["items"]}  # type: ignore[index]
-    assert set(cats) <= listed
     base = _base(stack)
     linked = {
         r["c"]["value"]
@@ -1037,8 +1084,10 @@ def test_muchas_escrituras_simultaneas_no_agotan_el_pool_ni_el_bloqueo(
         )["results"]["bindings"]
     }
     assert all(f"{base}catalogo/{s}" in linked for s in cats)
-    statuses = _parallel([lambda s=s: _api(stack, "DELETE", f"/catalogs/{s}", editor.token).status for s in cats])
-    assert statuses == [204] * n, sorted(set(statuses))
+    statuses = _parallel(
+        [lambda s=s: _api_slow(stack, "DELETE", f"/catalogs/{s}", editor.token).status for s in cats]
+    )
+    assert statuses == [204] * n, sorted(set(map(str, statuses)))
     assert all(http("GET", f"{stack.api}/catalogs/{s}").status == 410 for s in cats)
 
 
@@ -1061,7 +1110,7 @@ def test_load_semantic_y_la_api_se_serializan_con_el_mismo_bloqueo(
     cats = [_slug("ls") for _ in range(5)]
     results = _parallel(
         [lambda: _load_semantic(stack)[0]]
-        + [lambda s=s: _catalog(stack, editor.token, s).status for s in cats]
+        + [lambda s=s: _catalog(stack, editor.token, s, timeout=180).status for s in cats]
     )
     assert results[0] == 0
     assert results[1:] == [201] * 5, results

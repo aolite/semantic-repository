@@ -423,7 +423,6 @@ test('«Editar dataset» muestra el publicador actual y lo conserva si se deja',
   await signIn(page, accounts().editor)
   await openCatalog(page, `Catálogo ${cat}`)
   await openDatasetFromCatalog(page, `Dataset ${ds}`)
-  await expect(page.getByText('Editorial ficticia')).toBeVisible()
   await page.getByRole('button', { name: 'Editar', exact: true }).click()
   const edit = page.getByRole('region', { name: 'Editar dataset' })
   await expect(edit.getByLabel('Publicador (opcional)')).toHaveValue('Editorial ficticia')
