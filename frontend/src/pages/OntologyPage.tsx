@@ -64,7 +64,7 @@ export function OntologyPage() {
     )
   }
 
-  if (state.status === 'error') {
+  if (state.status === 'error' || state.status === 'gone') {
     return (
       <div className="dataset">
         <Breadcrumbs slug={slug} />

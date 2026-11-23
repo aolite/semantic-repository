@@ -5,7 +5,7 @@ const params = (query: string) => new URLSearchParams(query)
 
 describe('Estado del Catálogo en la URL', () => {
   it('lee los valores por defecto sin parámetros', () => {
-    expect(readCatalogParams(params(''))).toEqual({ q: '', domain: 'all', type: 'all', page: 1 })
+    expect(readCatalogParams(params(''))).toEqual({ q: '', domain: 'all', type: 'all', catalog: null, page: 1 })
   })
 
   it('lee q, dominio, tipo y página', () => {
@@ -13,6 +13,7 @@ describe('Estado del Catálogo en la URL', () => {
       q: 'modbus',
       domain: 'pqc',
       type: 'vocab',
+      catalog: null,
       page: 4,
     })
     expect(readCatalogParams(params('tipo=datasets')).type).toBe('dataset')
@@ -23,6 +24,7 @@ describe('Estado del Catálogo en la URL', () => {
       q: '',
       domain: 'all',
       type: 'all',
+      catalog: null,
       page: 1,
     })
     expect(readCatalogParams(params('pagina=abc')).page).toBe(1)
@@ -45,6 +47,14 @@ describe('Estado del Catálogo en la URL', () => {
 
   it('conserva parámetros ajenos y recorta la búsqueda', () => {
     expect(writeCatalogParams(params('otro=1'), { q: '  a b ' }).toString()).toBe('otro=1&q=a+b')
+  })
+
+  it('lee y escribe el catálogo (`?catalogo=`), ignora slugs no válidos y vuelve a la página 1', () => {
+    expect(readCatalogParams(params('catalogo=sintetico')).catalog).toBe('sintetico')
+    expect(readCatalogParams(params('catalogo=No%20Valido')).catalog).toBeNull()
+    expect(readCatalogParams(params('catalogo=-a')).catalog).toBeNull()
+    expect(writeCatalogParams(params('pagina=3'), { catalog: 'sintetico' }).toString()).toBe('catalogo=sintetico')
+    expect(writeCatalogParams(params('catalogo=sintetico&q=x'), { catalog: null }).toString()).toBe('q=x')
   })
 
   it('catalogSearch devuelve «?…» o cadena vacía', () => {

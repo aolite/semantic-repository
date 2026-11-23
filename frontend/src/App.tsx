@@ -1,6 +1,8 @@
 import { Route, Routes } from 'react-router'
 import { Layout } from './components/Layout'
+import { CatalogDetailPage } from './pages/CatalogDetailPage'
 import { CatalogPage } from './pages/CatalogPage'
+import { CatalogsPage } from './pages/CatalogsPage'
 import { DatasetPage } from './pages/DatasetPage'
 import { LoginPage } from './pages/LoginPage'
 import { OntologyPage } from './pages/OntologyPage'
@@ -14,6 +16,9 @@ export function AppRoutes() {
     <Routes>
       <Route element={<Layout />}>
         <Route index element={<CatalogPage />} />
+        {/* Catálogos (decisión 49). El backend redirige aquí (303) desde `catalogo/{slug}`. */}
+        <Route path="catalogos" element={<CatalogsPage />} />
+        <Route path="catalogos/:slug" element={<CatalogDetailPage />} />
         {/* El backend redirige aquí (303) desde la URI persistente; `?version=` para versiones antiguas. */}
         <Route path="datasets/:slug" element={<DatasetPage />} />
         <Route path="vocabularios" element={<VocabulariesPage />} />

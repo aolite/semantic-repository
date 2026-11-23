@@ -2,7 +2,7 @@
 
 Cliente web en React + TypeScript + Vite + React Router, con pruebas en Vitest y Testing Library.
 
-Estado (fase 4): navegación lateral, login con JWT y las 6 pantallas del prototipo: **Catálogo** (`/`), **Ficha de dataset** (`/datasets/:slug`), **Vocabularios y ontologías** (`/vocabularios`), **Ficha de ontología** (`/ontologias/:slug`), **Navegador SKOS** (`/vocabularios/:slug` y `/vocabularios/corp/:slug`) y **Consola SPARQL** (`/sparql`).
+Estado (fase 4): navegación lateral, login con JWT y las 6 pantallas del prototipo: **Catálogo** (`/`), **Ficha de dataset** (`/datasets/:slug`), **Vocabularios y ontologías** (`/vocabularios`), **Ficha de ontología** (`/ontologias/:slug`), **Navegador SKOS** (`/vocabularios/:slug` y `/vocabularios/corp/:slug`) y **Consola SPARQL** (`/sparql`). Además (decisión 49), las pantallas de **catálogos** (`/catalogos` y `/catalogos/:slug`), el alta, la edición y la baja de catálogos y datasets, y «Nueva versión» en la Ficha de dataset. Estas no están en el prototipo: las propone el frontend con sus estilos y componentes, y las revisa el responsable.
 
 ## Variables de entorno
 
@@ -44,7 +44,8 @@ src/
   api/          llamadas a la API (único sitio que usa fetch) y tipos del OpenAPI
   auth/         contexto de sesión (AuthProvider, useAuth) y nombres de rol
   catalog/      textos de presentación (dominios, formatos, acceso, placeholders) y estado del Catálogo en la URL
-  components/   layout, navegación lateral, etiquetas, tarjetas, árbol SKOS e iconos
+  components/   layout, navegación lateral, etiquetas, tarjetas, árbol SKOS, iconos, paginación, diálogo de confirmación, ficha de baja y avisos
+  crud/         formularios de catálogos, datasets y versiones, su validación y los mensajes de error de la API (decisión 49)
   dataset/      secciones «Distribuciones» y «Evaluación FAIR» de la ficha, con sus textos
   hooks/        hooks reutilizables (debounce de la búsqueda, carga de la API)
   lib/          utilidades del navegador (lanzar una descarga)
@@ -67,7 +68,8 @@ src/
 - El placeholder del buscador es «Título, concepto o URI»: desde la decisión 30, `q` también busca en la URI del recurso.
 - El contador suma los `total` de las dos respuestas. Hay estados de carga (`role="status"`), vacío y error (`role="alert"` con «Reintentar»).
 - Las tarjetas de dataset con `fair_total` muestran «FAIR {n}» y su barra (decorativa, `aria-hidden`), como el prototipo. Sin `fair_total`, no.
-- No se muestran «Importar SKOS» ni «Publicar recurso» (decisión 35).
+- **Filtro por catálogo** (decisión 49): selector «Catálogo» con «Todos los catálogos» y los de `GET /catalogs`, que lanza `GET /datasets?catalog=` y se guarda en la URL como `?catalogo=` (vuelve a la página 1). Los vocabularios no pertenecen a ningún catálogo: con un catálogo elegido solo se piden datasets, y con «Vocabularios y ontologías» el selector no se muestra. Si `GET /catalogs` falla, el selector no aparece y el resto sigue funcionando. Al lado, el enlace «Ver los catálogos» a `/catalogos`.
+- No se muestran «Importar SKOS» ni «Publicar recurso» del prototipo (sin funcionalidad asociada todavía).
 
 ### Ficha de dataset (`/datasets/:slug`)
 
@@ -82,7 +84,14 @@ src/
   - Los enlaces y botones llevan `aria-label` con el nombre de la distribución («Descargar Distribución A»).
 - **Evaluación FAIR** con `version.fair`: el total sobre 100, el nivel de madurez tal cual lo da F-UJI (`maturity`, sin umbrales propios), el texto del prototipo bajo el nivel y las barras F, A, I y R con los colores del prototipo (decorativas; la puntuación va en texto). No se muestran las pistas de ejemplo por principio. Pie: «Última evaluación: {evaluated_at (AAAA-MM-DD)} · Evaluador: {evaluator}», con `[FECHA]` y `[MOTOR FAIR]` si llegan `null`, y «Ver informe completo de pruebas» a `report_url` (pedido a la API). Los estados `pending`, `running`, `failed` y `not_evaluated` (o `fair: null`) muestran un texto propio; si además hay puntuaciones (de la última evaluación terminada), se siguen mostrando. La ficha no se refresca sola mientras la evaluación está en curso.
 - Las secciones sin datos muestran un texto neutro. 404 o 422 de la API: «Dataset no encontrado».
-- No se muestran «Nueva versión» (decisión 35), «Solicitar acceso» ni «Solicitar».
+- **410** (dataset dado de baja, decisión 49): ficha mínima con `GoneResponse` (ver «Recursos dados de baja»), no un error.
+- Si el dataset tiene catálogo (`catalog`), las migas lo enlazan: «Catálogo / {catálogo} / {dominio} / Dataset».
+- **Acciones del editor y el admin** (decisión 49), a la derecha de la cabecera, en un grupo «Acciones del dataset». El miembro y el anónimo no las ven:
+  - «Editar»: título y descripción de la serie (en español), publicador y catálogo (`PATCH /datasets/{slug}`, solo con los campos que cambian; cambiar el catálogo es moverlo, `catalog`). El publicador se precarga con `DatasetDetail.publisher.label` y solo se manda si cambia; vaciarlo conserva el actual (la API no admite borrarlo). Las versiones publicadas no se tocan.
+  - «Nueva versión» (botón del prototipo): sube el RDF de la serie completa (Turtle `.ttl` o JSON-LD `.jsonld`/`.json`) a `POST /datasets?catalog={catálogo del dataset}`. Ver «Nueva versión».
+  - «Dar de baja»: diálogo de confirmación que avisa de que se eliminan los ficheros de todas sus distribuciones; `DELETE /datasets/{slug}` y vuelta a la ficha de su catálogo (o al Catálogo) con el aviso «Dataset «…» dado de baja.».
+  - Tras guardar o publicar, la ficha se vuelve a pedir (se sigue mostrando la anterior mientras tanto) y un aviso (`role="status"`) dice el resultado.
+- No se muestran «Solicitar acceso» ni «Solicitar».
 - Los temas (`dcat:theme`) enlazan a su concepto en el navegador SKOS y `dct:conformsTo` a la ficha de ontología (con `?version=` si apunta a un `owl:versionIRI`). Si la URI no sigue el patrón, se muestra sin enlace.
 - Desde la fase 3 el dominio es un concepto de `vocab/dominio` y no el esquema de los temas: los temas se colorean con el dominio de la serie si solo tiene uno.
 
@@ -120,8 +129,57 @@ src/
 - «Guardar» **solo con sesión** (sin sesión no se muestra: ir al login perdería la consulta del editor, porque la sesión vive en memoria). Abre un formulario con «Título» y «Pista (opcional)» que hace `POST /sparql/queries`; al guardar, recarga la lista y elige la nueva. Escape o «Cancelar» lo cierran y devuelven el foco a «Guardar». Errores 401, 409 (máximo de consultas), 413 y 422 con su mensaje.
 - No hay edición ni borrado de consultas personales: el prototipo no tiene esos controles.
 
+### Catálogos (`/catalogos`, decisión 49)
+
+- `GET /catalogs` (sin el catálogo raíz ni las bajas): tarjetas con `dcat:Catalog`, título enlazado a la ficha, descripción, publicador y «N datasets». Recuento «N catálogos», y estados de carga, vacío («Todavía no hay catálogos.») y error con «Reintentar».
+- Editor y admin: «Nuevo catálogo» (`aria-expanded`) abre el formulario con slug, título y descripción (en español) y publicador, todos obligatorios. Bajo el slug se ve la URI que formará (`VITE_BASE_URI` + `catalogo/{slug}`). `POST /catalogs` y, al crear, a la ficha del catálogo con el aviso «Catálogo creado.».
+
+### Ficha de catálogo (`/catalogos/:slug`, decisión 49)
+
+- El backend redirige aquí (303) desde la URI persistente `catalogo/{slug}`.
+- Cabecera con `dcat:Catalog`, título, descripción, URI con «Copiar URI» y `dct:publisher`. Debajo, sus datasets con las tarjetas del Catálogo (`GET /datasets?catalog={slug}`, paginados con `?pagina=` como el Catálogo) o «Este catálogo todavía no tiene datasets.».
+- 404: «Catálogo no encontrado». 410: ficha mínima de la baja.
+- Editor y admin, en el grupo «Acciones del catálogo»:
+  - «Editar catálogo»: título, descripción y publicador, con los valores actuales (`PATCH /catalogs/{slug}`, solo los campos que cambian). El slug no se edita.
+  - «Nuevo dataset»: slug, título, descripción y publicador opcional (`POST /catalogs/{slug}/datasets`). Al crear, va a la ficha del dataset (serie sin versiones) con el aviso «Dataset creado. Publica su primera versión con «Nueva versión».».
+  - «Dar de baja»: diálogo de confirmación; `DELETE /catalogs/{slug}` y vuelta a `/catalogos` con el aviso. Si el catálogo tiene datasets, el 409 (`ConflictResponse` con `kind: catalog_not_empty`) se muestra en el diálogo con la lista de los datasets que hay que mover o dar de baja antes, enlazados a su ficha.
+
+### Formularios de catálogos y datasets
+
+- Paneles bajo la cabecera, con los campos (`label`, `aria-invalid`, `aria-describedby` con la ayuda y el error de cada campo), botones y colores de las pantallas existentes. El foco va al primer campo; Escape o «Cancelar» los cierran y devuelven el foco al botón que los abrió.
+- Validación en el cliente con los límites del OpenAPI (`src/crud/validation.ts`): obligatorios, slug con el patrón de `semantic/uris.md` (`^[a-z0-9]+(-[a-z0-9]+)*$`, hasta 200) y longitudes máximas. El backend vuelve a validar todo con SHACL.
+- Errores de la API (`src/crud/errors.ts`), en un `role="alert"` del formulario y marcando el campo:
+  - 409 `ConflictResponse` al crear, en el slug: `slug_in_use` («Ya existe un recurso con ese slug. Elige otro.») y `withdrawn` («Ese slug es de un recurso dado de baja y no se reutiliza. Elige otro.»). Un 409 sin `kind` muestra un texto que cubre los dos casos.
+  - `IngestErrorResponse` por `kind`: `withdrawn`, `catalog_conflict`, `version_removed`, `version_immutable` (409) y `catalog`, `shacl`, `syntax`, `structure`, `uri`, `limit` (422), con un texto propio para cada uno y la lista de incidencias (`issues`, con el último segmento de `path` o `focus_node`, hasta 10).
+  - 422 de validación de FastAPI: marca los campos por su `loc` (sin mostrar valores).
+  - 503 con `Retry-After` (otra escritura tiene el bloqueo del catálogo, QA-49-03): «El servidor está ocupado; inténtalo de nuevo en unos segundos.», con el formulario abierto para reintentar. Sin `Retry-After`, «El repositorio no está disponible ahora mismo…».
+  - 401, 403, 404, 410, 413, 415 y sin conexión, con su mensaje.
+
+### Nueva versión
+
+Una versión DCAT-AP lleva distribuciones, procedencia PROV-O y temas, y el backend comprueba la inmutabilidad de las versiones sobre el RDF: no cabe en un formulario plano (`backend/README.md`, «Catálogos y bajas»). Por eso el formulario sube un fichero RDF de la serie, que el backend valida con SHACL antes de publicar:
+
+- Campo «Fichero RDF (Turtle o JSON-LD)»; el `Content-Type` sale de la extensión (`.ttl` → `text/turtle`; `.jsonld` o `.json` → `application/ld+json`).
+- El texto explica que el fichero lleva la serie completa: sus metadatos, todas las versiones ya publicadas sin cambios y la nueva (si falta o cambia una, 409).
+- `?catalog=` es el catálogo del dataset (se muestra «Catálogo: …»). Si la serie no tiene catálogo, un selector opcional permite elegir uno; sin él, lo declara el RDF.
+- Al publicar, el aviso dice las versiones de la serie (`IngestResult.versions`), o que no ha cambiado nada (`changed: false`). Si el RDF era de otra serie, va a su ficha.
+- Los ficheros de las distribuciones no se suben aquí (`PUT …/file`): queda pendiente.
+
+### Recursos dados de baja
+
+Un 410 de `GET /datasets/{slug}` o `GET /catalogs/{slug}` con `GoneResponse` muestra una ficha mínima (`src/components/GoneView.tsx`): migas, `dcat:Dataset` o `dcat:Catalog`, la marca «Dado de baja» (colores del estado «Borrador»), el título (o el último segmento de la URI), la URI, `prov:invalidatedAtTime` (AAAA-MM-DD en un `<time>`, o `[FECHA]` si llega `null`), `adms:status` Withdrawn, un texto sobre lo que implica y un enlace de vuelta.
+
+### Permisos
+
+Los controles de crear, editar, dar de baja y publicar versiones solo se muestran a editor y admin (`canEdit` en `src/auth/roles.ts`, con sesión). El miembro y el anónimo no los ven; el backend responde igualmente 403 y 401, y el formulario lo explica si ocurre.
+
+### Confirmaciones
+
+Las bajas se confirman en un diálogo propio (`src/components/ConfirmDialog.tsx`), nunca con `window.confirm` ni `alert`: `role="dialog"` con `aria-modal`, título y descripción enlazados, foco inicial en «Cancelar», foco atrapado con Tab, Escape para cancelar y vuelta del foco al botón. Mientras la petición está en curso, los botones quedan con `aria-disabled` (sin perder el foco) y Escape no cierra.
+
 ### Navegación lateral
 
+- «Catálogo» queda marcado (`aria-current="true"`) en las fichas de dataset y en las pantallas de catálogos (`/catalogos…`). No hay un enlace propio a `/catalogos`: se llega desde el filtro del Catálogo, las migas y la redirección de `catalogo/{slug}`.
 - En Catálogo y en el resto de pantallas, «Esquemas de conceptos» enlaza cada dominio a su esquema de dominio con el mismo slug (`/vocabularios/it`, `ot`, `pqc`, `ia`).
 - En las pantallas de vocabularios muestra «Tipos de vocabulario», como el prototipo, y marca «Vocabularios».
 
@@ -134,6 +192,7 @@ src/
 - Marca «Dataset sintético» cuando `synthetic` es `true` (decisión de G2, no está en el prototipo). En ontologías y esquemas, «Sintético».
 - Tipos y estados de vocabulario con los nombres y colores del prototipo (`src/vocab/labels.ts`). Si la API manda un dominio, tipo o estado desconocido, se muestra tal cual con colores neutros, sin romper la pantalla.
 - Un error de renderizado en una pantalla muestra «No se ha podido mostrar esta pantalla.» (`role="alert"`) en lugar de una página en blanco (`src/components/ErrorBoundary.tsx`).
+- Textos de la decisión 49 que no salen del prototipo: pantallas de catálogos, formularios, avisos, diálogos de baja, ficha mínima de la baja y mensajes de error (`src/crud/errors.ts`, `src/crud/validation.ts`, `src/components/GoneView.tsx`).
 - Textos de la fase 4 que no salen del prototipo: los estados FAIR sin puntuación (`src/dataset/fair.ts`), las acciones de distribución sin descarga y sus errores (`src/dataset/download.ts`), la paginación, y los mensajes, el estado inicial y el formulario de guardar de la consola SPARQL (`src/sparql/results.ts` y `src/pages/SparqlPage.tsx`).
 - Placeholders de vocabularios cuando el campo llega `null`: `[VERSIÓN]`, `[AUTORES]`, `[REPOSITORIO GIT]` (la API no lo da), `[RESPONSABLE]` y `[N] conceptos` (esquemas sin conceptos).
 
@@ -144,8 +203,9 @@ El contrato es `backend/openapi.json`. El cliente usa estos endpoints:
 - `POST /auth/token`: formulario OAuth2 password (`application/x-www-form-urlencoded`, campos `username` y `password`). Devuelve el esquema `Token`: `{ access_token, token_type: "bearer", expires_in, role }`. Las credenciales incorrectas devuelven 401.
 - `GET /auth/me` con `Authorization: Bearer <token>`. Devuelve el esquema `UserRead`: `{ id, username, role, is_active, created_at, updated_at }`. La navegación muestra `username` y `role` (`miembro`, `editor` o `admin`).
 - `GET /health`: esquema `HealthStatus`, `{ status: "ok" }`.
-- `GET /datasets?q=&domain=&page=&page_size=`: esquema `DatasetPage` con `DatasetCard`.
-- `GET /datasets/{slug}?version=`: esquema `DatasetDetail` (serie, `VersionDetail` e historial `VersionSummary`).
+- `GET /datasets?q=&domain=&catalog=&page=&page_size=`: esquema `DatasetPage` con `DatasetCard` (con `catalog` desde la decisión 49).
+- `GET /datasets/{slug}?version=`: esquema `DatasetDetail` (serie, `catalog`, `publisher`, `VersionDetail` e historial `VersionSummary`); 410 con `GoneResponse`.
+- Decisión 49 (con el JWT de editor o admin salvo las lecturas): `GET /catalogs` (`CatalogPage` con `CatalogSummary`), `GET /catalogs/{slug}` (`CatalogDetail`; 410 `GoneResponse`), `POST /catalogs` (`CatalogCreate`), `PATCH /catalogs/{slug}` (`CatalogUpdate`), `DELETE /catalogs/{slug}` (204; 409 `ConflictResponse`), con `ConflictResponse` también en el 409 de los dos `POST` de alta, `POST /catalogs/{slug}/datasets` (`DatasetCreate`), `PATCH /datasets/{slug}` (`DatasetUpdate`), `DELETE /datasets/{slug}` (204) y `POST /datasets?catalog=` (RDF en `text/turtle` o `application/ld+json`; `IngestResult`, o `IngestErrorResponse` en 409 y 422).
 - `GET /datasets/{slug}/rdf?format=turtle|jsonld&version=`: RDF en texto.
 - `POST /datasets/{slug}/versions/{version}/distributions/{dist}/download-link` (miembro): `{ url, expires_at }`. `dist` es el último segmento de la URI de la distribución.
 - `GET /dataset/{slug}/{version}/{dist}/fichero`: descarga (enlace del navegador, a partir de `download_url` o del enlace firmado).
@@ -156,7 +216,7 @@ El contrato es `backend/openapi.json`. El cliente usa estos endpoints:
 - `GET /ontologies/{slug}?version=`: esquema `OntologyDetail`. `GET /ontologies/{slug}/rdf?format=turtle|rdfxml|jsonld&version=`: enlace de descarga.
 - `GET /schemes/{slug}` y `/schemes/corp/{slug}`: esquema `SchemeDetail` con el árbol `ConceptNode`. `…/concepts/{concept}`: esquema `ConceptDetail`. `…/rdf?format=`: enlace de descarga.
 
-Los errores de la API llegan como `ApiError` con `status`, `detail` (si el `ErrorResponse` lo trae como texto) y `retryAfter` (cabecera `Retry-After` en segundos).
+Los errores de la API llegan como `ApiError` con `status`, `detail` (si el `ErrorResponse` lo trae como texto), `retryAfter` (cabecera `Retry-After` en segundos) y `body` (el cuerpo JSON tal cual, para leer `GoneResponse`, `ConflictResponse` o `IngestErrorResponse`).
 
 Los tipos de `src/api/types.ts` están copiados a mano del OpenAPI, sin generador. Los de la fase 4 (`FairSummary`, `DistributionRead.download`, `DownloadLink`, `SavedQuery`, `DatasetCard.fair_total`…) salen del contrato de la fase y se contrastan con el `openapi.json` real en la integración (prueba de contrato de `qa`). Si el contrato cambia, hay que actualizarlos ahí. Las respuestas ficticias de las pruebas (`src/test/utils.tsx`, `src/test/fixtures.ts` y `src/test/vocabFixtures.ts`) usan esos tipos, así que el build falla si se desalinean.
 
@@ -167,7 +227,7 @@ El token JWT se guarda **solo en memoria** (estado de React), no en `sessionStor
 - Un script inyectado (XSS) no puede leerlo del almacenamiento del navegador, y el token no queda en disco ni sobrevive a la pestaña.
 - El coste es que recargar la página cierra la sesión. Si eso molesta, la alternativa segura es un refresh token en una cookie `HttpOnly`, `Secure` y `SameSite=Strict` emitida por el backend; es una decisión del backend.
 
-Los lectores son anónimos: todas las rutas son públicas. La sesión solo añade la descarga de distribuciones restringidas, las consultas personales y «Guardar» en la consola SPARQL.
+Los lectores son anónimos: todas las rutas son públicas. La sesión añade la descarga de distribuciones restringidas, las consultas personales y «Guardar» en la consola SPARQL y, para editor y admin, la gestión de catálogos y datasets. Como la sesión vive en memoria, hay que iniciarla desde la aplicación y navegar sin recargar.
 
 ## Tipografía
 
