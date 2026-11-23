@@ -1,0 +1,25 @@
+# Ejemplo VÁLIDO (decisión 49): catálogo recién creado, todavía sin
+# datasets. DCAT-AP 3 no exige dcat:dataset. El catálogo, su título, su
+# descripción y el agente son ficticios, solo para el ejemplo.
+# Las formas que aplica están en semantic/shapes/. Ver semantic/uris.md,
+# «Catálogos y borrado lógico».
+#
+# BASE_URI: el fichero no declara @base; las URIs son relativas.
+
+@prefix itotd: <dataset/> .
+@prefix dcat:  <http://www.w3.org/ns/dcat#> .
+@prefix dct:   <http://purl.org/dc/terms/> .
+@prefix foaf:  <http://xmlns.com/foaf/0.1/> .
+@prefix prov:  <http://www.w3.org/ns/prov#> .
+@prefix adms:  <http://www.w3.org/ns/adms#> .
+@prefix xsd:   <http://www.w3.org/2001/XMLSchema#> .
+
+<catalogo/prueba>
+    a dcat:Catalog ;
+    dct:title "Catálogo de prueba"@es ;
+    dct:description "Catálogo mínimo para probar las formas."@es ;
+    dct:publisher _:unidad .
+
+_:unidad
+    a foaf:Agent , prov:Agent ;
+    foaf:name "Agente de prueba" .
