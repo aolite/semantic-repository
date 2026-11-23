@@ -1,5 +1,11 @@
 """Catálogo de datasets: lectura pública (lector anónimo) e ingesta (editor; admin hereda).
 
+Decisión 49: cada serie pertenece a un catálogo. ``POST /datasets`` (RDF) exige el triple
+de pertenencia o ``?catalog={slug}``; ``PATCH /datasets/{slug}`` edita los metadatos de
+la serie (y la mueve de catálogo); ``DELETE /datasets/{slug}`` la da de baja. Un dataset
+dado de baja responde 410 con su ficha mínima. Los datasets se crean sin versiones con
+``POST /catalogs/{slug}/datasets`` (``app.routers.catalogs``).
+
 Los ficheros de distribución y la evaluación FAIR (fase 4) están en
 ``app.routers.dataset_files``; el fichero en sí se sirve en
 ``/dataset/{slug}/{version}/{dist}/fichero`` (``app.routers.linked_data``).
@@ -11,10 +17,12 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Res
 from fastapi.responses import JSONResponse
 from rdflib import Graph, URIRef
 
-from app import catalog, downloads, fair_views, ingest, schemas
-from app.deps import DbDep, SettingsDep, StoreDep, UrisDep, require_role
+from app import catalog, catalogs, downloads, fair_views, ingest, schemas
+from app.deps import DbDep, SettingsDep, StorageDep, StoreDep, UrisDep, require_role
 from app.models import Role, User
 from app.negotiation import JSONLD, TURTLE, negotiate
+from app.routers.gone import GONE, gone_json, raise_if_series_gone
+from app.storage import StorageError
 from app.uris import DCAT, SLUG_PATTERN, VERSION_PATTERN, DomainSlug
 
 router = APIRouter(prefix="/datasets", tags=["datasets"])
@@ -27,6 +35,14 @@ SlugPath = Annotated[
 VersionQuery = Annotated[
     str | None,
     Query(pattern=VERSION_PATTERN, max_length=50, description="Versión MAYOR.MENOR.PARCHE"),
+]
+CatalogQuery = Annotated[
+    str | None,
+    Query(
+        pattern=SLUG_PATTERN,
+        max_length=200,
+        description="Slug del catálogo (catalogo/{slug})",
+    ),
 ]
 
 INGEST_MEDIA_TYPES: dict[str, ingest.RdfFormat] = {
@@ -95,6 +111,11 @@ def ingest_error_response(exc: ingest.IngestError) -> JSONResponse:
         "Recibe la serie completa (dcat:DatasetSeries con sus dcat:Dataset y "
         "dcat:Distribution) en Turtle o JSON-LD; las IRIs relativas se resuelven contra "
         "BASE_URI. Sustituye por completo el grafo con nombre `{BASE_URI}dataset/{slug}`. "
+        "Decisión 49: el RDF lleva exactamente un `<{BASE_URI}catalogo/{slug}> dcat:dataset "
+        "<serie>` (o se indica `?catalog={slug}` y el backend lo añade antes de validar); "
+        "se guarda en el grafo del catálogo. 422 `catalog` si el catálogo no existe o está "
+        "dado de baja; 409 `catalog_conflict` si la serie ya está en otro catálogo (se "
+        "mueve con PATCH) y 409 `withdrawn` si el slug es de un dataset dado de baja. "
         "Las versiones ya publicadas son inmutables: tienen que venir todas y con el mismo "
         "contenido (409 `version_removed` o `version_immutable`, con las versiones en "
         "`issues`). Las versiones nuevas se encolan para evaluarlas con F-UJI en segundo "
@@ -117,7 +138,8 @@ def ingest_error_response(exc: ingest.IngestError) -> JSONResponse:
         status.HTTP_409_CONFLICT: {
             "model": schemas.IngestErrorResponse,
             "description": "Versión publicada ausente (version_removed) o con otro contenido "
-            "(version_immutable)",
+            "(version_immutable), serie en otro catálogo (catalog_conflict) o slug dado de "
+            "baja (withdrawn)",
         },
         status.HTTP_413_CONTENT_TOO_LARGE: {"model": schemas.ErrorResponse},
         status.HTTP_415_UNSUPPORTED_MEDIA_TYPE: {"model": schemas.ErrorResponse},
@@ -139,18 +161,30 @@ def create_dataset(
     uris: UrisDep,
     settings: SettingsDep,
     response: Response,
+    catalog_slug: Annotated[
+        str | None,
+        Query(
+            alias="catalog",
+            pattern=SLUG_PATTERN,
+            max_length=200,
+            description="Catálogo de la serie: el backend añade el triple de pertenencia "
+            "antes de validar (si el RDF ya declara otro, 422)",
+        ),
+    ] = None,
 ) -> schemas.IngestResult | JSONResponse:
     data, rdf_format = body
     try:
         graph = ingest.parse_rdf(
             data, rdf_format, uris.base, max_triples=settings.ingest_max_triples
         )
+        if catalog_slug is not None:
+            graph = ingest.add_membership(graph, uris, catalog_slug)
         prepared = ingest.prepare_series(graph, uris, settings.semantic_dir)
     except ingest.IngestError as exc:
         return ingest_error_response(exc)
     try:
         result = ingest.publish_and_audit(store, db, prepared, actor=editor, via="api")
-    except ingest.IngestError as exc:  # 409: versiones inmutables (decisión 28)
+    except ingest.IngestError as exc:  # 409: versiones inmutables, catálogo, baja
         return ingest_error_response(exc)
     if not result.created:
         response.status_code = status.HTTP_200_OK
@@ -184,10 +218,21 @@ def list_datasets(
         ),
     ] = None,
     domain: Annotated[DomainSlug | None, Query(description="Slug del dominio")] = None,
+    catalog_slug: Annotated[
+        str | None,
+        Query(
+            alias="catalog",
+            pattern=SLUG_PATTERN,
+            max_length=200,
+            description="Solo los datasets de este catálogo (catalogo/{slug})",
+        ),
+    ] = None,
     page: Annotated[int, Query(ge=1, le=10_000)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 20,
 ) -> schemas.DatasetPage:
-    result = catalog.list_datasets(store, uris, q=q, domain=domain, page=page, page_size=page_size)
+    result = catalog.list_datasets(
+        store, uris, q=q, domain=domain, catalog=catalog_slug, page=page, page_size=page_size
+    )
     fair_views.add_fair_totals(db, uris, result.items)
     return result
 
@@ -198,6 +243,7 @@ def list_datasets(
     summary="Ficha de dataset: serie, versión actual (o ?version=) e historial",
     responses={
         status.HTTP_404_NOT_FOUND: NOT_FOUND,
+        status.HTTP_410_GONE: GONE,
         status.HTTP_503_SERVICE_UNAVAILABLE: {"model": schemas.ErrorResponse},
     },
 )
@@ -207,6 +253,7 @@ def get_dataset(
     try:
         detail = catalog.get_dataset(store, uris, slug, version)
     except catalog.NotFoundError as exc:
+        raise_if_series_gone(store, uris, slug)
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No existe") from exc
     if detail.version is not None:
         fair_views.enrich_version(db, uris, slug, detail.version)
@@ -220,6 +267,7 @@ RDF_RESPONSES = {
     },
     status.HTTP_404_NOT_FOUND: NOT_FOUND,
     status.HTTP_406_NOT_ACCEPTABLE: {"model": schemas.ErrorResponse},
+    status.HTTP_410_GONE: GONE,
     status.HTTP_503_SERVICE_UNAVAILABLE: {"model": schemas.ErrorResponse},
 }
 
@@ -262,6 +310,7 @@ def get_dataset_rdf(
     try:
         graph = catalog.version_rdf(store, uris, slug, version)
     except catalog.NotFoundError as exc:
+        raise_if_series_gone(store, uris, slug)
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No existe") from exc
     text = catalog.serialize(graph, uris, "json-ld" if media == JSONLD else "turtle")
     number = version or _version_in(graph, uris.series(slug))
@@ -275,3 +324,98 @@ def _version_in(graph: Graph, series_uri: str) -> str | None:
         if value is not None:
             return str(value)
     return None
+
+
+# --- Decisión 49: edición y baja de la serie --------------------------------------------
+
+EDIT_RESPONSES = {
+    status.HTTP_401_UNAUTHORIZED: {"model": schemas.ErrorResponse, "description": "No autenticado"},
+    status.HTTP_403_FORBIDDEN: {
+        "model": schemas.ErrorResponse,
+        "description": "Requiere rol editor o admin",
+    },
+    status.HTTP_404_NOT_FOUND: NOT_FOUND,
+    status.HTTP_410_GONE: GONE,
+    status.HTTP_503_SERVICE_UNAVAILABLE: {
+        "model": schemas.ErrorResponse,
+        "description": "Triplestore o almacenamiento no disponible",
+    },
+}
+
+
+def _crud_error(exc: catalogs.CrudError, uris: UrisDep) -> JSONResponse:
+    if exc.status_code == status.HTTP_410_GONE and exc.tombstone is not None:
+        return gone_json(exc.tombstone, uris)
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+
+
+@router.patch(
+    "/{slug}",
+    response_model=schemas.DatasetDetail,
+    summary="Edita los metadatos de la serie y la mueve de catálogo (editor o admin)",
+    description="Cambia solo los campos presentes de la serie (título, descripción, "
+    "publicador) y, con `catalog`, la mueve a otro catálogo (se quita del de origen y se "
+    "añade al de destino; ninguna URI cambia). Las versiones publicadas no se tocan "
+    "(decisión 28): para cambiarlas se publica una versión nueva con `POST /datasets`. La "
+    "serie resultante se valida con SHACL. 422 `catalog` si el catálogo de destino no "
+    "existe o está dado de baja.",
+    responses={
+        **EDIT_RESPONSES,
+        status.HTTP_422_UNPROCESSABLE_CONTENT: {
+            "model": schemas.IngestErrorResponse,
+            "description": "Cuerpo no válido, catálogo de destino inexistente o informe SHACL",
+        },
+    },
+)
+def update_dataset(
+    editor: EditorUser,
+    slug: SlugPath,
+    data: schemas.DatasetUpdate,
+    db: DbDep,
+    store: StoreDep,
+    uris: UrisDep,
+    settings: SettingsDep,
+) -> schemas.DatasetDetail | JSONResponse:
+    try:
+        catalogs.update_series(store, db, uris, settings, slug, data, editor)
+    except catalogs.CrudError as exc:
+        return _crud_error(exc, uris)
+    except ingest.IngestError as exc:
+        return ingest_error_response(exc)
+    detail = catalog.get_dataset(store, uris, slug)
+    if detail.version is not None:
+        fair_views.enrich_version(db, uris, slug, detail.version)
+    return detail
+
+
+@router.delete(
+    "/{slug}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+    summary="Da de baja un dataset (editor o admin)",
+    description="Borrado lógico de la serie: sale de su catálogo, de los listados y de "
+    "SPARQL; sus ficheros de distribución se eliminan del almacenamiento, y su URI y las "
+    "de sus versiones, distribuciones y ficheros responden 410 con una ficha mínima. Su "
+    "slug no se reutiliza. Quién la dio de baja queda en la auditoría.",
+    responses=EDIT_RESPONSES,
+)
+def withdraw_dataset(
+    editor: EditorUser,
+    slug: SlugPath,
+    db: DbDep,
+    store: StoreDep,
+    storage: StorageDep,
+    uris: UrisDep,
+    settings: SettingsDep,
+) -> Response:
+    try:
+        catalogs.withdraw_series(store, db, storage, uris, settings, slug, editor)
+    except catalogs.CrudError as exc:
+        return _crud_error(exc, uris)
+    except ingest.IngestError as exc:
+        return ingest_error_response(exc)
+    except StorageError as exc:  # pragma: no cover - withdraw_series ya los recoge
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+        ) from exc
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

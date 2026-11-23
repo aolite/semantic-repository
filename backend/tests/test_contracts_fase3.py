@@ -123,6 +123,14 @@ def _schema_enum(schema: dict[str, Any]) -> list[str] | None:
     return None
 
 
+# Valores nuevos de un enum del contrato que el frontend todavía no tiene (el contrato
+# OpenAPI cambia en su propia PR y el frontend se adapta después). Se borran cuando
+# frontend/src/api/types.ts los incorpore.
+PENDING_FRONTEND_VALUES: dict[tuple[str, str], set[str]] = {
+    ("IngestErrorResponse", "kind"): {"catalog", "withdrawn", "catalog_conflict"},  # dec. 49
+}
+
+
 def test_frontend_literal_types_match_the_contract_enums() -> None:
     """Cada propiedad que el contrato limita a unos valores tiene en TypeScript
     exactamente esos valores (escritos en la propiedad o en un alias)."""
@@ -151,6 +159,9 @@ def test_frontend_literal_types_match_the_contract_enums() -> None:
                 alias = re.match(r"\(?(\w+)", ts_type)
                 assert alias and alias.group(1) in aliases, f"{ts_name}.{prop}: {ts_type}"
                 literals = aliases[alias.group(1)]
+            pending = PENDING_FRONTEND_VALUES.get((ts_name, prop), set())
+            assert not pending & set(literals), f"{ts_name}.{prop}: quita {pending} de la lista"
+            expected = [value for value in expected if value not in pending]
             assert sorted(literals) == sorted(expected), f"{ts_name}.{prop}"
             checked += 1
     assert checked >= 12
@@ -350,9 +361,10 @@ def test_semantic_has_the_twenty_files_load_semantic_reads() -> None:
 def test_load_semantic_plan_covers_every_file_and_graph(
     real_settings: Settings, db: Session
 ) -> None:
-    """``load-semantic`` valida los 20 ficheros reales y los reparte en 21 grafos: cada
+    """``load-semantic`` valida los 21 ficheros reales y los reparte en 22 grafos: cada
     esquema en su URI, cada versión de ontología en su ``owl:versionIRI``, las externas en
-    ``onto/externas``, el catálogo y las tres series."""
+    ``onto/externas``, el catálogo raíz, el catálogo «sintetico» (decisión 49) y las tres
+    series."""
     base = Uris(real_settings.base_uri)
     plan, failed = cli._validate_all(real_settings, base, db)
     assert failed is False
@@ -360,6 +372,7 @@ def test_load_semantic_plan_covers_every_file_and_graph(
         **{prepared.uri: name for name, prepared in plan.schemes},
         **{prepared.version_iri: name for name, prepared, _analysis in plan.ontologies},
         **{graph_uri: name for name, graph_uri, _graph in plan.plain},
+        **{graph_uri: name for name, graph_uri, _graph in plan.catalogs},
         **{prepared.uri: name for name, prepared in plan.series},
     }
     expected = {
@@ -377,15 +390,16 @@ def test_load_semantic_plan_covers_every_file_and_graph(
         base.ontology_version("pqcm", "0.4.0"),
         base.ontology_version("didx", "1.0.0"),
         base.external_ontologies_graph,
-        base.catalog,
+        base.root_catalog,
+        base.catalog("sintetico"),
         base.series("modbus-tcp-testbed"),
         base.series("hallazgos-auditorias-intrusion"),
         base.series("ejemplos-adversarios-vision"),
     }
     assert set(graphs) == expected
-    assert len(graphs) == 21
+    assert len(graphs) == 22
     files = {name.split(" (")[0] for name in graphs.values()}
-    assert len(files) == 20
+    assert len(files) == 21
 
 
 def test_every_domain_scheme_declares_one_catalog_domain(
@@ -434,7 +448,9 @@ def test_uris_md_patterns_match_the_backend() -> None:
         base.external_ontologies_graph,
         base.domain_concepts_scheme,
         base.synthetic_type,
-        base.catalog,
+        base.root_catalog,
+        base.catalog("{slug}"),
+        base.withdrawn_graph,
     ):
         assert f"`{documented}`" in text, documented
 

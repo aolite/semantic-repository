@@ -25,11 +25,15 @@ Reglas de la fase 4:
   PROV) es isomorfo al publicado (``rdflib.compare.isomorphic``, que trata bien los nodos
   en blanco). Si falta, 409 ``version_removed``; si cambia, 409 ``version_immutable``. Los
   metadatos de la serie sí pueden cambiar y las versiones nuevas se añaden.
-- **Catálogo (decisión 29).** Cada serie publicada queda enlazada desde el catálogo:
-  ``<{BASE_URI}catalogo> dcat:dataset <serie>`` se añade al grafo del catálogo si falta.
-  Al cargar ``data/catalogo.ttl`` con ``load-semantic`` se conservan los
-  ``dcat:dataset`` del catálogo publicado que apuntan a series (``merge_catalog``), para
-  no borrar las series publicadas por la API.
+- **Catálogos (decisiones 29 y 49).** El grafo que se ingesta lleva exactamente un
+  ``<{BASE_URI}catalogo/{slug}> dcat:dataset <serie>`` (forma
+  ``itsh:DatasetSeries-catalog``). Es el único triple admitido con un sujeto fuera de la
+  serie: se valida con SHACL junto con la serie, pero se guarda en el grafo del catálogo,
+  no en el de la serie. El backend comprueba lo que SHACL no ve: que el catálogo existe
+  y no está dado de baja (422 ``catalog``) y que la serie no está ya en **otro** catálogo
+  (409 ``catalog_conflict``; moverla es ``PATCH /datasets/{slug}``).
+- **Bajas (decisión 49).** Un slug dado de baja no se reutiliza: publicar una serie con
+  lápida en ``{BASE_URI}bajas`` da 409 ``withdrawn``.
 - **FAIR.** Las versiones nuevas (las que no estaban en el grafo publicado) se encolan
   para evaluarlas con F-UJI en segundo plano (``app.fair``).
 - **Segmento reservado.** ``fichero`` no puede ser el slug de una distribución: es la ruta
@@ -55,18 +59,34 @@ from app.config import ConfigurationError, get_settings
 from app.models import AuditAction, User
 from app.triplestore import TripleStore
 from app.uris import DCAT, Uris, is_slug
+from app.write_lock import catalog_write_lock
 
 SH = Namespace("http://www.w3.org/ns/shacl#")
 
 RdfFormat = Literal["turtle", "json-ld"]
 IngestErrorKind = Literal[
-    "syntax", "structure", "uri", "shacl", "limit", "version_removed", "version_immutable"
+    "syntax",
+    "structure",
+    "uri",
+    "shacl",
+    "limit",
+    "catalog",
+    "version_removed",
+    "version_immutable",
+    "withdrawn",
+    "catalog_conflict",
 ]
 # Errores de ingesta que son un conflicto con lo publicado (409) y no un RDF inválido (422).
-CONFLICT_KINDS = frozenset({"version_removed", "version_immutable"})
+CONFLICT_KINDS = frozenset(
+    {"version_removed", "version_immutable", "withdrawn", "catalog_conflict"}
+)
+# Qué hace ``publish`` si la serie ya está en otro catálogo: 409 (API), conservar el
+# catálogo actual (``load-semantic``) o moverla.
+OtherCatalog = Literal["conflict", "keep", "move"]
 
 VOCAB_FILE = Path("data") / "vocab-minimo.ttl"
 CATALOG_FILE = Path("data") / "catalogo.ttl"
+CATALOGS_DIR = Path("data") / "catalogos"
 SYNTHETIC_DIR = Path("data") / "sintetico"
 SHAPES_DIR = Path("shapes")
 VOCABULARIES_DIR = Path("vocabularios")
@@ -121,9 +141,13 @@ class IngestError(Exception):
 class PreparedSeries:
     slug: str
     uri: str
-    graph: Graph
+    graph: Graph  # la serie, sin el triple de pertenencia (va al grafo del catálogo)
     versions: list[str]
-    catalog_uri: str | None = None  # {BASE_URI}catalogo (decisión 29)
+    # Catálogo {BASE_URI}catalogo/{slug} del triple de pertenencia (decisión 49). Tras
+    # SHACL hay exactamente uno.
+    catalog_uri: str | None = None
+    catalogs: list[str] = field(default_factory=list)
+    base_uri: str | None = None
 
 
 @dataclass
@@ -467,10 +491,43 @@ def check_structure(graph: Graph, uris: Uris) -> PreparedSeries:
                     )
                 )
 
+    # Pertenencia (decisión 49): «<{BASE_URI}catalogo/{slug}> dcat:dataset <serie>» es el
+    # único triple admitido con un catálogo como sujeto.
+    catalogs: list[str] = []
+    membership: list[tuple] = []
+    for subject in sorted({s for s in graph.subjects() if isinstance(s, URIRef)}, key=str):
+        value = str(subject)
+        if value == uris.root_catalog:
+            issues.append(
+                Issue(
+                    "El catálogo raíz no lista series: la serie pertenece a un catálogo "
+                    f"{uris.catalog_ns}{{slug}}",
+                    focus_node=value,
+                )
+            )
+            continue
+        if uris.catalog_slug(value) is None:
+            continue
+        for _, predicate, obj in graph.triples((subject, None, None)):
+            if predicate == DCAT.dataset and obj == series:
+                membership.append((subject, predicate, obj))
+                catalogs.append(value)
+            else:
+                issues.append(
+                    Issue(
+                        "Del catálogo solo se admite «<catálogo> dcat:dataset <serie>»: sus "
+                        "metadatos se editan en /catalogs/{slug}",
+                        focus_node=value,
+                        path=str(predicate),
+                    )
+                )
+
     allowed_prefixes = (f"{series_uri}/", uris.activity_ns)
     for subject in sorted({s for s in graph.subjects() if isinstance(s, URIRef)}, key=str):
         value = str(subject)
         if value == series_uri or value.startswith(allowed_prefixes):
+            continue
+        if value == uris.root_catalog or uris.catalog_slug(value) is not None:
             continue
         if not value.startswith(uris.base):
             message = "El recurso no cuelga de BASE_URI"
@@ -484,9 +541,41 @@ def check_structure(graph: Graph, uris: Uris) -> PreparedSeries:
     if issues:
         raise IngestError("uri", "Hay recursos con URIs fuera del patrón", issues)
     versions.sort(key=lambda v: tuple(int(p) for p in v.split(".")))
+    series_graph = graph
+    if membership:
+        series_graph = Graph()
+        for prefix, namespace in graph.namespaces():
+            series_graph.bind(prefix, namespace, override=True, replace=True)
+        for triple in graph:
+            if triple not in membership:
+                series_graph.add(triple)
     return PreparedSeries(
-        slug=slug, uri=series_uri, graph=graph, versions=versions, catalog_uri=uris.catalog
+        slug=slug,
+        uri=series_uri,
+        graph=series_graph,
+        versions=versions,
+        catalog_uri=catalogs[0] if len(catalogs) == 1 else None,
+        catalogs=sorted(catalogs),
+        base_uri=uris.base,
     )
+
+
+def add_membership(graph: Graph, uris: Uris, catalog_slug: str) -> Graph:
+    """Añade «<{BASE_URI}catalogo/{slug}> dcat:dataset <serie>» antes de validar
+    (``POST /datasets?catalog={slug}``). Si el RDF ya declara otro catálogo, 422."""
+    series = [s for s in graph.subjects(RDF.type, DCAT.DatasetSeries) if isinstance(s, URIRef)]
+    if len(series) != 1:
+        return graph  # check_structure dará el error
+    catalog = URIRef(uris.catalog(catalog_slug))
+    declared = {c for c in graph.subjects(DCAT.dataset, series[0]) if c != catalog}
+    if declared:
+        raise IngestError(
+            "catalog",
+            "El RDF declara otro catálogo que el parámetro catalog",
+            [Issue("Catálogo distinto del parámetro", focus_node=str(c)) for c in sorted(declared)],
+        )
+    graph.add((catalog, DCAT.dataset, series[0]))
+    return graph
 
 
 # --- 3. SHACL ----------------------------------------------------------------
@@ -621,6 +710,7 @@ def prepare_series(graph: Graph, uris: Uris, semantic_dir: Path) -> PreparedSeri
     check_terms(graph)  # antes que la estructura y SHACL (también si el grafo no viene
     # de parse_rdf, como en las pruebas o en un uso futuro)
     prepared = check_structure(graph, uris)
+    # SHACL ve la serie con su triple de pertenencia (itsh:DatasetSeries-catalog).
     validate_shacl(graph, semantic_dir, uris.base)
     return prepared
 
@@ -689,17 +779,71 @@ def check_immutable(current: Graph, prepared: PreparedSeries) -> list[str]:
     return sorted(set(after) - set(before))
 
 
-def publish(store: TripleStore, prepared: PreparedSeries) -> PublishResult:
-    """Comprueba la inmutabilidad, escribe la serie (si cambia) y la enlaza al catálogo."""
+def check_catalog(
+    store: TripleStore, prepared: PreparedSeries, *, other: OtherCatalog = "conflict"
+) -> str | None:
+    """Lo que SHACL no ve de la pertenencia (decisión 49). Devuelve el catálogo en el que
+    quedará la serie (``None`` si no hay que tocar la pertenencia).
+
+    - Serie dada de baja: 409 ``withdrawn`` (los slugs no se reutilizan).
+    - Serie ya en otro catálogo: 409 ``catalog_conflict`` (``other="conflict"``), se
+      conserva el actual (``"keep"``) o se mueve (``"move"``).
+    - Catálogo que no existe o está dado de baja: 422 ``catalog``.
+    """
+    from app import bajas  # evita la importación circular
+
+    if prepared.base_uri is None:
+        return None
+    uris = Uris(prepared.base_uri)
+    if bajas.get_tombstone(store, uris, prepared.uri) is not None:
+        raise IngestError(
+            "withdrawn",
+            "La serie se dio de baja: su slug no se puede reutilizar",
+            [Issue("Serie dada de baja", focus_node=prepared.uri)],
+        )
+    target = prepared.catalog_uri
+    if target is None:
+        return None
+    current = bajas.series_catalogs(store, uris, prepared.uri)
+    if current and target not in current:
+        if other == "conflict":
+            raise IngestError(
+                "catalog_conflict",
+                "La serie ya está en otro catálogo: para moverla, edita sus metadatos "
+                "(PATCH /datasets/{slug} con «catalog»)",
+                [Issue("Catálogo actual de la serie", focus_node=c) for c in sorted(current)],
+            )
+        if other == "keep":
+            return sorted(current)[0]
+    if current == {target}:
+        return target
+    if not bajas.catalog_exists(store, target):
+        gone = bajas.get_tombstone(store, uris, target) is not None
+        raise IngestError(
+            "catalog",
+            "El catálogo está dado de baja" if gone else "El catálogo no existe",
+            [Issue("Catálogo de la serie", focus_node=target, path=str(DCAT.dataset))],
+        )
+    return target
+
+
+def publish(
+    store: TripleStore, prepared: PreparedSeries, *, other: OtherCatalog = "conflict"
+) -> PublishResult:
+    """Comprueba la inmutabilidad y el catálogo, escribe la serie (si cambia) y la deja
+    en su catálogo."""
+    from app import bajas  # evita la importación circular
+
     store.ensure_writable()
     current = store.get_graph(prepared.uri)
     new_versions = check_immutable(current, prepared)
+    target = check_catalog(store, prepared, other=other)
     created = len(current) == 0
     changed = created or not isomorphic(current, prepared.graph)
     if changed:
         store.put_graph(prepared.uri, prepared.graph)
-    if prepared.catalog_uri:
-        ensure_in_catalog(store, prepared.catalog_uri, prepared.uri)
+    if target is not None and prepared.base_uri is not None:
+        bajas.set_membership(store, Uris(prepared.base_uri), prepared.uri, target)
     return PublishResult(
         slug=prepared.slug,
         uri=prepared.uri,
@@ -712,27 +856,75 @@ def publish(store: TripleStore, prepared: PreparedSeries) -> PublishResult:
     )
 
 
-def ensure_in_catalog(store: TripleStore, catalog_uri: str, series_uri: str) -> bool:
-    """Decisión 29: ``<catálogo> dcat:dataset <serie>``. Devuelve si ha escrito."""
-    graph = store.get_graph(catalog_uri)
-    triple = (URIRef(catalog_uri), DCAT.dataset, URIRef(series_uri))
-    if triple in graph:
-        return False
-    graph.add(triple)
-    store.put_graph(catalog_uri, graph)
-    return True
-
-
-def merge_catalog(current: Graph, loaded: Graph, uris: Uris) -> Graph:
-    """``data/catalogo.ttl`` más los ``dcat:dataset`` publicados que apuntan a series."""
+def merge_root_catalog(
+    current: Graph, loaded: Graph, uris: Uris, withdrawn: set[str] | frozenset[str] = frozenset()
+) -> Graph:
+    """Catálogo raíz para ``load-semantic`` (decisión 49): ``data/catalogo.ttl`` más los
+    ``dcat:catalog`` publicados (catálogos creados por la API), sin los catálogos dados de
+    baja. Los ``dcat:dataset`` del modelo de la fase 4 (el raíz listaba series) se quitan."""
+    root = URIRef(uris.root_catalog)
     merged = Graph()
     for triple in loaded:
+        if triple[0] == root and triple[1] == DCAT.dataset:
+            continue
+        if triple[0] == root and triple[1] == DCAT.catalog and str(triple[2]) in withdrawn:
+            continue
         merged.add(triple)
-    catalog = URIRef(uris.catalog)
-    for series in current.objects(catalog, DCAT.dataset):
-        if isinstance(series, URIRef) and uris.series_slug(str(series)) is not None:
-            merged.add((catalog, DCAT.dataset, series))
+    for catalog in current.objects(root, DCAT.catalog):
+        if (
+            isinstance(catalog, URIRef)
+            and uris.catalog_slug(str(catalog)) is not None
+            and str(catalog) not in withdrawn
+        ):
+            merged.add((root, DCAT.catalog, catalog))
     return merged
+
+
+def merge_catalog(current: Graph, loaded: Graph, catalog_uri: str) -> Graph:
+    """Catálogo ``data/catalogos/{slug}.ttl`` para ``load-semantic``: sus metadatos y los
+    ``dcat:dataset`` ya publicados. Los ``dcat:dataset`` del fichero no se copian: la
+    pertenencia la aporta cada serie (su triple), y así ``load-semantic`` no deshace un
+    traslado hecho desde la aplicación."""
+    catalog = URIRef(catalog_uri)
+    merged = Graph()
+    for triple in loaded:
+        if triple[0] == catalog and triple[1] == DCAT.dataset:
+            continue
+        merged.add(triple)
+    for series in current.objects(catalog, DCAT.dataset):
+        merged.add((catalog, DCAT.dataset, series))
+    return merged
+
+
+def check_catalog_structure(graph: Graph, uris: Uris, catalog_uri: str) -> None:
+    """Un catálogo ``{BASE_URI}catalogo/{slug}``: solo él (y nodos en blanco), un nivel."""
+    node = URIRef(catalog_uri)
+    issues: list[Issue] = []
+    found = set(graph.subjects(RDF.type, DCAT.Catalog))
+    if found != {node}:
+        issues.append(Issue(f"Tiene que describir exactamente un dcat:Catalog, {catalog_uri}"))
+    for subject in sorted({s for s in graph.subjects() if isinstance(s, URIRef)}, key=str):
+        if subject != node:
+            issues.append(Issue("Recurso que no es el catálogo", focus_node=str(subject)))
+    for item in graph.objects(node, DCAT.catalog):
+        issues.append(
+            Issue(
+                "Solo el catálogo raíz agrupa catálogos (un solo nivel)",
+                focus_node=catalog_uri,
+                value=str(item),
+            )
+        )
+    for item in graph.objects(node, DCAT.dataset):
+        if not isinstance(item, URIRef) or uris.series_slug(str(item)) is None:
+            issues.append(
+                Issue(
+                    f"dcat:dataset tiene que ser una serie {uris.dataset_ns}{{slug}}",
+                    focus_node=catalog_uri,
+                    value=str(item),
+                )
+            )
+    if issues:
+        raise IngestError("uri", "El catálogo no sigue el patrón", issues)
 
 
 def parse_file(path: Path, base_uri: str, *, max_triples: int = DEFAULT_MAX_TRIPLES) -> Graph:
@@ -758,13 +950,34 @@ def publish_and_audit(
     actor: User | None = None,
     actor_username: str | None = None,
     via: str = "api",
+    other: OtherCatalog = "conflict",
 ) -> PublishResult:
     """Publica la serie y registra en auditoría quién publicó qué serie.
 
     Se escribe primero en el triplestore y después se confirma la auditoría: si Fuseki
     falla no queda un evento de una publicación que no ha ocurrido.
     """
-    result = publish(store, prepared)
+    # QA-49-01: comprobar (inmutabilidad, catálogo, baja) y escribir sin que otra petición
+    # se cuele entre medias.
+    with catalog_write_lock(session):
+        result = _publish_and_record(store, session, prepared, actor, actor_username, via, other)
+    if result.new_versions:
+        from app import fair
+
+        fair.notify()
+    return result
+
+
+def _publish_and_record(
+    store: TripleStore,
+    session: Session,
+    prepared: PreparedSeries,
+    actor: User | None,
+    actor_username: str | None,
+    via: str,
+    other: OtherCatalog,
+) -> PublishResult:
+    result = publish(store, prepared, other=other)
     if result.new_versions:
         from app import fair  # evita la importación circular
 
@@ -777,6 +990,7 @@ def publish_and_audit(
         details={
             "series": result.uri,
             "slug": result.slug,
+            "catalog": prepared.catalog_uri,
             "graph": result.graph_uri,
             "versions": result.versions,
             "triples": result.triples,
@@ -787,8 +1001,4 @@ def publish_and_audit(
         },
     )
     session.commit()
-    if result.new_versions:
-        from app import fair
-
-        fair.notify()
     return result

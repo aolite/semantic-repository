@@ -21,19 +21,27 @@ Rutas:
 - ``/dataset/{slug}/{version}/{dist}``: la distribución (HTML: ficha, ``#distribuciones``).
 - ``/dataset/{slug}/{version}/{dist}/fichero``: el fichero de la distribución, con el
   control de acceso de la decisión 40 (ver ``app.distributions``).
+- ``/catalogo``: el catálogo raíz; ``/catalogo/{slug}``: un catálogo (decisión 49).
+
+Bajas (decisión 49): la URI de un catálogo o de una serie dados de baja responde **410
+Gone** con una ficha mínima (la lápida): HTML sin ``Accept``, con ``*/*`` o con
+``text/html`` (aquí no hay 303, porque el frontend respondería 200), o el RDF de la lápida
+con un ``Accept`` de RDF. Las URIs que cuelgan de una serie dada de baja (versión,
+distribución y fichero) responden igual, con la lápida de la serie (por el prefijo).
 """
 
 from datetime import UTC, datetime
+from html import escape
 from typing import Annotated
 from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Path, Query, Request, Response, status
-from fastapi.responses import RedirectResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from rdflib import Graph, URIRef
 from rdflib.namespace import RDF
 from sqlalchemy.exc import IntegrityError
 
-from app import audit, catalog, distributions, schemas
+from app import audit, bajas, catalog, distributions, schemas
 from app.deps import DbDep, OptionalUser, SettingsDep, StorageDep, StoreDep, UrisDep
 from app.models import AuditAction, DistributionFile, UsedDownloadToken, User
 from app.negotiation import HTML, JSONLD, RDFXML, TURTLE, negotiate
@@ -44,6 +52,7 @@ from app.storage import StorageError
 from app.uris import DCAT, SLUG_PATTERN, VERSION_PATTERN
 
 router = APIRouter(prefix="/dataset", tags=["linked-data"])
+catalog_router = APIRouter(prefix="/catalogo", tags=["linked-data"])
 
 # HTML primero: sin Accept o con */* gana el 303 (decisión 31).
 OFFERED = [HTML, TURTLE, JSONLD, RDFXML]
@@ -64,6 +73,13 @@ RESPONSES = {
     },
     status.HTTP_404_NOT_FOUND: {"model": schemas.ErrorResponse},
     status.HTTP_406_NOT_ACCEPTABLE: {"model": schemas.ErrorResponse},
+    status.HTTP_410_GONE: {
+        "description": "Dado de baja (decisión 49): ficha mínima en HTML o RDF de la lápida",
+        "content": {
+            HTML: {"schema": {"type": "string"}},
+            **{m: {"schema": RDF_BODY_SCHEMA} for m in (TURTLE, JSONLD, RDFXML)},
+        },
+    },
     status.HTTP_503_SERVICE_UNAVAILABLE: {"model": schemas.ErrorResponse},
 }
 
@@ -100,6 +116,50 @@ def _not_found() -> HTTPException:
     return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No existe")
 
 
+GONE_PAGE = """<!doctype html>
+<html lang="es">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex"><title>Recurso dado de baja · {title}</title></head>
+<body>
+<main>
+<h1>Recurso dado de baja</h1>
+<dl>
+<dt>Título</dt><dd>{title}</dd>
+<dt>Tipo</dt><dd>{kind}</dd>
+<dt>URI</dt><dd><code>{uri}</code></dd>
+<dt>Fecha de baja</dt><dd>{when}</dd>
+</dl>
+<p>Este recurso ya no está disponible. Su URI se conserva y no se reutiliza.</p>
+</main>
+</body>
+</html>
+"""
+
+
+def gone(request: Request, tombstone: bajas.Tombstone, uris: UrisDep) -> Response:
+    """410 Gone con la ficha mínima, negociada como el resto de URIs persistentes."""
+    media = negotiate(request.headers.get("accept"), OFFERED) or HTML
+    if media == HTML:
+        kind = "Catálogo" if uris.catalog_slug(tombstone.uri) is not None else "Dataset"
+        page = GONE_PAGE.format(
+            title=escape(tombstone.title or tombstone.uri),
+            kind=kind,
+            uri=escape(tombstone.uri),
+            when=escape(tombstone.withdrawn_at or ""),
+        )
+        return HTMLResponse(page, status_code=status.HTTP_410_GONE, headers={"Vary": "Accept"})
+    response = _rdf(tombstone.graph(), uris, media, tombstone.uri)
+    response.status_code = status.HTTP_410_GONE
+    return response
+
+
+def _gone_or_404(request: Request, store: StoreDep, uris: UrisDep, uri: str) -> Response:
+    tombstone = bajas.get_tombstone(store, uris, uri)
+    if tombstone is None:
+        raise _not_found()
+    return gone(request, tombstone, uris)
+
+
 def _rdf(graph: Graph, uris: UrisDep, media: str, uri: str) -> Response:
     if media == RDFXML:
         response = graph_response(graph, uris, media)
@@ -123,8 +183,8 @@ def resolve_series(
     media = _choose(request)
     try:
         graph = catalog.series_rdf(store, uris, slug)
-    except catalog.NotFoundError as exc:
-        raise _not_found() from exc
+    except catalog.NotFoundError:
+        return _gone_or_404(request, store, uris, uris.series(slug))
     uri = uris.series(slug)
     if media == HTML:
         return _see_other(f"{settings.frontend_base_url}/datasets/{quote(slug)}", uri)
@@ -148,8 +208,8 @@ def resolve_version(
     media = _choose(request)
     try:
         graph = catalog.version_rdf(store, uris, slug, version)
-    except catalog.NotFoundError as exc:
-        raise _not_found() from exc
+    except catalog.NotFoundError:
+        return _gone_or_404(request, store, uris, uris.series(slug))
     uri = uris.version(slug, version)
     if media == HTML:
         return _see_other(
@@ -204,8 +264,8 @@ def resolve_distribution(
     media = _choose(request)
     try:
         graph = distribution_rdf(store, uris, slug, version, dist)
-    except catalog.NotFoundError as exc:
-        raise _not_found() from exc
+    except catalog.NotFoundError:
+        return _gone_or_404(request, store, uris, uris.series(slug))
     uri = f"{uris.version(slug, version)}/{dist}"
     if media == HTML:
         return _see_other(
@@ -272,10 +332,12 @@ def _consume_link(db: DbDep, settings: SettingsDep, token: str, key: str) -> Use
         status.HTTP_401_UNAUTHORIZED: {"model": schemas.ErrorResponse},
         status.HTTP_403_FORBIDDEN: {"model": schemas.ErrorResponse},
         status.HTTP_404_NOT_FOUND: {"model": schemas.ErrorResponse},
+        status.HTTP_410_GONE: RESPONSES[status.HTTP_410_GONE],
         status.HTTP_503_SERVICE_UNAVAILABLE: {"model": schemas.ErrorResponse},
     },
 )
 def download_file(
+    request: Request,
     slug: SlugPath,
     version: VersionPath,
     dist: DistPath,
@@ -292,8 +354,8 @@ def download_file(
 ) -> StreamingResponse:
     try:
         info = distributions.lookup(store, uris, slug, version, dist)
-    except distributions.DistributionNotFoundError as exc:
-        raise _not_found() from exc
+    except distributions.DistributionNotFoundError:
+        return _gone_or_404(request, store, uris, uris.series(slug))  # type: ignore[return-value]
     record = db.get(DistributionFile, info.storage_key)
     mode = distributions.download_mode(info.access_code, record is not None)
     if mode in ("metadata_only", "unavailable") or record is None:
@@ -339,3 +401,51 @@ def download_file(
 
 def _fmt(media: str) -> str:
     return "json-ld" if media == JSONLD else "turtle"
+
+
+# --- Catálogos (decisión 49) ----------------------------------------------------------
+
+
+@catalog_router.get(
+    "",
+    summary="URI persistente del catálogo raíz",
+    description="RDF del catálogo raíz (agrupa los catálogos con dcat:catalog). Sin Accept, "
+    "con */* o con text/html: 303 a la pantalla Catálogo del frontend.",
+    response_class=Response,
+    responses=RESPONSES,
+)
+def resolve_root_catalog(
+    request: Request, store: StoreDep, uris: UrisDep, settings: SettingsDep
+) -> Response:
+    media = _choose(request)
+    uri = uris.root_catalog
+    try:
+        graph = catalog.catalog_rdf(store, uris, uri)
+    except catalog.NotFoundError as exc:
+        raise _not_found() from exc
+    if media == HTML:
+        return _see_other(f"{settings.frontend_base_url}/", uri)
+    return _rdf(graph, uris, media, uri)
+
+
+@catalog_router.get(
+    "/{slug}",
+    summary="URI persistente de un catálogo",
+    description="RDF del catálogo (con sus dcat:dataset). Sin Accept, con */* o con "
+    "text/html: 303 a `{FRONTEND_BASE_URL}/catalogos/{slug}`. Dado de baja: 410.",
+    response_class=Response,
+    responses=RESPONSES,
+)
+def resolve_catalog(
+    request: Request, slug: SlugPath, store: StoreDep, uris: UrisDep, settings: SettingsDep
+) -> Response:
+    media = _choose(request)
+    uri = uris.catalog(slug)
+    try:
+        graph = catalog.catalog_rdf(store, uris, uri)
+    except catalog.NotFoundError:
+        return _gone_or_404(request, store, uris, uri)
+    if media == HTML:
+        # [PROPUESTA] Ruta de la ficha de catálogo en el frontend (la propone frontend).
+        return _see_other(f"{settings.frontend_base_url}/catalogos/{quote(slug)}", uri)
+    return _rdf(graph, uris, media, uri)

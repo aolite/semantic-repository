@@ -13,8 +13,14 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.models import AuditAction, AuditEvent, Role, User
 from app.triplestore import MemoryStore
-from app.uris import Uris
-from tests.conftest import BASE_URI, REPO_SEMANTIC_DIR
+from app.uris import DCAT, Uris
+from tests.conftest import (
+    BASE_URI,
+    REPO_SEMANTIC_DIR,
+    fake_fuseki_read,
+    user_graphs,
+    without_membership,
+)
 
 TURTLE = {"Content-Type": "text/turtle"}
 JSONLD = {"Content-Type": "application/ld+json"}
@@ -43,6 +49,7 @@ MINIMAL = """
     dcat:distribution <dataset/prueba/1.0.0/csv> .
 <dataset/prueba/1.0.0/csv> a dcat:Distribution ;
     dcat:accessURL <dataset/prueba/1.0.0/csv> .
+<catalogo/pruebas> dcat:dataset <dataset/prueba> .
 """
 
 
@@ -72,7 +79,7 @@ def test_editor_and_admin_can_publish(
         "created": True,
         "changed": True,
     }
-    assert SERIES in store.graph_names()
+    assert SERIES in user_graphs(store)
 
 
 def test_member_cannot_publish(
@@ -85,7 +92,7 @@ def test_member_cannot_publish(
     headers = _editor(make_user, login, Role.MIEMBRO) | TURTLE
     response = client.post("/datasets", content=_modbus(semantic_dir), headers=headers)
     assert response.status_code == 403
-    assert store.graph_names() == set()
+    assert user_graphs(store) == set()
 
 
 def test_anonymous_cannot_publish(
@@ -93,7 +100,7 @@ def test_anonymous_cannot_publish(
 ) -> None:
     response = client.post("/datasets", content=_modbus(semantic_dir), headers=TURTLE)
     assert response.status_code == 401
-    assert store.graph_names() == set()
+    assert user_graphs(store) == set()
 
 
 # --- Ingesta válida, sustitución e idempotencia --------------------------------------
@@ -116,7 +123,10 @@ def test_publish_stores_graph_with_base_uri(
         format="turtle",
         publicID=BASE_URI,
     )
-    assert isomorphic(stored, expected)
+    # El triple de pertenencia (decisión 49) va al grafo del catálogo, no al de la serie.
+    assert isomorphic(stored, without_membership(expected))
+    catalog = store.get_graph(f"{BASE_URI}catalogo/sintetico")
+    assert (URIRef(f"{BASE_URI}catalogo/sintetico"), DCAT.dataset, URIRef(SERIES)) in catalog
 
 
 def test_republish_same_content_is_idempotent(
@@ -152,7 +162,7 @@ def test_publish_json_ld(
     body = graph.serialize(format="json-ld")
     response = client.post("/datasets", content=body.encode(), headers=editor_headers | JSONLD)
     assert response.status_code == 201, response.text
-    assert isomorphic(store.get_graph(f"{BASE_URI}dataset/prueba"), graph)
+    assert isomorphic(store.get_graph(f"{BASE_URI}dataset/prueba"), without_membership(graph))
 
 
 def test_publish_is_audited(
@@ -194,7 +204,7 @@ def test_invalid_examples_are_rejected(
     body = response.json()
     assert body["kind"] in {"shacl", "uri", "structure"}
     assert body["issues"]
-    assert store.graph_names() == set()
+    assert user_graphs(store) == set()
 
 
 def test_shacl_report_is_readable(
@@ -213,7 +223,7 @@ def test_shacl_report_is_readable(
     assert issue["path"] == "http://purl.org/dc/terms/title"
     assert issue["source_shape"] == f"{BASE_URI}shapes#Dataset-title"
     assert "dct:title" in issue["message"]
-    assert store.graph_names() == set()
+    assert user_graphs(store) == set()
 
 
 @pytest.mark.parametrize(
@@ -296,7 +306,7 @@ def test_uri_pattern_violations(
     assert response.json()["kind"] == "uri"
     if focus:
         assert focus in {i["focus_node"] for i in response.json()["issues"]}
-    assert store.graph_names() == set()
+    assert user_graphs(store) == set()
 
 
 def test_version_number_must_match_uri(client: TestClient, editor_headers: dict[str, str]) -> None:
@@ -322,7 +332,7 @@ def test_cannot_describe_foreign_resources(
     response = _post(client, editor_headers, MINIMAL + extra)
     assert response.status_code == 422
     assert response.json()["kind"] == "uri"
-    assert store.graph_names() == set()
+    assert user_graphs(store) == set()
 
 
 def test_unsupported_media_type(client: TestClient, editor_headers: dict[str, str]) -> None:
@@ -426,7 +436,7 @@ def test_invalid_iris_are_rejected_before_writing(
     assert body["kind"] == "uri"
     assert body["report"] is None  # antes de SHACL
     assert body["issues"][0]["message"].startswith("IRI no válida")
-    assert store.graph_names() == set()
+    assert user_graphs(store) == set()
 
 
 def test_invalid_subject_iri_is_rejected(
@@ -436,7 +446,7 @@ def test_invalid_subject_iri_is_rejected(
     response = _post(client, editor_headers, body)
     assert response.status_code == 422
     assert response.json()["kind"] == "uri"
-    assert store.graph_names() == set()
+    assert user_graphs(store) == set()
 
 
 def test_invalid_iri_in_json_ld_never_reaches_the_store(
@@ -454,7 +464,7 @@ def test_invalid_iri_in_json_ld_never_reaches_the_store(
     )
     response = _post(client, editor_headers, json.dumps(document), JSONLD)
     assert response.status_code in (201, 422), response.text
-    for name in store.graph_names():
+    for name in user_graphs(store):
         for triple in store.get_graph(name):
             assert not any(isinstance(term, URIRef) and " " in term for term in triple)
     if response.status_code == 201:
@@ -476,7 +486,9 @@ def test_nothing_malformed_reaches_fuseki(
         if request.method == "PUT":
             puts.append(request)
             return httpx.Response(201)
-        return httpx.Response(200, text="", headers={"Content-Type": "application/n-triples"})
+        # El catálogo de la serie existe (decisión 49); el resto de grafos, vacíos.
+        text = fake_fuseki_read(request)
+        return httpx.Response(200, text=text, headers={"Content-Type": "application/n-triples"})
 
     client.app.dependency_overrides[get_triplestore] = lambda: FusekiStore(
         "http://fuseki.test:3030",
@@ -489,6 +501,7 @@ def test_nothing_malformed_reaches_fuseki(
     assert _post(client, editor_headers, bad).status_code == 422
     assert puts == []
     assert _post(client, editor_headers, MINIMAL).status_code == 201
+    assert puts  # la serie y el triple de pertenencia en el grafo del catálogo
     for line in puts[0].content.decode().splitlines():
         assert line.endswith(" ."), line
 
@@ -519,7 +532,7 @@ def test_deeply_nested_json_ld_is_a_422(
     assert response.status_code == 422, response.text
     assert response.json()["kind"] == "syntax"
     assert "anidamiento" in response.json()["detail"]
-    assert store.graph_names() == set()
+    assert user_graphs(store) == set()
 
 
 def test_json_depth_limit_is_exactly_64() -> None:
@@ -549,7 +562,7 @@ def test_deeply_nested_turtle_is_a_422(
     response = _post(client, editor_headers, MINIMAL + tail + "\n")
     assert response.status_code == 422, response.text
     assert response.json()["kind"] == "syntax"
-    assert store.graph_names() == set()
+    assert user_graphs(store) == set()
 
 
 def test_blank_node_nesting_and_lists_within_limits_are_fine() -> None:

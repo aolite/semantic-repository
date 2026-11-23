@@ -211,6 +211,27 @@ def _nullable(schema: dict) -> bool:
     return any(option.get("type") == "null" for option in schema.get("anyOf", []))
 
 
+# Campos nuevos del contrato que el frontend todavía no tiene. Cambiar el contrato OpenAPI
+# va en su propia PR y el frontend se adapta en la siguiente: hasta entonces se listan
+# aquí, con su decisión, y se borran cuando frontend/src/api/types.ts los incorpore.
+# Tienen que ser opcionales en el contrato (no requeridos), para no romper al cliente que
+# aún no los conoce.
+PENDING_FRONTEND: dict[str, set[str]] = {
+    "DatasetCard": {"catalog"},  # decisión 49
+    "DatasetDetail": {"catalog", "publisher"},  # decisión 49
+}
+
+
+def test_pending_frontend_fields_are_optional_in_the_contract() -> None:
+    schemas = json.loads(OPENAPI_PATH.read_text(encoding="utf-8"))["components"]["schemas"]
+    interfaces = _typescript_interfaces()
+    for name, fields in PENDING_FRONTEND.items():
+        for field in fields:
+            assert field not in schemas[name].get("required", []), f"{name}.{field}"
+            # En cuanto el frontend lo tenga, se quita de PENDING_FRONTEND.
+            assert field not in interfaces.get(name, {}), f"{name}.{field} ya está en types.ts"
+
+
 def test_frontend_types_match_the_openapi_contract() -> None:
     interfaces = _typescript_interfaces()
     schemas = json.loads(OPENAPI_PATH.read_text(encoding="utf-8"))["components"]["schemas"]
@@ -219,7 +240,8 @@ def test_frontend_types_match_the_openapi_contract() -> None:
         schema_name = TYPE_NAMES.get(ts_name, ts_name)
         assert schema_name in schemas, f"{ts_name}: no hay esquema {schema_name} en openapi.json"
         schema = schemas[schema_name]
-        assert set(properties) == set(schema["properties"]), ts_name
+        pending = PENDING_FRONTEND.get(schema_name, set())
+        assert set(properties) == set(schema["properties"]) - pending, ts_name
         # Un campo que el frontend trata como siempre presente (sin ``?:``) tiene que
         # exigirlo el contrato, o declarar un valor por defecto (siempre se devuelve). Y al
         # revés: lo que el contrato exige no puede ser opcional en el frontend. Desde la

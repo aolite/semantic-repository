@@ -958,6 +958,24 @@ def test_audit_never_stores_passwords_tokens_or_hashes(
         headers=headers | {"Content-Type": "text/turtle"},
     )
     assert ontology.status_code == 201, ontology.text
+    # Decisión 49: CRUD de catálogos y datasets.
+    crud = [
+        client.post(
+            "/catalogs",
+            json={"slug": "auditado", "title": "T", "description": "D", "publisher_name": "P"},
+            headers=headers,
+        ),
+        client.patch("/catalogs/auditado", json={"title": "T2"}, headers=headers),
+        client.post(
+            "/catalogs/auditado/datasets",
+            json={"slug": "auditada", "title": "T", "description": "D"},
+            headers=headers,
+        ),
+        client.patch("/datasets/auditada", json={"title": "T2"}, headers=headers),
+        client.delete("/datasets/auditada", headers=headers),
+        client.delete("/catalogs/auditado", headers=headers),
+    ]
+    assert [r.status_code for r in crud] == [201, 200, 201, 200, 204, 204]
     # Fase 4: fichero de distribución (subida y descarga restringida), evaluación FAIR,
     # consultas guardadas y bloqueo de login.
     member = _bearer(member_token)
@@ -1058,6 +1076,7 @@ def test_audit_details_have_only_the_expected_keys(
         AuditAction.DATASET_PUBLISHED: {
             "series",
             "slug",
+            "catalog",
             "graph",
             "versions",
             "triples",
@@ -1086,6 +1105,28 @@ def test_audit_details_have_only_the_expected_keys(
         AuditAction.ROLE_CHANGED: {"from", "to"},
         AuditAction.USER_DEACTIVATED: set(),
         AuditAction.USER_REACTIVATED: set(),
+        # Decisión 49.
+        AuditAction.CATALOG_CREATED: {"catalog", "slug", "via"},
+        AuditAction.CATALOG_UPDATED: {"catalog", "fields", "changed", "via"},
+        AuditAction.CATALOG_WITHDRAWN: {"catalog", "slug", "via"},
+        AuditAction.DATASET_CREATED: {"series", "slug", "catalog", "via"},
+        AuditAction.DATASET_UPDATED: {
+            "series",
+            "fields",
+            "catalog",
+            "moved_from",
+            "changed",
+            "via",
+        },
+        AuditAction.DATASET_WITHDRAWN: {
+            "series",
+            "slug",
+            "catalogs",
+            "versions",
+            "files_deleted",
+            "files_not_deleted",
+            "via",
+        },
     }
     with session_factory() as session:
         events = list(session.scalars(select(AuditEvent)))
@@ -1210,6 +1251,11 @@ def test_openapi_marks_every_private_operation_as_secured(client: TestClient) ->
         # Fase 4: informe FAIR y URI persistente de una distribución.
         ("get", "/datasets/{slug}/versions/{version}/fair/report"),
         ("get", "/dataset/{slug}/{version}/{dist}"),
+        # Decisión 49: lectura de catálogos y sus URIs persistentes.
+        ("get", "/catalogs"),
+        ("get", "/catalogs/{slug}"),
+        ("get", "/catalogo"),
+        ("get", "/catalogo/{slug}"),
     }
     seen = set()
     for path, operations in schema["paths"].items():
@@ -1229,6 +1275,13 @@ def test_openapi_marks_every_private_operation_as_secured(client: TestClient) ->
         ("post", "/datasets"),
         ("post", "/ontologies"),
         ("post", "/schemes"),
+        # Decisión 49: CRUD de catálogos y datasets (editor; admin hereda).
+        ("post", "/catalogs"),
+        ("patch", "/catalogs/{slug}"),
+        ("delete", "/catalogs/{slug}"),
+        ("post", "/catalogs/{slug}/datasets"),
+        ("patch", "/datasets/{slug}"),
+        ("delete", "/datasets/{slug}"),
         # Fase 4. Con token opcional (públicos, pero con JWT cambia el límite o el acceso):
         # el fichero (RESTRICTED), el SPARQL y el listado de consultas guardadas.
         ("get", "/dataset/{slug}/{version}/{dist}/fichero"),

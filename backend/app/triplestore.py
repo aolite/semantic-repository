@@ -4,9 +4,11 @@
 
 - ``FusekiStore``: Apache Jena Fuseki por HTTP, con timeouts.
   - Lectura: ``CONSTRUCT`` contra ``{FUSEKI_URL}/{FUSEKI_DATASET}/query``, sin credenciales.
-  - Escritura: ``PUT``/``GET`` del Graph Store Protocol en ``/data?graph=<iri>``, con
-    autenticación Basic (``FUSEKI_USER`` y ``FUSEKI_PASSWORD``). Sin credenciales, toda
-    escritura lanza ``TriplestoreConfigError`` con un mensaje claro.
+  - Escritura: ``PUT``/``POST``/``DELETE`` del Graph Store Protocol en ``/data?graph=<iri>``
+    y SPARQL Update en ``/update`` (decisión 49: añadir y quitar triples sin reescribir el
+    grafo, para que dos peticiones simultáneas no se pisen), con autenticación Basic
+    (``FUSEKI_USER`` y ``FUSEKI_PASSWORD``). Sin credenciales, toda escritura lanza
+    ``TriplestoreConfigError`` con un mensaje claro.
 - ``MemoryStore``: un ``rdflib.Dataset`` en memoria con la misma semántica. Lo usan las
   pruebas unitarias (y sirve para desarrollo sin Fuseki).
 
@@ -23,6 +25,7 @@ from app.config import Settings
 from app.sparql import iri
 
 CONNECT_TIMEOUT_SECONDS = 3.0
+GRAPH_NAMES_QUERY = "SELECT DISTINCT ?g WHERE { GRAPH ?g { } }"
 
 
 class TriplestoreError(RuntimeError):
@@ -44,6 +47,23 @@ class TripleStore(Protocol):
 
     def put_graph(self, graph_uri: str, graph: Graph) -> None:
         """Sustituye por completo el grafo con nombre (lo crea si no existe)."""
+        ...
+
+    def delete_graph(self, graph_uri: str) -> None:
+        """Borra el grafo con nombre (no falla si no existe)."""
+        ...
+
+    def append_graph(self, graph_uri: str, graph: Graph) -> None:
+        """Añade los triples al grafo con nombre sin leerlo ni reescribirlo (atómico)."""
+        ...
+
+    def update(self, request: str) -> None:
+        """Ejecuta una petición SPARQL Update (atómica: todas sus operaciones o ninguna).
+        Solo con términos ya validados (``app.sparql.iri``)."""
+        ...
+
+    def graph_names(self) -> set[str]:
+        """Nombres de los grafos con nombre que tienen algún triple."""
         ...
 
     def ensure_writable(self) -> object:
@@ -138,6 +158,61 @@ class FusekiStore:
             raise TriplestoreError(f"Fuseki no responde ({type(exc).__name__})") from exc
         self._check(response, "la escritura")
 
+    def append_graph(self, graph_uri: str, graph: Graph) -> None:
+        iri(graph_uri)
+        body = graph.serialize(format="nt", encoding="utf-8")
+        try:
+            with self._client(write=True) as client:
+                response = client.post(
+                    f"{self._endpoint}/data",
+                    params={"graph": graph_uri},
+                    content=body,
+                    headers={"Content-Type": "application/n-triples; charset=utf-8"},
+                )
+        except httpx.HTTPError as exc:
+            raise TriplestoreError(f"Fuseki no responde ({type(exc).__name__})") from exc
+        self._check(response, "la escritura")
+
+    def update(self, request: str) -> None:
+        try:
+            with self._client(write=True) as client:
+                response = client.post(
+                    f"{self._endpoint}/update",
+                    content=request.encode("utf-8"),
+                    headers={"Content-Type": "application/sparql-update; charset=utf-8"},
+                )
+        except httpx.HTTPError as exc:
+            raise TriplestoreError(f"Fuseki no responde ({type(exc).__name__})") from exc
+        self._check(response, "la actualización")
+
+    def delete_graph(self, graph_uri: str) -> None:
+        iri(graph_uri)
+        try:
+            with self._client(write=True) as client:
+                response = client.delete(f"{self._endpoint}/data", params={"graph": graph_uri})
+        except httpx.HTTPError as exc:
+            raise TriplestoreError(f"Fuseki no responde ({type(exc).__name__})") from exc
+        if response.status_code == 404:  # el grafo no existía
+            return
+        self._check(response, "el borrado")
+
+    def graph_names(self) -> set[str]:
+        try:
+            with self._client() as client:
+                response = client.post(
+                    f"{self._endpoint}/query",
+                    data={"query": GRAPH_NAMES_QUERY},
+                    headers={"Accept": "application/sparql-results+json"},
+                )
+        except httpx.HTTPError as exc:
+            raise TriplestoreError(f"Fuseki no responde ({type(exc).__name__})") from exc
+        self._check(response, "la consulta")
+        try:
+            rows = response.json()["results"]["bindings"]
+            return {row["g"]["value"] for row in rows if row.get("g", {}).get("type") == "uri"}
+        except (ValueError, KeyError, TypeError) as exc:
+            raise TriplestoreError("Respuesta de Fuseki no válida") from exc
+
 
 class MemoryStore:
     """Doble en memoria de Fuseki (rdflib). Mismo contrato que ``FusekiStore``."""
@@ -145,6 +220,7 @@ class MemoryStore:
     def __init__(self) -> None:
         self.dataset = Dataset()
         self.queries: list[str] = []
+        self.updates: list[str] = []
         self._lock = Lock()
 
     def construct(self, query: str) -> Graph:
@@ -171,5 +247,29 @@ class MemoryStore:
             for triple in graph:
                 target.add(triple)
 
+    def delete_graph(self, graph_uri: str) -> None:
+        iri(graph_uri)
+        with self._lock:
+            self.dataset.remove_graph(URIRef(graph_uri))
+
+    def append_graph(self, graph_uri: str, graph: Graph) -> None:
+        iri(graph_uri)
+        with self._lock:
+            target = self.dataset.graph(URIRef(graph_uri))
+            for triple in graph:
+                target.add(triple)
+
+    def update(self, request: str) -> None:
+        with self._lock:
+            self.updates.append(request)
+            self.dataset.update(request)
+
     def graph_names(self) -> set[str]:
-        return {str(g.identifier) for g in self.dataset.graphs() if len(g)}
+        with self._lock:
+            return {
+                str(g.identifier)
+                for g in self.dataset.graphs()
+                if len(g)
+                and isinstance(g.identifier, URIRef)
+                and str(g.identifier) != "urn:x-rdflib:default"
+            }

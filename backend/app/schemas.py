@@ -2,13 +2,13 @@
 
 import uuid
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models import Role
 from app.security import PASSWORD_MIN_LENGTH, has_control_chars
-from app.uris import DomainSlug
+from app.uris import SLUG_PATTERN, DomainSlug
 
 USERNAME_PATTERN = r"^[a-z0-9][a-z0-9._-]{2,63}$"
 
@@ -112,6 +112,14 @@ class ResourceRef(BaseModel):
     label: str | None
 
 
+class CatalogRef(BaseModel):
+    """Catálogo ``{BASE_URI}catalogo/{slug}`` al que pertenece un dataset (decisión 49)."""
+
+    slug: str
+    uri: str
+    title: str | None
+
+
 class DatasetCard(BaseModel):
     """Tarjeta de la pantalla Catálogo. Datos de la serie y de su versión actual."""
 
@@ -119,6 +127,9 @@ class DatasetCard(BaseModel):
     uri: str
     title: str | None
     description: str | None
+    catalog: CatalogRef | None = Field(
+        default=None, description="Catálogo del dataset (decisión 49); null si no está en ninguno"
+    )
     domain: DomainRef | None = Field(description="Dominio principal (el primero de domains)")
     domains: list[DomainRef]
     themes: list[ThemeRef]
@@ -256,6 +267,15 @@ class DatasetDetail(BaseModel):
     uri: str
     title: str | None
     description: str | None
+    catalog: CatalogRef | None = Field(
+        default=None, description="Catálogo del dataset (decisión 49); null si no está en ninguno"
+    )
+    publisher: ResourceRef | None = Field(
+        default=None,
+        description="dct:publisher de la serie (label = su foaf:name; uri = null si es un nodo "
+        "en blanco), igual que en el detalle del catálogo. Es lo que edita "
+        "PATCH /datasets/{slug} con publisher_name; null si la serie no lo declara",
+    )
     synthetic: bool
     domain: DomainRef | None = Field(description="Dominio de la serie (temas de dcat:last)")
     domains: list[DomainRef]
@@ -289,12 +309,24 @@ class IngestIssue(BaseModel):
 class IngestErrorResponse(BaseModel):
     detail: str
     kind: Literal[
-        "syntax", "structure", "uri", "shacl", "limit", "version_removed", "version_immutable"
+        "syntax",
+        "structure",
+        "uri",
+        "shacl",
+        "limit",
+        "catalog",
+        "version_removed",
+        "version_immutable",
+        "withdrawn",
+        "catalog_conflict",
     ] = Field(
         description="limit: se ha superado un límite de la ingesta (tripletas, tamaño "
         "expandido, IRI, profundidad o tiempo o memoria de la validación SHACL). "
+        "catalog (422): el catálogo indicado no existe o está dado de baja. "
         "version_removed y version_immutable (409): falta una versión ya publicada o viene "
-        "con otro contenido; las versiones afectadas van en issues (focus_node)"
+        "con otro contenido; las versiones afectadas van en issues (focus_node). "
+        "withdrawn (409): el slug es de un recurso dado de baja y no se reutiliza. "
+        "catalog_conflict (409): la serie ya está en otro catálogo (se mueve con PATCH)"
     )
     issues: list[IngestIssue]
     report: str | None = Field(description="Informe SHACL en texto (solo kind=shacl)")
@@ -699,3 +731,171 @@ class SchemeIngestResult(BaseModel):
     triples: int
     created: bool
     changed: bool
+
+
+# --- Decisión 49: catálogos, edición de datasets y bajas --------------------------------
+
+TITLE_MAX = 300
+DESCRIPTION_MAX = 5000
+PUBLISHER_MAX = 300
+
+
+def _clean_text(value: str | None, *, multiline: bool) -> str | None:
+    """Texto de formulario: sin espacios al principio ni al final, no vacío y sin
+    caracteres de control (salvo saltos de línea y tabuladores en las descripciones)."""
+    if value is None:
+        return None
+    value = value.strip()
+    if not value:
+        raise ValueError("no puede estar vacío")
+    allowed = "\n\t" if multiline else ""
+    if has_control_chars("".join(c for c in value if c not in allowed)):
+        raise ValueError("no puede contener caracteres de control")
+    return value
+
+
+class _FormModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("title", "publisher_name", check_fields=False)
+    @classmethod
+    def _single_line(cls, value: str | None) -> str | None:
+        return _clean_text(value, multiline=False)
+
+    @field_validator("description", check_fields=False)
+    @classmethod
+    def _multi_line(cls, value: str | None) -> str | None:
+        return _clean_text(value, multiline=True)
+
+
+def _slug_field() -> Any:
+    return Field(
+        pattern=SLUG_PATTERN,
+        max_length=200,
+        description="Slug (minúsculas ASCII, dígitos y guiones; semantic/uris.md). Lo fija "
+        "quien crea el recurso y no cambia",
+    )
+
+
+def _title_field(**kwargs: Any) -> Any:
+    return Field(
+        max_length=TITLE_MAX, description="dct:title (se guarda en español, @es)", **kwargs
+    )
+
+
+def _description_field(**kwargs: Any) -> Any:
+    return Field(
+        max_length=DESCRIPTION_MAX,
+        description="dct:description (se guarda en español, @es)",
+        **kwargs,
+    )
+
+
+def _publisher_field(**kwargs: Any) -> Any:
+    return Field(
+        max_length=PUBLISHER_MAX,
+        description="Nombre del publicador (dct:publisher): un agente foaf:Agent con este "
+        "foaf:name, sin URI (semantic/uris.md, «Pendiente»)",
+        **kwargs,
+    )
+
+
+class CatalogCreate(_FormModel):
+    """Alta de un catálogo ``{BASE_URI}catalogo/{slug}``: los campos obligatorios de
+    DCAT-AP 3 (forma ``itsh:CatalogShape``)."""
+
+    slug: str = _slug_field()
+    title: str = _title_field()
+    description: str = _description_field()
+    publisher_name: str = _publisher_field()
+
+
+class CatalogUpdate(_FormModel):
+    """Edición de los metadatos de un catálogo: solo cambian los campos presentes."""
+
+    title: str | None = _title_field(default=None)
+    description: str | None = _description_field(default=None)
+    publisher_name: str | None = _publisher_field(default=None)
+
+
+class CatalogDatasetRef(BaseModel):
+    slug: str
+    uri: str
+    title: str | None
+
+
+class CatalogSummary(BaseModel):
+    slug: str
+    uri: str
+    title: str | None
+    description: str | None
+    publisher: ResourceRef | None
+    dataset_count: int = Field(description="Número de datasets (series) del catálogo")
+
+
+class CatalogPage(BaseModel):
+    items: list[CatalogSummary]
+    total: int
+
+
+class CatalogDetail(CatalogSummary):
+    datasets: list[CatalogDatasetRef] = Field(description="Series del catálogo, por título")
+
+
+class DatasetCreate(_FormModel):
+    """Alta de un dataset (serie DCAT 3) sin versiones en el catálogo de la ruta. Las
+    versiones se publican después con ``POST /datasets`` (RDF)."""
+
+    slug: str = _slug_field()
+    title: str = _title_field()
+    description: str = _description_field()
+    publisher_name: str | None = Field(
+        default=None,
+        max_length=PUBLISHER_MAX,
+        description="Nombre del publicador (opcional en la serie; ver CatalogCreate)",
+    )
+
+
+class DatasetUpdate(_FormModel):
+    """Edición de los metadatos de la serie (no de sus versiones, que son inmutables).
+    Solo cambian los campos presentes; ``catalog`` mueve el dataset a otro catálogo."""
+
+    title: str | None = _title_field(default=None)
+    description: str | None = _description_field(default=None)
+    publisher_name: str | None = _publisher_field(default=None)
+    catalog: str | None = Field(
+        default=None,
+        pattern=SLUG_PATTERN,
+        max_length=200,
+        description="Slug del catálogo de destino (mover el dataset); sus URIs no cambian",
+    )
+
+
+class GoneResponse(BaseModel):
+    """410 Gone: ficha mínima de un recurso dado de baja (su lápida)."""
+
+    detail: str
+    uri: str = Field(description="URI del recurso dado de baja")
+    resource: Literal["catalog", "dataset"] = Field(
+        description="Qué era: se deduce de la URI (catalogo/{slug} o dataset/{slug})"
+    )
+    title: str | None
+    withdrawn_at: str | None = Field(description="prov:invalidatedAtTime (xsd:dateTime)")
+
+
+ConflictKind = Literal["slug_in_use", "withdrawn", "catalog_not_empty"]
+
+
+class ConflictResponse(BaseModel):
+    """409 del CRUD de catálogos y datasets (decisión 49)."""
+
+    detail: str
+    kind: ConflictKind = Field(
+        description="slug_in_use: ya existe un recurso con ese slug. withdrawn: el slug es de "
+        "un recurso dado de baja y no se reutiliza. catalog_not_empty: el catálogo tiene "
+        "datasets (en datasets) y no se puede dar de baja"
+    )
+    datasets: list[str] = Field(
+        default_factory=list,
+        description="Solo con catalog_not_empty: URIs de las series que siguen en el catálogo",
+    )

@@ -2,7 +2,7 @@
 
 API del repositorio semántico IT&OT. Es el único componente que escribe en el triplestore y en el almacenamiento de distribuciones (ver `Plan.md`, sección 3.2).
 
-**Estado (fase 4):** health checks, autenticación JWT, cuentas de usuario y auditoría en PostgreSQL (fase 1); cliente de Fuseki, ingesta DCAT-AP validada con SHACL, comando de carga de los datos sintéticos, lectura pública del catálogo y negociación de contenido en las URIs persistentes (fase 2); ingesta y lectura de ontologías (con métricas OWL de owlready2 y consistencia con Pellet) y de esquemas SKOS, y negociación en `/onto/…` y `/vocab/…` (fase 3); versiones inmutables, ficheros de distribución con acceso por rol (interfaz de almacenamiento), evaluación FAIR con F-UJI, SPARQL público con límites, consultas guardadas, bloqueo de login y revocación de tokens (fase 4, ver «Fase 4» más abajo).
+**Estado (fase 4):** health checks, autenticación JWT, cuentas de usuario y auditoría en PostgreSQL (fase 1); cliente de Fuseki, ingesta DCAT-AP validada con SHACL, comando de carga de los datos sintéticos, lectura pública del catálogo y negociación de contenido en las URIs persistentes (fase 2); ingesta y lectura de ontologías (con métricas OWL de owlready2 y consistencia con Pellet) y de esquemas SKOS, y negociación en `/onto/…` y `/vocab/…` (fase 3); versiones inmutables, ficheros de distribución con acceso por rol (interfaz de almacenamiento), evaluación FAIR con F-UJI, SPARQL público con límites, consultas guardadas, bloqueo de login y revocación de tokens (fase 4, ver «Fase 4» más abajo); varios catálogos, CRUD de catálogos y datasets y borrado lógico con 410 (decisión 49, ver «Catálogos y bajas»).
 
 ## Requisitos
 
@@ -48,6 +48,7 @@ Se leen del entorno o de un fichero `backend/.env` (que no se versiona). Los val
 | `SHACL_TIMEOUT_SECONDS` | no | `60` | Tiempo máximo de la validación SHACL de una ingesta (hasta 3600). Al superarlo se mata el proceso de validación y la ingesta responde 422 `limit` |
 | `SHACL_MEMORY_MB` | no | `2048` | Memoria máxima (`RLIMIT_AS`) del proceso de validación SHACL (de 256 a 65536; solo en Linux). Al superarla, 422 `limit` |
 | `REASONER_TIMEOUT_SECONDS` | no | `120` | Tiempo máximo de Pellet por versión de ontología (hasta 3600). Si se supera, se mata el proceso Java y la consistencia queda `null` con el motivo |
+| `CATALOG_LOCK_TIMEOUT_SECONDS` | no | `30` | Espera máxima del bloqueo de escritura de catálogos y datasets (hasta 3600). Si otra escritura no ha terminado antes, la API responde 503 con `Retry-After` y `load-semantic` termina con error (QA-49-03) |
 | `REASONER_JAVA_MEMORY_MB` | no | `1024` | Memoria máxima de la JVM de Pellet (`-Xmx`, de 256 a 65536) |
 | `FRONTEND_BASE_URL` | no | `http://localhost:5173` | Frontend al que redirigen (303) las URIs persistentes cuando se pide HTML (fichas de dataset, ontología y vocabulario) |
 | `JWT_SECRET` | **sí** | — | Secreto HMAC para firmar los JWT. Longitud mínima según el algoritmo: 32 bytes con HS256, 48 con HS384 y 64 con HS512. Sin él la API no arranca. Genera uno con `python -c "import secrets; print(secrets.token_urlsafe(64))"` (vale para los tres) |
@@ -90,8 +91,8 @@ Si falta una variable obligatoria o tiene un valor no válido, el arranque falla
 
 | Método y ruta | Acceso | Qué hace |
 |---|---|---|
-| `POST /datasets` | editor (y admin, que hereda) | Ingesta de una serie con sus versiones en Turtle (`text/turtle`) o JSON-LD (`application/ld+json`). 201 si la serie es nueva, 200 si se sustituye (`changed=false` si era idéntica), 422 con el informe si no es válida |
-| `GET /datasets` | público | Tarjetas del catálogo. Filtros `q`, `domain` (`it`, `ot`, `pqc`, `ia`), `page` y `page_size` (máx. 100) |
+| `POST /datasets` | editor (y admin, que hereda) | Ingesta de una serie con sus versiones en Turtle (`text/turtle`) o JSON-LD (`application/ld+json`), con su triple de pertenencia a un catálogo o `?catalog={slug}` (decisión 49). 201 si la serie es nueva, 200 si se sustituye (`changed=false` si era idéntica), 422 con el informe si no es válida |
+| `GET /datasets` | público | Tarjetas del catálogo. Filtros `q`, `domain` (`it`, `ot`, `pqc`, `ia`), `catalog` (slug del catálogo), `page` y `page_size` (máx. 100) |
 | `GET /datasets/{slug}` | público | Ficha: serie, versión actual (o `?version=MAYOR.MENOR.PARCHE`), historial, distribuciones, cadena PROV y metadatos DCAT-AP |
 | `GET /datasets/{slug}/rdf` | público | RDF de la versión (actual o `?version=`) en Turtle o JSON-LD, según `?format=turtle\|jsonld` o la cabecera `Accept` |
 | `GET /dataset/{slug}` | público | URI persistente de la serie: Turtle, JSON-LD o RDF/XML según `Accept`; sin `Accept`, con `*/*` o con `text/html` (fase 4), 303 a `{FRONTEND_BASE_URL}/datasets/{slug}` |
@@ -121,11 +122,12 @@ El contrato completo está en [`openapi.json`](openapi.json). Los campos siguen 
 1. **Análisis**, con las IRIs relativas resueltas contra `BASE_URI`. En JSON-LD se rechazan los contextos remotos (`@context` con URL o `@import`) para que el servidor no descargue documentos externos.
    - **Anidamiento máximo: 64 niveles**, tanto de JSON en JSON-LD como de cadenas de nodos en blanco anidados (`[ p [ p … ] ]`) en cualquier formato; las listas RDF (`rdf:rest`) no cuentan. Un DCAT-AP real usa unos pocos niveles, y el límite queda lejos de la recursión de Python (1000) que usan analizadores y serializadores. Si se supera, 422 `syntax` (también si el analizador agota la recursión).
    - **IRIs válidas:** toda IRI del grafo (sujeto, predicado, objeto o tipo de dato de un literal) es absoluta y no contiene los caracteres que excluye la producción `IRIREF` de Turtle/N-Triples/SPARQL (espacio, controles, `<>"{}|^`` ` ``\`). Si no, 422 `uri` con la IRI en el `issue`, antes de SHACL y de escribir nada.
-2. **Estructura y URIs** (`semantic/uris.md`): exactamente una `dcat:DatasetSeries` con URI `{BASE_URI}dataset/{slug}`; cada `dcat:Dataset` es `{serie}/{version}`, con `dcat:inSeries` hacia la serie y `dcat:version` igual al último segmento; cada distribución cuelga de su versión. Todo sujeto con IRI cuelga de `BASE_URI` y, en concreto, de la serie o de `{BASE_URI}actividad/`: una ingesta no puede reescribir otra serie, el vocabulario ni el catálogo.
+2. **Estructura y URIs** (`semantic/uris.md`): exactamente una `dcat:DatasetSeries` con URI `{BASE_URI}dataset/{slug}`; cada `dcat:Dataset` es `{serie}/{version}`, con `dcat:inSeries` hacia la serie y `dcat:version` igual al último segmento; cada distribución cuelga de su versión. Todo sujeto con IRI cuelga de `BASE_URI` y, en concreto, de la serie o de `{BASE_URI}actividad/`: una ingesta no puede reescribir otra serie, el vocabulario ni el catálogo. La única excepción es el triple de pertenencia `<{BASE_URI}catalogo/{slug}> dcat:dataset <serie>` (decisión 49): ningún otro triple con un catálogo como sujeto, y nunca con el raíz `{BASE_URI}catalogo`.
 3. **SHACL** con pyshacl, en un proceso aparte con tiempo y memoria limitados (ver «Límites de la ingesta»): todas las formas de `SEMANTIC_DIR/shapes/*.ttl` y, como grafo de soporte, `SEMANTIC_DIR/data/vocab-minimo.ttl`. Sin inferencia y sin la ontología DCAT.
-4. **Guardado** en el grafo con nombre `{BASE_URI}dataset/{slug}`.
+4. **Catálogo** (decisión 49, lo que SHACL no ve): el catálogo existe y no está dado de baja (si no, 422 `catalog`), la serie no está en **otro** catálogo (409 `catalog_conflict`; se mueve con `PATCH /datasets/{slug}`) y su slug no es de un dataset dado de baja (409 `withdrawn`).
+5. **Guardado** en el grafo con nombre `{BASE_URI}dataset/{slug}`, **sin** el triple de pertenencia, que va al grafo del catálogo.
 
-Si falla un paso, la respuesta es 422 con `kind` (`syntax`, `structure`, `uri`, `shacl` o `limit`), `detail`, `issues` (nodo, propiedad, valor, severidad, forma y mensaje) y, para SHACL, `report` con el informe de pyshacl en texto. No se escribe nada.
+Si falla un paso, la respuesta es 422 con `kind` (`syntax`, `structure`, `uri`, `shacl`, `limit` o `catalog`), `detail`, `issues` (nodo, propiedad, valor, severidad, forma y mensaje) y, para SHACL, `report` con el informe de pyshacl en texto. No se escribe nada.
 
 **Estrategia de sustitución:** cada ingesta sustituye **por completo** el grafo con nombre de la serie (`PUT` del Graph Store Protocol, atómico en Fuseki). Por eso se envía siempre la serie entera con todas sus versiones. Desde la fase 4 las versiones publicadas son **inmutables** (decisión 28): si falta una, 409 `version_removed`; si cambia, 409 `version_immutable` (ver «Fase 4»). Si el contenido es isomorfo al guardado, no se reescribe (`changed=false`). Las credenciales de escritura se exigen siempre, también cuando no hay cambios.
 
@@ -139,7 +141,9 @@ Si falla un paso, la respuesta es 422 con `kind` (`syntax`, `structure`, `uri`, 
 | `{BASE_URI}vocab/{slug}` y `{BASE_URI}vocab/corp/{slug}` | Un esquema SKOS con sus conceptos (`vocabularios/*.ttl`, `vocabularios/corp/*.ttl`). Los auxiliares `vocab/dominio` y `vocab/tipo-dataset` salen de `data/vocab-minimo.ttl`, repartido en un grafo por esquema |
 | `{BASE_URI}onto/{slug}/{version}` | Una versión de ontología (su `owl:versionIRI`) |
 | `{BASE_URI}onto/externas` | Las ontologías externas, solo por referencia (`ontologias/externas.ttl`) |
-| `{BASE_URI}catalogo` | `data/catalogo.ttl` (el `dcat:Catalog`) |
+| `{BASE_URI}catalogo` | Catálogo raíz, `data/catalogo.ttl`: agrupa los catálogos con `dcat:catalog` y no lista series (decisión 49) |
+| `{BASE_URI}catalogo/{slug}` | Un catálogo (`data/catalogos/{slug}.ttl` o creado por la API) con un `dcat:dataset` por serie |
+| `{BASE_URI}bajas` | Lápidas de los catálogos y series dados de baja. **No se publica**: ni en SPARQL ni en los listados |
 
 El grafo `{BASE_URI}vocab/` de la fase 2 ya no se escribe ni se lee. Si quedó en el Fuseki de una instalación anterior, no molesta (la lectura lo ignora) y se puede borrar a mano.
 
@@ -166,7 +170,9 @@ Carga desde `SEMANTIC_DIR`:
 - `vocabularios/*.ttl` y `vocabularios/corp/*.ttl`: un esquema por fichero. El nombre del fichero es el slug del esquema (`vocabularios/corp/trl.ttl` ↔ `{BASE_URI}vocab/corp/trl`).
 - `ontologias/{slug}/{version}.ttl`: todas las versiones de cada ontología. La ruta tiene que coincidir con el `owl:versionIRI`.
 - `ontologias/externas.ttl`: las externas, solo por referencia (ningún sujeto bajo `BASE_URI`).
-- `data/catalogo.ttl` (obligatorio) y `data/sintetico/*.ttl` (al menos uno).
+- `data/catalogo.ttl` (obligatorio, catálogo raíz), `data/catalogos/{slug}.ttl` (un catálogo por fichero, decisión 49) y `data/sintetico/*.ttl` (al menos uno).
+
+Con lo hecho desde la aplicación (decisión 49), `load-semantic` **conserva el estado del triplestore**: los catálogos y series dados de baja se omiten (con sus ficheros) y se avisa, sin error; una serie que ya está en un catálogo se queda en él aunque su fichero diga otro (un traslado no se deshace); los catálogos creados por la API siguen en el raíz, y los `dcat:dataset` de cada catálogo publicado se mantienen (los de `data/catalogos/*.ttl` no se copian: la pertenencia la aporta cada serie). Los metadatos (título, descripción…) sí salen de los ficheros, como siempre. Una serie nueva necesita que su catálogo se cargue en la misma ejecución o ya exista.
 
 Valida todo antes de escribir (estructura, URIs, ruta del fichero, SHACL y grafos repetidos): si un fichero no es válido, muestra sus errores y no carga ninguno (código 1). Es idempotente: lo que no ha cambiado no se reescribe, y las métricas de una versión de ontología solo se recalculan si su contenido cambia. Audita cada esquema, ontología y serie con `actor_username = "cli"`. Necesita `FUSEKI_USER`, `FUSEKI_PASSWORD` y la base de datos (auditoría y métricas).
 
@@ -178,7 +184,7 @@ Las URIs se construyen con `BASE_URI` (p. ej. `https://<dominio>/itot/`) y el ba
 - Dejar que el backend responda 303 a `FRONTEND_BASE_URL` cuando se pide HTML. Si frontend y URIs comparten dominio, `FRONTEND_BASE_URL` es ese mismo origen.
 - Respetar `Vary: Accept` en cualquier caché (el backend lo envía).
 
-Lo mismo vale para `{BASE_URI}onto/*` y `{BASE_URI}vocab/*` (fase 3). El resto de patrones (`actividad/`, `sparql`) se resolverán igual cuando tengan ruta en el backend.
+Lo mismo vale para `{BASE_URI}onto/*` y `{BASE_URI}vocab/*` (fase 3) y para `{BASE_URI}catalogo` y `{BASE_URI}catalogo/*` (decisión 49). El resto de patrones (`actividad/`, `sparql`) se resolverán igual cuando tengan ruta en el backend.
 
 ## Endpoints (fase 3): vocabularios y ontologías
 
@@ -303,7 +309,7 @@ Cada ejecución de Pellet usa un directorio temporal propio que se borra siempre
 
 ### Catálogo (decisión 29)
 
-Cada publicación de una serie (API o CLI) asegura `<{BASE_URI}catalogo> dcat:dataset <serie>` en el grafo del catálogo. `load-semantic` fusiona `data/catalogo.ttl` con los `dcat:dataset` del catálogo publicado que apuntan a series (`ingest.merge_catalog`), así que no borra las series publicadas por la API.
+Desde la decisión 49 el backend mantiene `<{BASE_URI}catalogo/{slug}> dcat:dataset <serie>` en el grafo del catálogo de cada serie (ya no en el raíz). Ver «Catálogos y bajas».
 
 ### Ficheros de distribución (decisiones 40 y 41)
 
@@ -351,6 +357,46 @@ Cada publicación de una serie (API o CLI) asegura `<{BASE_URI}catalogo> dcat:da
 ### Migraciones
 
 `0003` añade `users.tokens_valid_after` y las tablas `distribution_files`, `used_download_tokens`, `fair_evaluations`, `saved_queries`, `login_attempts` y `rate_limit_counters`.
+
+## Catálogos y bajas (decisión 49)
+
+Varios catálogos `{BASE_URI}catalogo/{slug}`, cada dataset (serie) en exactamente uno, y borrado lógico. Contrato en `semantic/uris.md` («Catálogos y borrado lógico»).
+
+| Método y ruta | Acceso | Respuestas | Qué hace |
+|---|---|---|---|
+| `GET /catalogs` | público | 200 | Catálogos (sin el raíz ni las bajas), por título, con `dataset_count` |
+| `GET /catalogs/{slug}` | público | 200, 404, 410 | Ficha del catálogo con sus datasets |
+| `POST /catalogs` | editor, admin | 201, 401, 403, 409, 422 | Crea un catálogo vacío y lo añade al raíz (`dcat:catalog`). 409 con `kind` `slug_in_use` o `withdrawn` |
+| `PATCH /catalogs/{slug}` | editor, admin | 200, 401, 403, 404, 410, 422 | Edita título, descripción o publicador (solo los campos presentes) |
+| `DELETE /catalogs/{slug}` | editor, admin | 204, 401, 403, 404, 409, 410 | Da de baja un catálogo **vacío**; con datasets, 409 `kind=catalog_not_empty` con `datasets` |
+| `POST /catalogs/{slug}/datasets` | editor, admin | 201, 401, 403, 404, 409, 410, 422 | Crea un dataset (serie sin versiones) en el catálogo. 409 con `kind` `slug_in_use` o `withdrawn` |
+| `PATCH /datasets/{slug}` | editor, admin | 200, 401, 403, 404, 410, 422 | Edita los metadatos de la serie y, con `catalog`, la mueve de catálogo |
+| `DELETE /datasets/{slug}` | editor, admin | 204, 401, 403, 404, 410 | Da de baja el dataset y elimina sus ficheros |
+| `GET /catalogo`, `GET /catalogo/{slug}` | público | 200, 303, 404, 406, 410 | URIs persistentes del raíz y de un catálogo: RDF con `Accept` de RDF; si no, 303 a `{FRONTEND_BASE_URL}/` o `{FRONTEND_BASE_URL}/catalogos/{slug}` |
+
+El catálogo raíz no se crea, edita ni borra por la API: cambia solo con `data/catalogo.ttl` y `load-semantic`.
+
+**Formularios en JSON.** Los cuerpos de catálogos y datasets son JSON con los campos que exigen las formas (`slug`, `title`, `description`, `publisher_name`; `catalog` para mover), sin campos extra (422). El backend los convierte a RDF (`title` y `description` en `@es`; el publicador, un nodo en blanco `foaf:Agent` con `foaf:name`, porque los agentes aún no tienen URI) y los valida con **todas** las formas SHACL, igual que una ingesta. Las versiones se siguen publicando con `POST /datasets` en RDF, porque una versión DCAT-AP (distribuciones, procedencia PROV, temas) no cabe en un formulario plano y la inmutabilidad se comprueba sobre el RDF.
+
+**Conflictos (409).** El cuerpo es `ConflictResponse`: `detail`, `kind` y `datasets`. `kind` distingue `slug_in_use` (ya existe un recurso con ese slug), `withdrawn` (el slug es de un recurso dado de baja y no se reutiliza) y `catalog_not_empty` (dar de baja un catálogo con datasets; `datasets` lleva sus URIs). En `POST /datasets` (RDF) los 409 siguen siendo `IngestErrorResponse`, con `kind` `withdrawn`, `catalog_conflict`, `version_removed` o `version_immutable`.
+
+**Publicador de la serie.** `DatasetDetail.publisher` es el `dct:publisher` de la serie, con la misma forma que en el detalle del catálogo (`ResourceRef`: `label` es el `foaf:name` y `uri` es `null` si es un nodo en blanco). Es el valor que edita `publisher_name` en `PATCH /datasets/{slug}`; el de cada versión sigue en `version.metadata.publisher`.
+
+**Editar no toca las versiones.** `PATCH /datasets/{slug}` cambia solo triples de la serie; las versiones publicadas siguen siendo inmutables (decisión 28). Mover un dataset quita el triple del catálogo de origen y lo añade al de destino; ninguna URI cambia.
+
+**Baja (borrado lógico).** El grafo del recurso se borra, se quita el enlace desde su catálogo (o el `dcat:catalog` del raíz), los ficheros de distribución se eliminan del almacenamiento (y sus filas de `distribution_files`; las evaluaciones FAIR pendientes pasan a `failed`) y queda una lápida en `{BASE_URI}bajas` (`prov:Entity`, `dct:title`, `adms:status …/Withdrawn` y `prov:invalidatedAtTime` con la hora del servidor), validada con `itsh:BajaShape`. Quién la dio de baja va a la auditoría (`catalog_withdrawn`, `dataset_withdrawn`), no al RDF. Si no se puede borrar un fichero, la baja sigue y la clave queda en `files_not_deleted` del evento.
+
+**410 Gone.** La URI de un catálogo o una serie dados de baja, y por prefijo las de sus versiones, distribuciones y ficheros (`/dataset/{slug}/…`), responden 410 con la ficha mínima: en la API JSON (`GoneResponse`: `uri`, `resource`, `title`, `withdrawn_at`) y en las URIs persistentes en HTML (sin `Accept`, `*/*` o `text/html`; aquí no hay 303, porque el frontend respondería 200) o en RDF (la lápida). Un slug dado de baja no se reutiliza: crear otro recurso con él da 409.
+
+**Fuera de SPARQL.** El SPARQL público pasa a Fuseki la descripción del dataset en el protocolo (`default-graph-uri` y `named-graph-uri` con todos los grafos salvo `{BASE_URI}bajas`), así que ni el grafo por defecto ni `GRAPH ?g` ven las lápidas. Si la consulta trae `FROM`/`FROM NAMED`, el dataset es el que nombra, y `{BASE_URI}bajas` ahí da 400. Los listados no leen ese grafo.
+
+**Auditoría.** `catalog_created`, `catalog_updated`, `catalog_withdrawn`, `dataset_created`, `dataset_updated` (con `moved_from`) y `dataset_withdrawn`.
+
+**Concurrencia (QA-49-01).** Ninguna escritura de catálogos, pertenencias o lápidas lee un grafo entero para reescribirlo: añadir triples es un `POST` del Graph Store Protocol (`append_graph`, se añade sin tocar lo demás) y quitarlos, un SPARQL Update `DELETE DATA` o `DELETE … WHERE` solo con IRIs validadas; mover un dataset de catálogo es una sola petición de Update. Además, las operaciones que comprueban y escriben (slug libre y crear, catálogo vacío y dar de baja, editar metadatos, publicar una serie y la escritura de `load-semantic`) se serializan con `app.write_lock`: un `RLock` del proceso y, con PostgreSQL, un **advisory lock** (`pg_advisory_lock`; vale entre workers y réplicas y con la CLI). Es un único bloqueo global porque estas escrituras son pocas y tocan grafos compartidos (raíz, bajas, catálogo de origen y de destino); así no hay riesgo de interbloqueo. El usuario de Fuseki del backend necesita permiso en `/update` además de `/data` (el `infra/fuseki/assembler.ttl` actual ya lo da).
+
+**El bloqueo no agota el pool (QA-49-03).** Mientras se espera no se retiene ninguna conexión del pool de la aplicación: antes de esperar se cierra la transacción de la sesión (la conexión con la que se leyó el usuario vuelve al pool; con `expire_on_commit=False` el usuario sigue valiendo); después se espera el `RLock`, que no usa conexión; y solo el hilo que lo tiene abre la conexión del advisory lock, en un motor **sin pool** (`NullPool`), como mucho una por proceso. Así N escrituras simultáneas no se quedan sin conexión y las lecturas (`GET /auth/me`, catálogo…) no esperan a las escrituras. La espera está acotada por `CATALOG_LOCK_TIMEOUT_SECONDS` (30 s por defecto; `lock_timeout` de PostgreSQL para el advisory lock): si vence, la API responde **503** con `Retry-After` y `load-semantic` termina con error. `load-semantic` solo retiene el bloqueo en la escritura de catálogos, series y ficheros: la validación (con el razonador) y la publicación de esquemas y ontologías van fuera, y dentro vuelve a leer las bajas y omite lo que se haya dado de baja mientras validaba.
+
+**Ficheros huérfanos (QA-49-02).** Al dar de baja un dataset se borran los ficheros con fila en `distribution_files` y, después, toda la carpeta `{slug}/` del almacenamiento (`Storage.delete_prefix`), también lo que no tenga fila. Solo ese slug: `prueba-otra/` no se toca al dar de baja `prueba`.
 
 ## Roles y autorización
 
