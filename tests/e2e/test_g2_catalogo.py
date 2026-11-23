@@ -113,12 +113,15 @@ def _publish(
 
 def _series_ttl(slug: str, title: str, *, version: str = "1.0.0", extra: str = "") -> str:
     """Serie mínima válida de prueba, marcada como sintética y con un tema del dominio OT.
+    Lleva su triple de pertenencia al catálogo ``e2e-pruebas`` (decisión 49), que crea el
+    fixture ``e2e_catalog`` de ``conftest.py``.
 
     Los textos son de relleno de la prueba, no datos del prototipo ni reales.
     """
     return f"""
 @prefix dcat: <http://www.w3.org/ns/dcat#> .
 @prefix dct:  <http://purl.org/dc/terms/> .
+<catalogo/e2e-pruebas> dcat:dataset <dataset/{slug}> .
 <dataset/{slug}> a dcat:DatasetSeries ;
     dct:type <vocab/tipo-dataset/sintetico> ;
     dct:title "{title}"@es ;
@@ -152,7 +155,7 @@ def _file_title(slug: str) -> str:
 
 
 @pytest.fixture(scope="module")
-def g2_editor(stack: Stack, admin: Account) -> Account:
+def g2_editor(stack: Stack, admin: Account, e2e_catalog: str) -> Account:
     return create_account(stack, admin, "editor")
 
 
@@ -241,6 +244,7 @@ def test_load_semantic_carga_las_cinco_piezas(stack: Stack, loaded: str) -> None
         "vocab-minimo.ttl (dominio)": f"{base}vocab/dominio",
         "vocab-minimo.ttl (tipo-dataset)": f"{base}vocab/tipo-dataset",
         "catalogo.ttl": f"{base}catalogo",
+        "catalogos/sintetico.ttl": f"{base}catalogo/sintetico",  # decisión 49
         **{f"{slug}.ttl": f"{base}dataset/{slug}" for slug in SYNTHETIC},
     }
     for name, graph in expected.items():
@@ -708,6 +712,8 @@ def test_publicar_en_json_ld(stack: Stack, loaded: str, g2_editor: Account) -> N
             "dct": "http://purl.org/dc/terms/",
         },
         "@graph": [
+            # Decisión 49: la pertenencia al catálogo viaja en el grafo que se ingesta.
+            {"@id": f"{base}catalogo/e2e-pruebas", "dcat:dataset": {"@id": series}},
             {
                 "@id": series,
                 "@type": "dcat:DatasetSeries",

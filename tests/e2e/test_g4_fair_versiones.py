@@ -140,6 +140,7 @@ def _series_ttl(slug: str, versions: dict[str, dict]) -> str:
     out = [
         "@prefix dcat: <http://www.w3.org/ns/dcat#> .",
         "@prefix dct:  <http://purl.org/dc/terms/> .",
+        "<catalogo/e2e-pruebas> dcat:dataset <dataset/" + slug + "> .",
         f"<dataset/{slug}> a dcat:DatasetSeries ; dct:type <vocab/tipo-dataset/sintetico> ;",
         f'    dct:title "Serie G4 {slug}"@es ; dct:description "Creada por la e2e de G4."@es ;',
         f"    dcat:last <dataset/{slug}/{last}> .",
@@ -226,7 +227,7 @@ def g4_other_member(stack: Stack, admin: Account) -> Account:
 
 
 @pytest.fixture(scope="module")
-def g4_editor(stack: Stack, admin: Account) -> Account:
+def g4_editor(stack: Stack, admin: Account, e2e_catalog: str) -> Account:
     return create_account(stack, admin, "editor")
 
 
@@ -800,10 +801,18 @@ def test_los_logs_no_contienen_los_enlaces_firmados(stack: Stack, loaded: str) -
 def test_una_serie_publicada_por_la_api_cuelga_del_catalogo_rdf(
     stack: Stack, series: dict, g4_member: Account
 ) -> None:
-    """QA-G2-05: ``<catálogo> dcat:dataset <serie>`` al publicar por la API."""
+    """QA-G2-05 (decisión 49): ``<catálogo> dcat:dataset <serie>`` al publicar por la API,
+    ahora en el grafo del catálogo ``catalogo/{slug}`` y no en el del raíz."""
     base = stack.env["BASE_URI"]
-    ask = f"ASK {{ <{base}catalogo> <http://www.w3.org/ns/dcat#dataset> <{base}dataset/{series['slug']}> }}"
+    ask = (
+        f"ASK {{ GRAPH <{base}catalogo/e2e-pruebas> {{ <{base}catalogo/e2e-pruebas> "
+        f"<http://www.w3.org/ns/dcat#dataset> <{base}dataset/{series['slug']}> }} }}"
+    )
     assert _json(_sparql(stack, ask, token=g4_member.token))["boolean"] is True
+    in_root = (
+        f"ASK {{ GRAPH <{base}catalogo> {{ ?c <http://www.w3.org/ns/dcat#dataset> ?s }} }}"
+    )
+    assert _json(_sparql(stack, in_root, token=g4_member.token))["boolean"] is False
     # Y la recarga del catálogo (load-semantic) no la borra.
     result = stack.compose(
         "exec", "-T", "backend", "python", "-m", "app.cli", "load-semantic", timeout=600

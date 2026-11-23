@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { api, login, publishSeries, seriesTurtle, type Account, type Accounts } from './api'
+import { api, ensureCatalog, login, publishSeries, seriesTurtle, type Account, type Accounts } from './api'
 
 /**
  * Prepara el entorno de las pruebas, sin datos ni credenciales fijas:
@@ -10,7 +10,7 @@ import { api, login, publishSeries, seriesTurtle, type Account, type Accounts } 
  *    BROWSER_ADMIN_USER y BROWSER_ADMIN_PASSWORD.
  * 2. Con el admin, crea un editor y dos miembros con contraseñas aleatorias. Las cuentas
  *    viajan a los workers en una variable de entorno, nunca a un fichero.
- * 3. Publica las series que necesita la paginación y espera a que F-UJI termine la
+ * 3. Crea el catálogo de las pruebas (decisión 49) y publica en él las series que necesita la paginación y espera a que F-UJI termine la
  *    evaluación de los datasets sintéticos (`load-semantic` ya se ha ejecutado).
  */
 const here = dirname(fileURLToPath(import.meta.url))
@@ -90,6 +90,7 @@ export default async function globalSetup(): Promise<void> {
 
   // Series para la paginación (20 por página): idempotente, republicar lo mismo no cambia nada.
   const editorToken = await login(accountsValue.editor)
+  await ensureCatalog(editorToken) // decisión 49: cada serie pertenece a un catálogo
   for (let n = 1; n <= PAGINATION_SERIES; n += 1) {
     const slug = `browser-pag-${String(n).padStart(2, '0')}`
     await publishSeries(
