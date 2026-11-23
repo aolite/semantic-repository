@@ -565,7 +565,7 @@ def test_java_version_of_image_and_ci_is_enough_for_pellet() -> None:
     dockerfile = _require(DOCKERFILE).read_text(encoding="utf-8")
     (image_java,) = set(re.findall(r"openjdk-(\d+)-jre-headless", dockerfile))
     assert int(image_java) >= owl_metrics.MIN_JAVA_MAJOR
-    assert re.search(r"ARG JRE_VERSION=\d+\.\d+\.\d+\+\d+-\S+", dockerfile), "JRE sin fijar"
+    assert re.search(r"ARG JRE_VERSION=\d+(?:\.\d+)+\+\d+-\S+", dockerfile), "JRE sin fijar"
     ci = _require(CI_YML).read_text(encoding="utf-8")
     backend_job = ci.split("\n  frontend:")[0]
     (ci_java,) = re.findall(r'java-version: "(\d+)"', backend_job)

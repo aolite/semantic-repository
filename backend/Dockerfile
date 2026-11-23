@@ -23,7 +23,7 @@ ENV PATH="/opt/venv/bin:$PATH" \
 # unos 240 MB a la imagen (ver backend/README.md). Si Debian retira esta versión de sus
 # réplicas, el build falla: hay que actualizar el número (apt-cache policy
 # openjdk-25-jre-headless).
-ARG JRE_VERSION=25.0.5+8-1~deb13u1
+ARG JRE_VERSION=25.0.5.1+2-1~deb13u1
 RUN mkdir -p /usr/share/man/man1 \
     && apt-get update \
     && apt-get install -y --no-install-recommends "openjdk-25-jre-headless=${JRE_VERSION}" \
