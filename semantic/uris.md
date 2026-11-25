@@ -46,7 +46,7 @@ Los patrones marcados con *(prototipo)* aparecen literalmente en la pantalla «F
 | Endpoint SPARQL | `{BASE_URI}sparql` | — | `{BASE_URI}sparql` | prototipo |
 | Consulta de referencia | `{BASE_URI}consulta/{id}` | — | `{BASE_URI}consulta/ot-datasets` | **[PROPUESTA del orquestador, fase 4]** |
 | Catálogo raíz | `{BASE_URI}catalogo` | `dcat:Catalog` | `{BASE_URI}catalogo` (`dct:identifier "itot-catalogo"`) | **[PROPUESTA]** (fase 1); raíz fijo: **Decidido (2026-11-21, decisión 49)** |
-| Catálogo | `{BASE_URI}catalogo/{slug}` | `dcat:Catalog` | `{BASE_URI}catalogo/sintetico` | **Decidido (2026-11-21, decisión 49)** |
+| Catálogo | `{BASE_URI}catalogo/{slug}` | `dcat:Catalog` | `{BASE_URI}catalogo/sintetico`, `{BASE_URI}catalogo/vocabularios-sinteticos` | **Decidido (2026-11-21, decisión 49)**; el segundo ejemplo, **decisión 50 (2026-11-22)** |
 | Grafo de bajas (lápidas) | `{BASE_URI}bajas` | — | `{BASE_URI}bajas` | **Decidido (2026-11-21, decisión 49)** |
 | Esquema de tipos de dataset | `{BASE_URI}vocab/tipo-dataset` | `skos:ConceptScheme` | `{BASE_URI}vocab/tipo-dataset` | **[PROPUESTA del orquestador]** |
 | Tipo de dataset | `{BASE_URI}vocab/tipo-dataset/{slug}` | `skos:Concept` | `{BASE_URI}vocab/tipo-dataset/sintetico` | **[PROPUESTA del orquestador]** |
@@ -60,6 +60,7 @@ Detalles:
 - Una serie y sus versiones comparten `{slug}`: la URI de una versión es siempre la de su serie seguida de `/{version}`. Así, `dcat:inSeries` de una versión apunta a la URI que resulta de quitar el último segmento.
 - La versión de dataset y la de ontología siguen la misma regla `{version}`, y `dcat:version` u `owl:versionInfo` llevan exactamente esa cadena.
 - El catálogo raíz no lleva slug: es el de la fase 1, que conserva su URI y su `dct:identifier` «itot-catalogo». Los demás catálogos llevan `{slug}` (ver «Catálogos y borrado lógico»).
+- Las URIs de los esquemas SKOS y de las ontologías propias **no llevan el catálogo**, igual que las de los datasets: moverlos de catálogo no rompe ninguna URI (ver «Vocabularios y ontologías en los catálogos»).
 
 ## `dcat:accessURL` de las distribuciones
 
@@ -151,7 +152,7 @@ Las formas SHACL no conocen `BASE_URI` (los patrones literales no se resuelven c
 | Regla | Forma |
 |---|---|
 | La URI de un catálogo termina en `/catalogo` o `/catalogo/{slug}` | `itsh:CatalogUriShape` |
-| La URI de una lápida termina en `/catalogo/{slug}` o `/dataset/{slug}` | `itsh:BajaUriShape` |
+| La URI de una lápida termina en `/catalogo/{slug}` o `/dataset/{slug}` (desde la decisión 50, también `/vocab/{slug}`, `/vocab/corp/{slug}` u `/onto/{slug}`) | `itsh:BajaUriShape` |
 | El título de una lápida no está vacío | `itsh:Baja-title` (`sh:minLength 1`) |
 | Cada serie, en exactamente un catálogo del grafo | `itsh:DatasetSeries-catalog` |
 | `Withdrawn` solo en lápidas, y siempre con fecha | `itsh:*-status`, `itsh:RetiradoShape` |
@@ -179,6 +180,103 @@ Alternativas descartadas:
 ### Los datasets sintéticos · Decidido (2026-11-21, decisión 49)
 
 Los tres datasets sintéticos van al catálogo `{BASE_URI}catalogo/sintetico` («Datasets sintéticos de demostración», `data/catalogos/sintetico.ttl`), separado de los reales del piloto: así se distinguen en los listados y, cuando sobren, se retiran juntos (moviendo o dando de baja sus datasets y luego el catálogo). El slug y el título no salen del prototipo y los validó el responsable; la descripción sigue siendo **[PROPUESTA]**. Cada fichero de `data/sintetico/` lleva su triple de pertenencia.
+
+## Vocabularios y ontologías en los catálogos (decisión 50)
+
+Decidido por el responsable (2026-11-22): cada esquema SKOS y cada ontología propia pertenece a **un solo** catálogo, como los datasets, y aparece en su ficha; CRUD completo desde la aplicación (publicar, editar metadatos y **dar de baja** con lápida y 410, igual que los datasets), con permisos de editor y admin; las versiones de ontología publicadas siguen siendo inmutables (decisión 28). Validado el mismo día, a propuesta de `semantico`: el catálogo `vocabularios-sinteticos`, el tratamiento de los corporativos como los de dominio, las externas y los auxiliares fuera de los catálogos, la aplicación como fuente de verdad del catálogo, los traslados y las bajas, y los dos 409 (baja de un recurso en uso y republicar un esquema sin conceptos que ya estaban). Lo que va marcado **[PROPUESTA]** es de `semantico` y se revisa en la PR.
+
+### Qué está en un catálogo y qué no
+
+| Recurso | ¿En un catálogo? | Se gestiona desde la aplicación |
+|---|---|---|
+| Esquema SKOS de dominio `{BASE_URI}vocab/{slug}` | Sí, en exactamente uno | Sí |
+| Esquema SKOS corporativo `{BASE_URI}vocab/corp/{slug}` | Sí, en exactamente uno (como los de dominio) | Sí |
+| Ontología propia `{BASE_URI}onto/{slug}` (no sus versiones) | Sí, en exactamente uno | Sí |
+| Ontologías externas (`ontologias/externas.ttl`, grafo `{BASE_URI}onto/externas`) | No | No |
+| Esquemas auxiliares `{BASE_URI}vocab/dominio` y `{BASE_URI}vocab/tipo-dataset` | No | No |
+
+Lo que pertenece al catálogo es la **ontología** (`{BASE_URI}onto/{slug}`), no cada versión (`owl:versionIRI`), igual que en los datasets pertenece la serie y no sus versiones. Un catálogo puede tener a la vez datasets, esquemas y ontologías; los sintéticos están separados porque así lo decidió el responsable.
+
+### Propiedad de pertenencia: `dcat:resource` **[PROPUESTA]**
+
+```turtle
+<catalogo/vocabularios-sinteticos> dcat:resource <vocab/ot> , <vocab/corp/trl> , <onto/itot> .
+```
+
+`dcat:resource` es la propiedad de DCAT 3 para «un recurso que lista el catálogo» (dominio `dcat:Catalog`, rango `dcat:Resource`); `dcat:dataset`, `dcat:service` y `dcat:catalog` son subpropiedades suyas. Motivos:
+
+- Los esquemas (`skos:ConceptScheme`) y las ontologías (`owl:Ontology`) **no son `dcat:Dataset` en este modelo** y no tienen que serlo: `dcat:resource` no obliga a cambiarles el tipo.
+- `dcat:dataset` ya significa «serie de dataset» en todo el sistema: la forma `itsh:DatasetSeries-catalog`, `validate.py`, la API, el listado de la pantalla Catálogo y F-UJI. Con otra propiedad, nada de eso cambia ni confunde un esquema con un dataset.
+- Es DCAT estándar, así que un consumidor que conozca DCAT 3 sigue viendo qué lista cada catálogo.
+
+Alternativas (por si el responsable prefiere otra):
+
+| Opción | A favor | En contra |
+|---|---|---|
+| **`dcat:resource`** (la propuesta) | Lo anterior | Es de DCAT 3; no tengo confirmado que DCAT-AP 3 la recoja entre las propiedades de `dcat:Catalog`, y conviene revisarlo con la decisión 22. Un consumidor que solo lea `dcat:dataset` no verá los esquemas ni las ontologías |
+| `dcat:dataset` | Cualquier recolector DCAT-AP lo entiende; DCAT admite catalogar un vocabulario como dataset | Habría que tipar esquemas y ontologías como `dcat:Dataset` para que DCAT-AP los entienda, y entonces les aplican `itsh:ItotDatasetShape` y las formas de DCAT-AP (`dcat:version`, `dcat:inSeries`, `dct:accessRights`…). Además, el backend, la API, el frontend y `validate.py` tratan hoy todo `dcat:dataset` de un catálogo como una serie |
+| `dct:hasPart` | Genérica y conocida | Relación parte/todo sin tipo de miembro; no es la propiedad de DCAT para lo que lista un catálogo |
+
+### Dónde vive la pertenencia **[PROPUESTA]**
+
+- El triple `<{BASE_URI}catalogo/{slug}> dcat:resource <recurso>` se guarda **en el grafo del catálogo**, igual que `dcat:dataset` en la decisión 49.
+- **No va en los ficheros de `vocabularios/` ni de `ontologias/`.** A diferencia de las series de `data/sintetico/`, que repiten su triple, esos ficheros son lo que archiva la etiqueta de Git (Release + WIDOCO, decisión 37) y las versiones de ontología son inmutables (decisión 28): si el triple estuviera en la versión, mover la ontología de catálogo cambiaría una versión publicada, y la Release diría un catálogo que la aplicación puede cambiar. La pertenencia de los sintéticos está solo en `data/catalogos/vocabularios-sinteticos.ttl`, y `validate.py` comprueba que ningún fichero de `vocabularios/` ni de `ontologias/` lleve `dcat:resource`.
+- En la **ingesta** (API o `load-semantic`), el grafo que se valida es el del fichero **más** el triple de su catálogo: la API recibe el catálogo como parámetro y el backend añade el triple antes de validar, como ya puede hacer con las series. Las formas exigen exactamente uno; después el backend guarda el triple en el grafo del catálogo, no en el del esquema ni en el de la versión.
+
+### Formas
+
+| Regla | Forma | Fichero |
+|---|---|---|
+| Cada esquema de dominio o corporativo, en exactamente un catálogo, identificado por IRI; los auxiliares (`…/vocab/dominio`, `…/vocab/tipo-dataset`), en ninguno | `itsh:ConceptSchemeCatalogShape` | `shapes/ontologias-vocabularios.ttl` |
+| Cada ontología propia (sujeto de `owl:versionIRI`), en exactamente un catálogo, identificado por IRI | `itsh:OwnOntology-catalog` (en `itsh:OwnOntologyShape`) | `shapes/ontologias-vocabularios.ttl` |
+| Una ontología externa (sin `owl:versionIRI`), en ningún catálogo | `itsh:ExternalOntologyCatalogShape` | `shapes/ontologias-vocabularios.ttl` |
+| `dcat:resource` de un catálogo es una IRI que termina en `/onto/{slug}`, `/vocab/{slug}` o `/vocab/corp/{slug}`, y no en `/vocab/corp`, `/vocab/dominio` ni `/vocab/tipo-dataset` (así no lista versiones, conceptos ni auxiliares) | `itsh:Catalog-resource` | `shapes/itot-reglas.ttl` |
+| `owl:deprecated` de un concepto, si aparece, es uno y `xsd:boolean` | `itsh:Concept-deprecated` | `shapes/ontologias-vocabularios.ttl` |
+| Lápida de un esquema o una ontología: URI `/vocab/{slug}`, `/vocab/corp/{slug}` u `/onto/{slug}`, no auxiliar | `itsh:BajaUriShape` (ampliada) | `shapes/itot-reglas.ttl` |
+
+Como en la decisión 49, las formas no conocen `BASE_URI`: los esquemas auxiliares se reconocen por el final de la URI y el backend comprueba que todo empiece por `BASE_URI`.
+
+### Bajas: la lápida y el 410
+
+Igual que en la decisión 49: la descripción sale de los grafos publicados, queda una lápida (`rdf:type prov:Entity`, `dct:title`, `adms:status …/Withdrawn` y `prov:invalidatedAtTime`, forma cerrada `itsh:BajaShape`) en el grafo `{BASE_URI}bajas` y el slug **no se reutiliza**.
+
+| Se da de baja | Lleva lápida | Grafos que se borran | Responden 410 por arrastre (prefijo) **[PROPUESTA]** |
+|---|---|---|---|
+| Esquema SKOS | `{BASE_URI}vocab/{slug}` o `{BASE_URI}vocab/corp/{slug}` | El del esquema (con sus conceptos), y el triple `dcat:resource` del grafo del catálogo | Sus conceptos, `{URI del esquema}/{slug}` |
+| Ontología propia | `{BASE_URI}onto/{slug}` | **Todos** los de sus versiones, `{BASE_URI}onto/{slug}/{version}`, y el triple `dcat:resource` del grafo del catálogo | Sus versiones `{BASE_URI}onto/{slug}/{version}`; sus términos `{BASE_URI}onto/{slug}#{Nombre}` ya caen en la URI de la ontología, porque el fragmento no llega al servidor |
+
+- **[PROPUESTA]** Solo el esquema y la ontología tienen lápida. Los conceptos no se dan de baja uno a uno: se retiran con `owl:deprecated` (ver abajo). Las versiones de ontología tampoco: son inmutables (decisión 28), como las de los datasets.
+- La lápida pierde `skos:ConceptScheme` u `owl:Ontology` (ejemplo inválido `examples/invalid/bajas/baja-conserva-tipo-skos.ttl`); qué era se deduce de su URI. Su `dct:title` es el título que tenía (en una ontología, el de su última versión).
+- Las ontologías y los esquemas vivos siguen limitados a `Completed` y `UnderDevelopment`; `Withdrawn` solo en lápidas (ver «Estado»).
+- Los esquemas auxiliares, el segmento reservado `vocab/corp` y las ontologías externas no se dan de baja (`itsh:BajaUriShape` rechaza las lápidas con URI de auxiliar).
+
+### Reglas que comprueba el backend (dependen de este contrato)
+
+SHACL solo ve el grafo que valida. Estas reglas son del backend, en la ingesta y en el CRUD; las marcadas **Decidido (2026-11-22, decisión 50)** salen literalmente de la decisión y el resto es **[PROPUESTA]**:
+
+1. Las URIs de esquemas, ontologías y sus lápidas **empiezan por `BASE_URI`** (`{BASE_URI}vocab/{slug}`, `{BASE_URI}vocab/corp/{slug}`, `{BASE_URI}onto/{slug}`) con `{slug}` válido y no reservado (`corp`, `dominio`, `tipo-dataset` en `vocab/`).
+2. `dcat:resource` sale **solo de un catálogo `catalogo/{slug}` existente** (nunca del raíz) y apunta a un esquema o una ontología propia existentes.
+3. El recurso no está ya en **otro** catálogo del triplestore. **[PROPUESTA]** Publicar un esquema o una versión de ontología que ya está en otro catálogo da **409**, como con los datasets (la regla de `backend` validada en la decisión 49): mover es explícito.
+4. **Mover** un esquema o una ontología de catálogo es editar sus metadatos: se quita el triple del catálogo de origen y se añade al de destino. No cambia ninguna URI ni ninguna versión publicada.
+5. **Decidido (2026-11-22, decisión 50):** las ontologías externas y los esquemas auxiliares **no se gestionan desde la aplicación**: la API no los crea, ni los edita, ni los da de baja, ni los mete en un catálogo. Solo cambian con sus ficheros y `load-semantic`.
+6. Al dar de baja, la lápida sustituye a la descripción (fecha del servidor, no futura; título no vacío) y se borran los grafos de la tabla anterior.
+7. **Decidido (2026-11-22, decisión 50):** un slug dado de baja **no se reutiliza**: publicar un esquema o una ontología con esa URI da **409**. `vocab/{slug}`, `vocab/corp/{slug}` y `onto/{slug}` son URIs distintas: la baja de `vocab/ot` no bloquea `vocab/corp/ot`.
+8. **Decidido (2026-11-22, decisión 50):** dar de baja un esquema o una ontología que **usan recursos vivos** da **409**. Qué cuenta como «uso» es **[PROPUESTA]** (lo vivo es lo que está en los grafos publicados, no en `{BASE_URI}bajas`):
+   - **Esquema:** algún concepto suyo (`skos:inScheme`) es `dcat:theme` de una versión de un dataset vivo, `dct:subject` de una versión de una ontología propia viva, o destino de `skos:related`, `skos:exactMatch`, `skos:closeMatch`, `skos:broadMatch`, `skos:narrowMatch` o `skos:relatedMatch` desde un concepto de otro esquema vivo.
+   - **Ontología:** su URI o una de sus versiones es `owl:imports` de una versión de otra ontología propia viva, o algún término suyo (`{BASE_URI}onto/{slug}#…`) aparece en una versión de otra ontología propia viva.
+   - Como las versiones de dataset y de ontología son inmutables, un esquema usado por una versión publicada solo se puede dar de baja después de dar de baja el dataset o la ontología que lo usa. La respuesta 409 debería decir qué recursos lo usan.
+9. **Decidido (2026-11-22, decisión 50):** **republicar un esquema** sin algún concepto que ya estaba publicado da **409**: el conjunto de conceptos (`skos:inScheme`) de la nueva versión tiene que contener todos los publicados. Un concepto se retira marcándolo `owl:deprecated "true"^^xsd:boolean` (forma `itsh:Concept-deprecated`), sin perder su URI, su esquema ni su lugar en el árbol (sigue necesitando `skos:topConceptOf` o `skos:broader`). Ejemplo válido: `examples/valid/esquema-en-catalogo.ttl`.
+10. **[PROPUESTA]** Un catálogo con algún dataset, esquema u ontología (`dcat:dataset` o `dcat:resource`) no se da de baja (**409**), extendiendo la regla de la decisión 49.
+
+### La aplicación manda; Git solo versiona y archiva · Decidido (2026-11-22, decisión 50)
+
+- La **aplicación** es la fuente de verdad del catálogo de cada esquema y ontología, de los traslados y de las bajas.
+- La **etiqueta de Git** (`onto/{slug}/v{version}`, `vocab/[corp/]{slug}/v{version}`, decisión 37) solo valida, versiona y archiva: crea la Release con el RDF y la documentación WIDOCO, **sin cargar nada** en ningún entorno. Como la pertenencia no está en los ficheros (ver arriba), la Release no lleva el catálogo.
+- En `load-semantic` **[PROPUESTA]**, siguiendo lo validado para los datasets en la decisión 49: un esquema u ontología con lápida se omite; uno que ya está en un catálogo del triplestore se queda en él (un traslado hecho en la aplicación no se deshace), y uno nuevo va al catálogo que le da `data/catalogos/`, que tiene que cargarse en la misma ejecución o estar ya publicado. Para validar cada fichero, `load-semantic` le añade el triple de su catálogo.
+
+### Los esquemas y ontologías sintéticos · Decidido (2026-11-22, decisión 50)
+
+`{BASE_URI}catalogo/vocabularios-sinteticos`, título «Vocabularios y ontologías sintéticos de demostración», en `data/catalogos/vocabularios-sinteticos.ttl` y agrupado por el raíz con `dcat:catalog`. Lista con `dcat:resource` los nueve esquemas (`it`, `ot`, `pqc`, `did`, `ia` y los corporativos `organizacion`, `financiacion`, `trl` y `sectores`) y las tres ontologías propias (`itot`, `pqcm` y `didx`). La descripción es **[PROPUESTA]**. Fuera de él: `ontologias/externas.ttl` y `data/vocab-minimo.ttl`.
 
 ## Consultas de referencia (fase 4)
 
@@ -227,7 +325,7 @@ Los slugs `it/cwe`, `it/control-iso-27001`, `ia/evasion` e `ia/caja-blanca` fuer
 | Esquema corporativo | `semantic/vocabularios/corp/{slug}.ttl` | `{BASE_URI}vocab/corp/{slug}` | `vocab/corp/{slug}/v{version}` |
 | Esquemas auxiliares (`dominio`, `tipo-dataset`) | `semantic/data/vocab-minimo.ttl` | cada esquema en el grafo de su URI: `{BASE_URI}vocab/dominio` y `{BASE_URI}vocab/tipo-dataset` | — |
 
-Un fichero describe un solo esquema (con todos sus conceptos) o una sola versión de ontología. En la etiqueta Git, `{version}` es el `owl:versionInfo` del fichero (`onto/itot/v1.2.0`, `vocab/ot/v1.0`, `vocab/corp/financiacion/v2026.1`). Cada esquema tiene un fichero, el de su última versión, y las anteriores quedan en el historial de Git. Las ontologías tienen un fichero por versión porque la ficha muestra el historial con `owl:priorVersion`.
+Un fichero describe un solo esquema (con todos sus conceptos) o una sola versión de ontología. En la etiqueta Git, `{version}` es el `owl:versionInfo` del fichero (`onto/itot/v1.2.0`, `vocab/ot/v1.0`, `vocab/corp/financiacion/v2026.1`). Cada esquema tiene un fichero, el de su última versión, y las anteriores quedan en el historial de Git. Las ontologías tienen un fichero por versión porque la ficha muestra el historial con `owl:priorVersion`. Ningún fichero lleva el catálogo al que pertenece su esquema u ontología: esa pertenencia está en `data/catalogos/` (decisión 50, ver «Vocabularios y ontologías en los catálogos»).
 
 **Limpieza tras la fase 2:** en un Fuseki cargado en la fase 2 queda el grafo antiguo `{BASE_URI}vocab/`, que tenía `vocab-minimo.ttl` entero. La lectura ya no lo consulta y se puede borrar.
 
@@ -266,7 +364,7 @@ Los esquemas auxiliares `vocab/dominio` y `vocab/tipo-dataset` no tienen dominio
 | Borrador | `adms:status <http://purl.org/adms/status/UnderDevelopment>` |
 | Referenciada | Sin `adms:status`: es el estado de toda ontología externa |
 
-Lo llevan las ontologías propias (cada versión) y todos los esquemas. Las formas SHACL no admiten otros valores (`Deprecated`, `Withdrawn`) hasta que la interfaz los contemple. `Withdrawn` se usa solo en las lápidas de los recursos dados de baja (decisión 49, ver «Catálogos y borrado lógico»), que no son ontologías ni esquemas. En la ficha de ontología, «Actual» o «Sustituida» no es un estado: una versión está sustituida si otra la cita como `owl:priorVersion`.
+Lo llevan las ontologías propias (cada versión) y todos los esquemas. Las formas SHACL no admiten otros valores (`Deprecated`, `Withdrawn`) hasta que la interfaz los contemple. `Withdrawn` se usa solo en las lápidas de los recursos dados de baja (decisiones 49 y 50, ver «Catálogos y borrado lógico» y «Vocabularios y ontologías en los catálogos»): la lápida de un esquema o de una ontología ya no es un `skos:ConceptScheme` ni una `owl:Ontology`. Un **concepto** retirado no cambia de estado: lleva `owl:deprecated "true"^^xsd:boolean` (decisión 50). En la ficha de ontología, «Actual» o «Sustituida» no es un estado: una versión está sustituida si otra la cita como `owl:priorVersion`.
 
 ### Versión de los esquemas SKOS **[PROPUESTA]**
 
@@ -334,4 +432,5 @@ Con Apache Jena: `riot --base="$BASE_URI" fichero.ttl`. Las IRIs absolutas (voca
 - Si la versión de los esquemas SKOS debe ser semver, como la de las ontologías.
 - Si se admiten versiones preliminares de SemVer.
 - Decisión 49: lo que sigue marcado **[PROPUESTA]** en «Catálogos y borrado lógico» (pertenencia en el grafo de ingesta, un solo nivel de catálogos, fichero por catálogo y descripción del catálogo «sintetico»).
+- Decisión 50: lo que sigue marcado **[PROPUESTA]** en «Vocabularios y ontologías en los catálogos» (`dcat:resource`, la pertenencia fuera de los ficheros, qué responde 410 por arrastre, qué cuenta como «uso» para el 409, el 409 al publicar en otro catálogo, el 409 al dar de baja un catálogo con esquemas u ontologías, `load-semantic` y la descripción del catálogo `vocabularios-sinteticos`).
 - Qué devuelve cada URI al resolverla (negociación de contenido HTML / Turtle / JSON-LD) y cómo se sirve la descarga de una distribución restringida: lo implementa `backend` según el contrato de la fase 4 (decisiones 31 y 40).
