@@ -29,13 +29,17 @@ Comprueba:
      dominio, marca de sintético, referencias entre series, versiones y
      distribuciones, URIs según semantic/uris.md y catálogos (el raíz
      agrupa con dcat:catalog los de data/catalogos/{slug}.ttl, que listan
-     las series; un fichero por catálogo).
+     las series; un fichero por catálogo) y los esquemas SKOS y ontologías
+     propias que listan con dcat:resource (decisión 50).
   7. Que cada esquema de semantic/vocabularios/ (un fichero, un esquema, un
-     grafo con nombre) cumple las formas por sí solo y es coherente: URI
+     grafo con nombre), junto con el triple de pertenencia a su catálogo que
+     da semantic/data/catalogos/ (como hace el backend en la ingesta),
+     cumple las formas y es coherente: URI
      según la ruta del fichero, dominio (dct:subject) en los de dominio y no
      en los corporativos, marca de sintético y prefijos VANN únicos.
-  8. Que cada versión de semantic/ontologias/{slug}/{version}.ttl y
-     semantic/ontologias/externas.ttl cumplen las formas por sí solos y son
+  8. Que cada versión de semantic/ontologias/{slug}/{version}.ttl (con el
+     triple de pertenencia de su ontología) y semantic/ontologias/externas.ttl
+     cumplen las formas y son
      coherentes: URIs según la ruta, cadena de owl:priorVersion, términos en
      su espacio de nombres, imports y alineamientos hacia ontologías
      externas catalogadas y dct:subject hacia conceptos existentes.
@@ -180,11 +184,20 @@ def main() -> int:
         print(f"  FALLO  meta-SHACL: {exc}")
         return report(errors)
 
-    def run(path: Path) -> tuple[bool, Graph, str] | None:
+    def run(path: Path, membership: Graph | None = None) -> tuple[bool, Graph, str] | None:
+        """Valida un fichero. ``membership`` son los triples «<catálogo>
+        dcat:resource <recurso>» de semantic/data/catalogos/: si se pasa, se
+        añaden los que apuntan a un sujeto del fichero, igual que el backend
+        añade el del catálogo elegido antes de validar (decisión 50)."""
         try:
             data = parse(path, base)
         except Exception:  # noqa: BLE001 - ya informado en el paso 1
             return None
+        if membership is not None:
+            subjects = set(data.subjects())
+            for triple in membership.triples((None, DCAT.resource, None)):
+                if triple[2] in subjects:
+                    data.add(triple)
         conforms, results, text = validate(
             data,
             shacl_graph=shapes,
@@ -305,13 +318,20 @@ def main() -> int:
     if not problems:
         print("  ok     coherencia (dominios, marca de sintético, referencias y URIs)")
 
+    # Pertenencia de esquemas y ontologías a su catálogo (decisión 50): vive
+    # solo en el grafo del catálogo, no en los ficheros de vocabularios/ ni de
+    # ontologias/. Para validarlos se les añade su triple.
+    membership = Graph()
+    for triple in combined.triples((None, DCAT.resource, None)):
+        membership.add(triple)
+
     # 7. Esquemas SKOS, uno a uno: formas y coherencia.
     print(f"\n[7] Esquemas SKOS de semantic/vocabularios/, uno a uno ({len(vocab_files)} ficheros)")
     if not vocab_files:
         errors.append("no hay esquemas en semantic/vocabularios/")
     prefixes: dict[str, list[str]] = {}
     for path in vocab_files:
-        outcome = run(path)
+        outcome = run(path, membership)
         if outcome is None:
             errors.append(f"{rel(path)}: no se puede validar (sintaxis)")
             continue
@@ -336,7 +356,7 @@ def main() -> int:
         return report(errors)
     external = parse(EXTERNAL_FILE, base)
     for path in [*onto_files, EXTERNAL_FILE]:
-        outcome = run(path)
+        outcome = run(path, membership)
         if outcome is None:
             errors.append(f"{rel(path)}: no se puede validar (sintaxis)")
             continue
@@ -354,6 +374,14 @@ def main() -> int:
             print(f"  FALLO  {rel(path)}: {problem}")
         if conforms and not problems:
             print(f"  ok     {rel(path)}")
+
+    # Catálogos de los esquemas y las ontologías (decisión 50).
+    problems = resource_catalogs(combined, base, vocab_files, onto_files, external)
+    for problem in problems:
+        errors.append(f"semantic/data/catalogos/: {problem}")
+        print(f"  FALLO  {problem}")
+    if not problems:
+        print("  ok     cada esquema y cada ontología propia, en exactamente un catálogo")
 
     # Prefijos VANN únicos entre esquemas y ontologías (las versiones de una
     # misma ontología comparten el suyo).
@@ -480,6 +508,45 @@ def catalog_files(base: str) -> list[str]:
     return problems
 
 
+def resource_catalogs(
+    g: Graph, base: str, vocab_files: list[Path], onto_files: list[Path], external: Graph
+) -> list[str]:
+    """dcat:resource de los catálogos (decisión 50) sobre semantic/data/.
+
+    Cada esquema de vocabularios/ y cada ontología propia de ontologias/ está
+    en exactamente un catálogo catalogo/{slug}; el raíz no lista recursos; los
+    esquemas auxiliares y las ontologías externas no están en ninguno, y
+    dcat:resource solo apunta a esquemas u ontologías del repositorio (nunca
+    a una versión). SHACL comprueba lo mismo fichero a fichero; aquí se
+    cruzan todos los catálogos.
+    """
+    problems: list[str] = []
+    short = short_of(base)
+    schemes = {
+        URIRef(f"{base}vocab/corp/{p.stem}" if p.parent == CORP_DIR else f"{base}vocab/{p.stem}")
+        for p in vocab_files
+    }
+    ontologies = {URIRef(f"{base}onto/{p.parent.name}") for p in onto_files}
+    wanted = schemes | ontologies
+    root = URIRef(f"{base}catalogo")
+    children = {c for c in g.subjects(RDF.type, DCAT.Catalog) if c != root}
+    found: dict[URIRef, set] = {}
+    for catalog, item in g.subject_objects(DCAT.resource):
+        if catalog not in children:
+            problems.append(f"{short(catalog)}: dcat:resource {short(item)} desde algo que no es un catálogo catalogo/{{slug}} descrito")
+        if item not in wanted:
+            problems.append(f"{short(catalog)}: dcat:resource {short(item)} no es un esquema de vocabularios/ ni una ontología propia de ontologias/")
+        found.setdefault(item, set()).add(catalog)
+    for item in sorted(wanted, key=str):
+        catalogs = found.get(item, set())
+        if len(catalogs) != 1:
+            problems.append(f"{short(item)}: tiene que estar en exactamente un catálogo y está en {len(catalogs)}")
+    for onto in external.subjects(RDF.type, OWL.Ontology):
+        if onto in found:
+            problems.append(f"{short(onto)}: una ontología externa no está en ningún catálogo")
+    return sorted(problems)
+
+
 def short_of(base: str):
     def short(node) -> str:
         return str(node)[len(base):] if str(node).startswith(base) else str(node)
@@ -538,6 +605,9 @@ def scheme_coherence(path: Path, g: Graph, base: str, vocab: Graph, prefixes: di
             continue
         if (subject, SKOS.inScheme, expected) not in g:
             problems.append(f"describe {short(subject)}, que no es un concepto de este esquema")
+
+    if (None, DCAT.resource, None) in g:
+        problems.append("la pertenencia al catálogo (dcat:resource) no va en el fichero, sino en data/catalogos/")
 
     for prefix in g.objects(expected, VANN.preferredNamespacePrefix):
         prefixes.setdefault(str(prefix), []).append(rel(path))
@@ -605,6 +675,11 @@ def ontology_coherence(
     for concept in g.objects(onto, DCTERMS.subject):
         if (concept, RDF.type, SKOS.Concept) not in vocab:
             problems.append(f"dct:subject {short(concept)} no es un skos:Concept de semantic/vocabularios/")
+
+    # La pertenencia al catálogo no va en la versión (decisión 50 [PROPUESTA]):
+    # las versiones son inmutables (decisión 28) y el catálogo puede cambiar.
+    if (None, DCAT.resource, None) in g:
+        problems.append("la pertenencia al catálogo (dcat:resource) no va en la versión, sino en data/catalogos/")
 
     # Términos propios en {URI}#; ningún otro recurso bajo BASE_URI.
     namespace = f"{onto}#"

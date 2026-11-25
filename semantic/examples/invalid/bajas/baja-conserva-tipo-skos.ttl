@@ -1,0 +1,30 @@
+# Ejemplo INVÁLIDO (decisión 50): Esquema dado de baja que conserva rdf:type skos:ConceptScheme. Además de
+# Baja-type fallan las formas del esquema vivo; por eso la lápida pierde su tipo. La fecha es ficticia.
+# Solo deben fallar las formas indicadas.
+# validate.py lee las líneas «expect-violation» (nombre local en {BASE_URI}shapes#).
+# expect-violation: Baja-type
+# expect-violation: ConceptScheme-description
+# expect-violation: ConceptScheme-version
+# expect-violation: ConceptScheme-status
+# expect-violation: ConceptScheme-prefix
+# expect-violation: ConceptScheme-namespace
+# expect-violation: ConceptSchemeCatalogShape
+
+# BASE_URI: el fichero no declara @base; las URIs son relativas.
+
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix dct:  <http://purl.org/dc/terms/> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix adms: <http://www.w3.org/ns/adms#> .
+@prefix vann: <http://purl.org/vocab/vann/> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix dcat: <http://www.w3.org/ns/dcat#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+
+<vocab/ejemplo>
+    a prov:Entity , skos:ConceptScheme ;
+    dct:title "Esquema de ejemplo"@es ;
+    adms:status <http://purl.org/adms/status/Withdrawn> ;
+    prov:invalidatedAtTime "2026-01-01T00:00:00Z"^^xsd:dateTime .

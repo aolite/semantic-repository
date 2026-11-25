@@ -205,7 +205,7 @@ itsh:ItotCatalogShape
     a sh:NodeShape ;
     rdfs:label "Unidad IT&OT · Catálogo"@es ;
     sh:targetClass dcat:Catalog ;
-    sh:property itsh:Catalog-dataset , itsh:Catalog-catalog , itsh:Catalog-status .
+    sh:property itsh:Catalog-dataset , itsh:Catalog-catalog , itsh:Catalog-resource , itsh:Catalog-status .
 
 # Decidido (2026-11-21, decisión 49): la URI de un catálogo es {BASE_URI}catalogo (el raíz)
 # o {BASE_URI}catalogo/{slug}. Las formas no conocen BASE_URI, así que solo
@@ -235,6 +235,22 @@ itsh:Catalog-catalog
     sh:nodeKind sh:IRI ;
     sh:message "Regla IT&OT: cada dcat:catalog es la IRI de un catálogo."@es .
 
+# Regla propia (decisión 50): dcat:resource lista los esquemas SKOS y las
+# ontologías propias del catálogo [PROPUESTA: la propiedad, ver uris.md]. Es
+# la IRI del esquema ({BASE_URI}vocab/{slug} o {BASE_URI}vocab/corp/{slug})
+# o de la ontología ({BASE_URI}onto/{slug}), nunca la de una versión
+# (owl:versionIRI) ni la de un esquema auxiliar, que no están en ningún
+# catálogo. Solo se comprueba el final de la URI (las formas no conocen
+# BASE_URI); el lado del recurso lo comprueban itsh:OwnOntology-catalog e
+# itsh:ConceptSchemeCatalogShape (ontologias-vocabularios.ttl).
+itsh:Catalog-resource
+    a sh:PropertyShape ;
+    sh:path dcat:resource ;
+    sh:nodeKind sh:IRI ;
+    sh:pattern "/(onto|vocab(/corp)?)/[a-z0-9]+(-[a-z0-9]+)*$" ;
+    sh:not [ sh:pattern "/vocab/(corp|dominio|tipo-dataset)$" ] ;
+    sh:message "Regla IT&OT: cada dcat:resource de un catálogo es la IRI de un esquema SKOS ({BASE_URI}vocab/{slug} o {BASE_URI}vocab/corp/{slug}, no auxiliar) o de una ontología propia ({BASE_URI}onto/{slug}, no una versión)."@es .
+
 # Regla propia (Decidido (2026-11-21, decisión 49)): «Withdrawn» solo lo lleva una lápida
 # (itsh:BajaShape), nunca un recurso DCAT vivo. Así nadie marca como
 # retirado un catálogo sin pasar por el borrado lógico (sin fecha de baja y
@@ -247,12 +263,14 @@ itsh:Catalog-status
     sh:message "Regla IT&OT: un dcat:Catalog no puede llevar adms:status Withdrawn; el borrado lógico deja una lápida (prov:Entity con prov:invalidatedAtTime) y quita la descripción DCAT."@es .
 
 # --- Recurso dado de baja (borrado lógico, decisión 49) ---------------------
-# Decidido (2026-11-21, decisión 49). Al borrar un catálogo o un dataset
-# (serie), su descripción desaparece de los grafos publicados y queda solo
+# Decidido (2026-11-21, decisión 49; ampliado por la decisión 50 a esquemas
+# SKOS y ontologías propias). Al borrar un catálogo, un dataset (serie), un
+# esquema o una ontología, su descripción desaparece de los grafos publicados y queda solo
 # esta «lápida» en el grafo
 # {BASE_URI}bajas, que no se publica en SPARQL ni en los listados. El backend
 # la usa para responder 410 Gone con una ficha mínima en la URI dada de baja
-# y en las que cuelgan de ella (versiones, distribuciones y ficheros).
+# y en las que cuelgan de ella (versiones, distribuciones y ficheros; o
+# conceptos y versiones de ontología).
 #
 # Vocabularios estándar, ya usados en el repositorio:
 # - prov:invalidatedAtTime (PROV-O): momento en que la entidad deja de estar
@@ -261,9 +279,10 @@ itsh:Catalog-status
 #   estados de ADMS, el mismo de las ontologías y esquemas).
 # - dct:title: el título que tenía, para la ficha mínima.
 # - rdf:type prov:Entity (dominio de prov:invalidatedAtTime). La lápida NO
-#   conserva dcat:Catalog ni dcat:DatasetSeries: con ese tipo las formas de
-#   DCAT-AP le exigirían descripción, catálogo, etc. Qué era (catálogo o
-#   dataset) se deduce de su URI (semantic/uris.md).
+#   conserva dcat:Catalog, dcat:DatasetSeries, skos:ConceptScheme ni
+#   owl:Ontology: con ese tipo las formas le exigirían descripción, catálogo,
+#   versión, etc. Qué era (catálogo, dataset, esquema u ontología) se deduce
+#   de su URI (semantic/uris.md).
 #
 # La forma es cerrada: una lápida no lleva nada más (ni descripción, ni
 # distribuciones, ni quién la borró, que va a la auditoría de PostgreSQL).
@@ -280,7 +299,7 @@ itsh:Baja-type
     sh:path rdf:type ;
     sh:minCount 1 ;
     sh:in ( prov:Entity ) ;
-    sh:message "Regla IT&OT: un recurso dado de baja es solo un prov:Entity; pierde su tipo DCAT."@es .
+    sh:message "Regla IT&OT: un recurso dado de baja es solo un prov:Entity; pierde su tipo DCAT, SKOS u OWL."@es .
 
 itsh:Baja-invalidatedAtTime
     a sh:PropertyShape ;
@@ -310,13 +329,24 @@ itsh:Baja-title
 # o un dataset ({BASE_URI}dataset/{slug}); las versiones, distribuciones y
 # ficheros responden 410 por el prefijo de su serie. Como en CatalogUriShape,
 # solo se comprueba el final de la URI.
+#
+# Decisión 50 (bajas de esquemas y ontologías con lápida y 410, igual que los
+# datasets): tienen lápida también un esquema SKOS ({BASE_URI}vocab/{slug} o
+# {BASE_URI}vocab/corp/{slug}) y una ontología propia ({BASE_URI}onto/{slug})
+# [PROPUESTA: solo el esquema y la ontología, no sus conceptos ni sus
+# versiones, que responden 410 por el prefijo, como las versiones de un
+# dataset]. Los esquemas auxiliares (vocab/dominio, vocab/tipo-dataset) y el
+# segmento reservado vocab/corp no se dan de baja: no se gestionan desde la
+# aplicación. Las ontologías externas tienen la IRI oficial, fuera de
+# BASE_URI, y tampoco.
 itsh:BajaUriShape
     a sh:NodeShape ;
     rdfs:label "Unidad IT&OT · URI de un recurso dado de baja"@es ;
     sh:targetSubjectsOf prov:invalidatedAtTime ;
     sh:nodeKind sh:IRI ;
-    sh:pattern "/(catalogo|dataset)/[a-z0-9]+(-[a-z0-9]+)*$" ;
-    sh:message "Regla IT&OT: solo tienen lápida un catálogo ({BASE_URI}catalogo/{slug}) o un dataset ({BASE_URI}dataset/{slug})."@es .
+    sh:pattern "/(catalogo|dataset|onto|vocab(/corp)?)/[a-z0-9]+(-[a-z0-9]+)*$" ;
+    sh:not [ sh:pattern "/vocab/(corp|dominio|tipo-dataset)$" ] ;
+    sh:message "Regla IT&OT: solo tienen lápida un catálogo ({BASE_URI}catalogo/{slug}), un dataset ({BASE_URI}dataset/{slug}), un esquema SKOS ({BASE_URI}vocab/{slug} o {BASE_URI}vocab/corp/{slug}, no auxiliar) o una ontología propia ({BASE_URI}onto/{slug})."@es .
 
 # Decidido (2026-11-21, decisión 49): todo sujeto con adms:status Withdrawn es una lápida y lleva
 # fecha de baja. BajaShape se aplica a los sujetos de prov:invalidatedAtTime;

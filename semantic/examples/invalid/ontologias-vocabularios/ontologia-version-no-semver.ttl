@@ -10,6 +10,7 @@
 @prefix adms: <http://www.w3.org/ns/adms#> .
 @prefix vann: <http://purl.org/vocab/vann/> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix dcat: <http://www.w3.org/ns/dcat#> .
 
 <onto/ejemplo>
     a owl:Ontology ;
@@ -21,3 +22,7 @@
     vann:preferredNamespacePrefix "ejemplo" ;
     vann:preferredNamespaceUri <onto/ejemplo#> ;
     dct:type <vocab/tipo-dataset/sintetico> .
+
+# Pertenencia a un catálogo (decisión 50): en la ingesta, el backend añade este
+# triple a partir del catálogo elegido.
+<catalogo/prueba> dcat:resource <onto/ejemplo> .
