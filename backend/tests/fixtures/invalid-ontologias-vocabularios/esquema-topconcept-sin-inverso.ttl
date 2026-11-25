@@ -11,6 +11,7 @@
 @prefix adms: <http://www.w3.org/ns/adms#> .
 @prefix vann: <http://purl.org/vocab/vann/> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix dcat: <http://www.w3.org/ns/dcat#> .
 
 <vocab/ejemplo>
     a skos:ConceptScheme ;
@@ -34,3 +35,7 @@
     skos:inScheme <vocab/ejemplo> ;
     skos:broader <vocab/ejemplo/a> ;
     skos:prefLabel "Concepto B"@es .
+
+# Pertenencia a un catálogo (decisión 50): en la ingesta, el backend añade este
+# triple a partir del catálogo elegido.
+<catalogo/prueba> dcat:resource <vocab/ejemplo> .

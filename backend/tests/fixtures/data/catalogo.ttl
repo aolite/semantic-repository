@@ -5,7 +5,8 @@
 # conserva y sigue siendo el catálogo de todo el repositorio, pero ya no
 # lista series. Agrupa con dcat:catalog los catálogos {BASE_URI}catalogo/{slug}
 # (uno por fichero en semantic/data/catalogos/, [PROPUESTA]), y cada uno de ellos lista sus
-# series con dcat:dataset. Cuando se crea un catálogo, se añade aquí; cuando
+# series con dcat:dataset y sus esquemas SKOS y ontologías propias con
+# dcat:resource (decisión 50). Cuando se crea un catálogo, se añade aquí; cuando
 # se da de baja, se quita. El raíz no se crea, edita ni borra desde la
 # aplicación.
 #
@@ -26,7 +27,7 @@
     dct:title "Datasets y vocabularios controlados"@es ;
     dct:description "Punto único para publicar, describir y enlazar los datos de la unidad. Cada recurso se describe con DCAT-AP y se clasifica con los esquemas SKOS de IT, OT/ICS, PQC e identidad, e IA adversaria."@es ;
     dct:publisher _:unidad-itot ;
-    dcat:catalog <catalogo/sintetico> .
+    dcat:catalog <catalogo/sintetico> , <catalogo/vocabularios-sinteticos> .
 
 _:unidad-itot
     a foaf:Agent , prov:Agent ;

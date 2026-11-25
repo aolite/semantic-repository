@@ -1,0 +1,58 @@
+# Catálogo de los esquemas SKOS y las ontologías propias SINTÉTICOS de
+# demostración (puerta G3). URI: {BASE_URI}catalogo/vocabularios-sinteticos;
+# grafo con nombre, el mismo (ver semantic/uris.md). Fichero:
+# semantic/data/catalogos/{slug}.ttl [PROPUESTA].
+#
+# Decidido (2026-11-22, decisión 50): cada esquema SKOS y cada ontología
+# propia pertenece a un solo catálogo; los sintéticos van a este catálogo
+# nuevo, con este slug y este título, separado del de los datasets
+# sintéticos. Los esquemas corporativos se tratan como los de dominio. Las
+# ontologías externas (ontologias/externas.ttl) y los esquemas auxiliares
+# vocab/dominio y vocab/tipo-dataset (data/vocab-minimo.ttl) quedan fuera de
+# los catálogos. La descripción la validó el responsable (2026-11-25).
+#
+# Validado (2026-11-25): lista con dcat:resource (DCAT 3) los esquemas y las
+# ontologías del catálogo: la ontología ({BASE_URI}onto/{slug}), no sus
+# versiones. A diferencia de las series de data/sintetico/, los ficheros de
+# vocabularios/ y ontologias/ NO repiten el triple de pertenencia: son lo
+# que publica la etiqueta de Git (decisión 37) y las versiones de ontología
+# son inmutables (decisión 28), mientras que el catálogo lo decide la
+# aplicación (decisión 50). La pertenencia vive solo aquí, en el grafo del
+# catálogo; para validar un esquema o una versión, validate.py (y el backend
+# en la ingesta) le añade el triple de su catálogo.
+#
+# BASE_URI: el fichero no declara @base; las URIs son relativas.
+
+@prefix dcat:  <http://www.w3.org/ns/dcat#> .
+@prefix dct:   <http://purl.org/dc/terms/> .
+@prefix foaf:  <http://xmlns.com/foaf/0.1/> .
+@prefix prov:  <http://www.w3.org/ns/prov#> .
+
+<catalogo/vocabularios-sinteticos>
+    a dcat:Catalog ;
+    dct:title "Vocabularios y ontologías sintéticos de demostración"@es ;
+    dct:description "Esquemas SKOS y ontologías sintéticos que reproducen los del prototipo. No contienen datos reales."@es ;
+    dct:publisher _:unidad-itot ;
+    # Esquemas SKOS de dominio (vocabularios/{slug}.ttl).
+    dcat:resource
+        <vocab/it> ,
+        <vocab/ot> ,
+        <vocab/pqc> ,
+        <vocab/did> ,
+        <vocab/ia> ;
+    # Esquemas SKOS corporativos (vocabularios/corp/{slug}.ttl).
+    dcat:resource
+        <vocab/corp/organizacion> ,
+        <vocab/corp/financiacion> ,
+        <vocab/corp/trl> ,
+        <vocab/corp/sectores> ;
+    # Ontologías propias (ontologias/{slug}/{version}.ttl): la ontología, no
+    # sus versiones.
+    dcat:resource
+        <onto/itot> ,
+        <onto/pqcm> ,
+        <onto/didx> .
+
+_:unidad-itot
+    a foaf:Agent , prov:Agent ;
+    foaf:name "Eurecat · Unidad IT&OT Security" .

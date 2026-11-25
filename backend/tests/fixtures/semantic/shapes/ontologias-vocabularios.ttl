@@ -42,6 +42,7 @@
 @prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix dcat: <http://www.w3.org/ns/dcat#> .
 
 # ============================================================================
 # owl:Ontology (propia y externa)
@@ -116,7 +117,8 @@ itsh:OwnOntologyShape
         itsh:OwnOntology-namespace ,
         itsh:OwnOntology-namespace-uri ,
         itsh:OwnOntology-status ,
-        itsh:OwnOntology-subject .
+        itsh:OwnOntology-subject ,
+        itsh:OwnOntology-catalog .
 
 # Exactamente un owl:versionIRI: cada fichero es una versión, se carga en el
 # grafo con nombre de su versionIRI y la ficha muestra esa IRI.
@@ -415,7 +417,10 @@ itsh:ConceptShape
         itsh:Concept-broader ,
         itsh:Concept-broader-mismo-esquema ,
         itsh:Concept-related ,
-        itsh:Concept-mapping .
+        itsh:Concept-mapping ,
+        itsh:Concept-deprecated ,
+        itsh:Concept-isReplacedBy ,
+        itsh:Concept-isReplacedBy-retirado .
 
 # SKOS S14: como mucho un prefLabel por idioma. S13: prefLabel y altLabel
 # son disjuntas. Literales con idioma: el navegador muestra «prefLabel @es»,
@@ -566,3 +571,127 @@ itsh:Concept-mapping
     sh:path [ sh:alternativePath ( skos:exactMatch skos:closeMatch skos:broadMatch skos:narrowMatch skos:relatedMatch ) ] ;
     sh:nodeKind sh:IRI ;
     sh:message "Regla IT&OT: los mapeos SKOS (exactMatch, closeMatch…) apuntan a una IRI."@es .
+
+# Retirada de un concepto (decisión 50): un esquema no pierde conceptos al
+# republicarse (el backend responde 409 si falta alguno que ya estaba
+# publicado). Un concepto que ya no se usa se marca con owl:deprecated
+# "true"^^xsd:boolean y conserva su URI, su esquema y su lugar en el árbol.
+# owl:deprecated es la anotación estándar de OWL 2 para términos obsoletos y
+# la que recomiendan las buenas prácticas de SKOS. Aquí solo se exige que,
+# si aparece, sea una sola y booleana; «false» equivale a no ponerla.
+itsh:Concept-deprecated
+    a sh:PropertyShape ;
+    sh:path owl:deprecated ;
+    sh:maxCount 1 ;
+    sh:datatype xsd:boolean ;
+    sh:message "Regla IT&OT: owl:deprecated de un concepto, si aparece, es uno solo y de tipo xsd:boolean (\"true\"^^xsd:boolean para retirarlo sin perder su URI)."@es .
+
+# Sustitutos de un concepto retirado (decisión 50, 2026-11-25): un concepto
+# con owl:deprecated true indica con dct:isReplacedBy los conceptos que lo
+# sustituyen, cero o más. dct:isReplacedBy es la propiedad de Dublin Core
+# para «otro recurso que sustituye a este». Los sustitutos son IRIs; pueden
+# estar en otro esquema y otro grafo, así que no se exige sh:class
+# skos:Concept: que sean conceptos vivos lo comprueba el backend
+# (semantic/uris.md). Reactivar un concepto retirado queda fuera del piloto.
+itsh:Concept-isReplacedBy
+    a sh:PropertyShape ;
+    sh:path dct:isReplacedBy ;
+    sh:nodeKind sh:IRI ;
+    sh:message "Regla IT&OT: dct:isReplacedBy de un concepto apunta a la IRI de un skos:Concept."@es .
+
+# Solo un concepto retirado tiene sustitutos, y no se sustituye a sí mismo.
+itsh:Concept-isReplacedBy-retirado
+    a sh:PropertyShape ;
+    sh:path dct:isReplacedBy ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Regla IT&OT: dct:isReplacedBy solo aparece en un concepto retirado (owl:deprecated true) y no apunta al propio concepto."@es ;
+        sh:select """
+            SELECT $this ?value WHERE {
+                $this <http://purl.org/dc/terms/isReplacedBy> ?value .
+                FILTER (?value = $this || NOT EXISTS {
+                    $this <http://www.w3.org/2002/07/owl#deprecated> ?d .
+                    FILTER (?d = true)
+                })
+            }
+        """ ;
+    ] .
+
+# ============================================================================
+# Pertenencia a un catálogo (decisión 50)
+# ============================================================================
+# Decidido (2026-11-22, decisión 50): cada esquema SKOS (de dominio o
+# corporativo) y cada ontología propia pertenece a exactamente un catálogo
+# {BASE_URI}catalogo/{slug}, como los datasets (itsh:DatasetSeries-catalog).
+# Las ontologías externas y los esquemas auxiliares (vocab/dominio y
+# vocab/tipo-dataset) quedan fuera de los catálogos.
+#
+# Validado (2026-11-25). Se expresa con «<{BASE_URI}catalogo/{slug}> dcat:resource
+# <recurso>»: dcat:resource es la propiedad general de DCAT 3 para lo que
+# lista un catálogo, de la que dcat:dataset, dcat:service y dcat:catalog son
+# subpropiedades. No se usa dcat:dataset porque los esquemas y las
+# ontologías no son dcat:Dataset en este modelo y porque dcat:dataset ya
+# significa «serie de dataset» en los catálogos y en la API (justificación
+# y alternativas en semantic/uris.md, «Vocabularios y ontologías en los
+# catálogos»).
+#
+# El recurso que pertenece al catálogo es el esquema ({BASE_URI}vocab/…) o la
+# ontología ({BASE_URI}onto/{slug}), nunca una versión (owl:versionIRI). Como
+# en los datasets, el grafo que se valida en la ingesta lleva el triple de
+# pertenencia; el backend lo añade a partir del catálogo elegido y lo guarda
+# en el grafo del catálogo, no en el del esquema ni en el de la versión
+# (las versiones de ontología son inmutables, decisión 28). No se exige
+# sh:class dcat:Catalog porque el catálogo está descrito en otro grafo; que
+# el recurso no esté ya en otro catálogo del triplestore lo comprueba el
+# backend.
+
+# Ontología propia: exactamente un catálogo, identificado por IRI.
+itsh:OwnOntology-catalog
+    a sh:PropertyShape ;
+    sh:path [ sh:inversePath dcat:resource ] ;
+    sh:minCount 1 ;
+    sh:maxCount 1 ;
+    sh:nodeKind sh:IRI ;
+    sh:message "Regla IT&OT: cada ontología propia pertenece exactamente a un dcat:Catalog, identificado por IRI («<catálogo> dcat:resource <{BASE_URI}onto/{slug}>»)."@es .
+
+# Ontología externa (sin owl:versionIRI): fuera de los catálogos. Se cataloga
+# solo por referencia en {BASE_URI}onto/externas y no se gestiona desde la
+# aplicación.
+itsh:ExternalOntologyCatalogShape
+    a sh:NodeShape ;
+    rdfs:label "IT&OT · Ontología externa fuera de los catálogos"@es ;
+    sh:targetClass owl:Ontology ;
+    sh:or (
+        [ sh:path owl:versionIRI ; sh:minCount 1 ]
+        [ sh:path [ sh:inversePath dcat:resource ] ; sh:maxCount 0 ]
+    ) ;
+    sh:message "Regla IT&OT: una ontología externa (sin owl:versionIRI) no pertenece a ningún catálogo (sin dcat:resource hacia ella)."@es .
+
+# Esquema SKOS: los auxiliares ({BASE_URI}vocab/dominio y
+# {BASE_URI}vocab/tipo-dataset) no están en ningún catálogo; todos los demás,
+# de dominio o corporativos, en exactamente uno, identificado por IRI. Como
+# las formas no conocen BASE_URI, el esquema auxiliar se reconoce por el
+# final de su URI, igual que en itsh:CatalogUriShape; que empiece por
+# BASE_URI lo comprueba el backend. Un esquema corporativo
+# {BASE_URI}vocab/corp/dominio no es auxiliar: el patrón exige que «dominio»
+# siga directamente a «/vocab».
+itsh:ConceptSchemeCatalogShape
+    a sh:NodeShape ;
+    rdfs:label "IT&OT · Esquema SKOS en un catálogo"@es ;
+    sh:targetClass skos:ConceptScheme ;
+    sh:or (
+        [
+            sh:pattern "/vocab/(dominio|tipo-dataset)$" ;
+            sh:property [ sh:path [ sh:inversePath dcat:resource ] ; sh:maxCount 0 ]
+        ]
+        [
+            sh:not [ sh:pattern "/vocab/(dominio|tipo-dataset)$" ] ;
+            sh:property [
+                sh:path [ sh:inversePath dcat:resource ] ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:nodeKind sh:IRI
+            ]
+        ]
+    ) ;
+    sh:message "Regla IT&OT: cada esquema SKOS de dominio o corporativo pertenece exactamente a un dcat:Catalog, identificado por IRI («<catálogo> dcat:resource <esquema>»); los auxiliares vocab/dominio y vocab/tipo-dataset no pertenecen a ninguno."@es .
