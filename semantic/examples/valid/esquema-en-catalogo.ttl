@@ -1,6 +1,7 @@
 # Ejemplo VÁLIDO (decisión 50): esquema SKOS de dominio tal como se ingesta,
 # con el triple de pertenencia a su catálogo que añade el backend. El concepto
-# B está retirado con owl:deprecated: conserva su URI y su lugar en el árbol.
+# B está retirado con owl:deprecated: conserva su URI y su lugar en el árbol,
+# e indica con dct:isReplacedBy el concepto que lo sustituye (A).
 # Esquema, conceptos y catálogo son ficticios, solo para el ejemplo.
 # Las formas que aplica están en semantic/shapes/. Ver semantic/uris.md,
 # «Vocabularios y ontologías en los catálogos».
@@ -40,7 +41,8 @@
     skos:inScheme <vocab/ejemplo> ;
     skos:broader <vocab/ejemplo/a> ;
     skos:prefLabel "Concepto B"@es ;
-    owl:deprecated true .
+    owl:deprecated true ;
+    dct:isReplacedBy <vocab/ejemplo/a> .
 
 # Pertenencia a un catálogo (decisión 50): en la ingesta, el backend añade este
 # triple a partir del catálogo elegido.

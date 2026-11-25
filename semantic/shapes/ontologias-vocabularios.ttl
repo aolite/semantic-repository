@@ -418,7 +418,9 @@ itsh:ConceptShape
         itsh:Concept-broader-mismo-esquema ,
         itsh:Concept-related ,
         itsh:Concept-mapping ,
-        itsh:Concept-deprecated .
+        itsh:Concept-deprecated ,
+        itsh:Concept-isReplacedBy ,
+        itsh:Concept-isReplacedBy-retirado .
 
 # SKOS S14: como mucho un prefLabel por idioma. S13: prefLabel y altLabel
 # son disjuntas. Literales con idioma: el navegador muestra «prefLabel @es»,
@@ -583,6 +585,37 @@ itsh:Concept-deprecated
     sh:maxCount 1 ;
     sh:datatype xsd:boolean ;
     sh:message "Regla IT&OT: owl:deprecated de un concepto, si aparece, es uno solo y de tipo xsd:boolean (\"true\"^^xsd:boolean para retirarlo sin perder su URI)."@es .
+
+# Sustitutos de un concepto retirado (decisión 50, 2026-11-25): un concepto
+# con owl:deprecated true indica con dct:isReplacedBy los conceptos que lo
+# sustituyen, cero o más. dct:isReplacedBy es la propiedad de Dublin Core
+# para «otro recurso que sustituye a este». Los sustitutos son IRIs; pueden
+# estar en otro esquema y otro grafo, así que no se exige sh:class
+# skos:Concept: que sean conceptos vivos lo comprueba el backend
+# (semantic/uris.md). Reactivar un concepto retirado queda fuera del piloto.
+itsh:Concept-isReplacedBy
+    a sh:PropertyShape ;
+    sh:path dct:isReplacedBy ;
+    sh:nodeKind sh:IRI ;
+    sh:message "Regla IT&OT: dct:isReplacedBy de un concepto apunta a la IRI de un skos:Concept."@es .
+
+# Solo un concepto retirado tiene sustitutos, y no se sustituye a sí mismo.
+itsh:Concept-isReplacedBy-retirado
+    a sh:PropertyShape ;
+    sh:path dct:isReplacedBy ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Regla IT&OT: dct:isReplacedBy solo aparece en un concepto retirado (owl:deprecated true) y no apunta al propio concepto."@es ;
+        sh:select """
+            SELECT $this ?value WHERE {
+                $this <http://purl.org/dc/terms/isReplacedBy> ?value .
+                FILTER (?value = $this || NOT EXISTS {
+                    $this <http://www.w3.org/2002/07/owl#deprecated> ?d .
+                    FILTER (?d = true)
+                })
+            }
+        """ ;
+    ] .
 
 # ============================================================================
 # Pertenencia a un catálogo (decisión 50)
