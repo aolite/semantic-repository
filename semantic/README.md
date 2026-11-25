@@ -19,7 +19,7 @@ Zona del agente `semantico`. Contiene contratos que consumen otras capas: el pat
 | `ontologias/{slug}/{version}.ttl` | Ontologías propias sintéticas, una versión por fichero: `itot` 1.0.0, 1.1.0 y 1.2.0; `pqcm` 0.4.0 (borrador); `didx` 1.0.0 | `backend` (carga y métricas), `frontend`, `qa` |
 | `ontologias/externas.ttl` | Ontologías externas (SAREF, SOSA/SSN, D3FEND), solo por referencia y con su IRI oficial | `backend`, `frontend` |
 | `data/catalogo.ttl` | El `dcat:Catalog` raíz «itot-catalogo», que agrupa los catálogos con `dcat:catalog` (decisión 49) | `backend`, `frontend` |
-| `data/catalogos/{slug}.ttl` | Un `dcat:Catalog` `{BASE_URI}catalogo/{slug}` por fichero, con sus series (`dcat:dataset`) y sus esquemas SKOS y ontologías propias (`dcat:resource`, [PROPUESTA]). `sintetico`, el de los tres datasets sintéticos (decisión 49), y `vocabularios-sinteticos`, el de los nueve esquemas y las tres ontologías propias sintéticos (decisión 50) | `backend`, `frontend` |
+| `data/catalogos/{slug}.ttl` | Un `dcat:Catalog` `{BASE_URI}catalogo/{slug}` por fichero, con sus series (`dcat:dataset`) y sus esquemas SKOS y ontologías propias (`dcat:resource`, validado el 2026-11-25). `sintetico`, el de los tres datasets sintéticos (decisión 49), y `vocabularios-sinteticos`, el de los nueve esquemas y las tres ontologías propias sintéticos (decisión 50) | `backend`, `frontend` |
 | `data/sintetico/ficheros/{slug}/{version}/{dist}.{ext}` | Ficheros **sintéticos** de distribución (fase 4): uno mínimo y marcado por cada distribución `PUBLIC` o `RESTRICTED` de `data/sintetico/`, ninguno para `NON_PUBLIC` | `backend` (`load-semantic` los sube), `qa` |
 | `consultas/{id}.rq` | Consultas SPARQL de referencia de la Consola SPARQL (fase 4), con cabecera `# title:` / `# hint:` y el marcador `{BASE_URI}` | `backend` (`GET /sparql/queries`), `frontend`, `qa` |
 | `scripts/ficheros_sinteticos.py` | Genera `data/sintetico/ficheros/` a partir de las distribuciones, sin red | `semantico`, `qa` |
@@ -119,9 +119,10 @@ Varios catálogos, cada dataset en uno solo, y borrado lógico con 410. El patr�
 Detalle en «Vocabularios y ontologías en los catálogos» de `uris.md`. En resumen:
 
 - **Decidido (2026-11-22, decisión 50):** cada esquema SKOS (de dominio o corporativo) y cada ontología propia está en un solo catálogo; los sintéticos, en `{BASE_URI}catalogo/vocabularios-sinteticos`. Las ontologías externas y los esquemas auxiliares quedan fuera.
-- **[PROPUESTA]** La pertenencia es `<{BASE_URI}catalogo/{slug}> dcat:resource <recurso>`, guardada en el grafo del catálogo y no en los ficheros; el grafo que se ingesta la lleva (formas `itsh:ConceptSchemeCatalogShape`, `itsh:OwnOntology-catalog`, `itsh:ExternalOntologyCatalogShape` e `itsh:Catalog-resource`).
+- **Validado (2026-11-25):** la pertenencia es `<{BASE_URI}catalogo/{slug}> dcat:resource <recurso>`, guardada en el grafo del catálogo y no en los ficheros; el grafo que se ingesta la lleva (formas `itsh:ConceptSchemeCatalogShape`, `itsh:OwnOntology-catalog`, `itsh:ExternalOntologyCatalogShape` e `itsh:Catalog-resource`).
 - Bajas con la misma lápida que los datasets (`itsh:BajaUriShape` admite `vocab/{slug}`, `vocab/corp/{slug}` y `onto/{slug}`); conceptos y versiones responden 410 por el prefijo.
-- Un concepto se retira con `owl:deprecated "true"^^xsd:boolean` (`itsh:Concept-deprecated`); republicar un esquema sin conceptos que ya estaban da 409, y dar de baja un recurso en uso, también. Esas reglas y las demás del backend están en `uris.md`.
+- Un concepto se retira con `owl:deprecated "true"^^xsd:boolean` (`itsh:Concept-deprecated`) e indica sus sustitutos con `dct:isReplacedBy` (`itsh:Concept-isReplacedBy` e `itsh:Concept-isReplacedBy-retirado`, decidido el 2026-11-25); reactivarlo queda fuera del piloto. Republicar un esquema sin conceptos que ya estaban da 409, y dar de baja un recurso en uso, también.
+- **Decidido (2026-11-25):** manda la aplicación también en el contenido de los esquemas (`load-semantic` no quita conceptos añadidos desde la aplicación); un tema nuevo que apunte a un concepto retirado se rechaza avisando al editor, y el prefijo VANN de un recurso dado de baja no se reutiliza. Esas reglas y las demás del backend están en `uris.md`.
 
 ## Supuestos de validación
 

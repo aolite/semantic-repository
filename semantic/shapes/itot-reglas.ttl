@@ -236,7 +236,7 @@ itsh:Catalog-catalog
     sh:message "Regla IT&OT: cada dcat:catalog es la IRI de un catálogo."@es .
 
 # Regla propia (decisión 50): dcat:resource lista los esquemas SKOS y las
-# ontologías propias del catálogo [PROPUESTA: la propiedad, ver uris.md]. Es
+# ontologías propias del catálogo (validado el 2026-11-25, ver uris.md). Es
 # la IRI del esquema ({BASE_URI}vocab/{slug} o {BASE_URI}vocab/corp/{slug})
 # o de la ontología ({BASE_URI}onto/{slug}), nunca la de una versión
 # (owl:versionIRI) ni la de un esquema auxiliar, que no están en ningún
@@ -333,9 +333,9 @@ itsh:Baja-title
 # Decisión 50 (bajas de esquemas y ontologías con lápida y 410, igual que los
 # datasets): tienen lápida también un esquema SKOS ({BASE_URI}vocab/{slug} o
 # {BASE_URI}vocab/corp/{slug}) y una ontología propia ({BASE_URI}onto/{slug})
-# [PROPUESTA: solo el esquema y la ontología, no sus conceptos ni sus
-# versiones, que responden 410 por el prefijo, como las versiones de un
-# dataset]. Los esquemas auxiliares (vocab/dominio, vocab/tipo-dataset) y el
+# (validado el 2026-11-25: solo el esquema y la ontología, no sus conceptos
+# ni sus versiones, que responden 410 por el prefijo, como las versiones de
+# un dataset). Los esquemas auxiliares (vocab/dominio, vocab/tipo-dataset) y el
 # segmento reservado vocab/corp no se dan de baja: no se gestionan desde la
 # aplicación. Las ontologías externas tienen la IRI oficial, fuera de
 # BASE_URI, y tampoco.

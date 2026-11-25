@@ -676,7 +676,7 @@ def ontology_coherence(
         if (concept, RDF.type, SKOS.Concept) not in vocab:
             problems.append(f"dct:subject {short(concept)} no es un skos:Concept de semantic/vocabularios/")
 
-    # La pertenencia al catálogo no va en la versión (decisión 50 [PROPUESTA]):
+    # La pertenencia al catálogo no va en la versión (decisión 50, validado el 2026-11-25):
     # las versiones son inmutables (decisión 28) y el catálogo puede cambiar.
     if (None, DCAT.resource, None) in g:
         problems.append("la pertenencia al catálogo (dcat:resource) no va en la versión, sino en data/catalogos/")

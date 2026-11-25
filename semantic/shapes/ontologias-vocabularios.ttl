@@ -626,7 +626,7 @@ itsh:Concept-isReplacedBy-retirado
 # Las ontologías externas y los esquemas auxiliares (vocab/dominio y
 # vocab/tipo-dataset) quedan fuera de los catálogos.
 #
-# [PROPUESTA] Se expresa con «<{BASE_URI}catalogo/{slug}> dcat:resource
+# Validado (2026-11-25). Se expresa con «<{BASE_URI}catalogo/{slug}> dcat:resource
 # <recurso>»: dcat:resource es la propiedad general de DCAT 3 para lo que
 # lista un catálogo, de la que dcat:dataset, dcat:service y dcat:catalog son
 # subpropiedades. No se usa dcat:dataset porque los esquemas y las

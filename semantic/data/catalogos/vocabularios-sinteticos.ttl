@@ -9,9 +9,9 @@
 # sintéticos. Los esquemas corporativos se tratan como los de dominio. Las
 # ontologías externas (ontologias/externas.ttl) y los esquemas auxiliares
 # vocab/dominio y vocab/tipo-dataset (data/vocab-minimo.ttl) quedan fuera de
-# los catálogos. La descripción es [PROPUESTA].
+# los catálogos. La descripción la validó el responsable (2026-11-25).
 #
-# [PROPUESTA] Lista con dcat:resource (DCAT 3) los esquemas y las
+# Validado (2026-11-25): lista con dcat:resource (DCAT 3) los esquemas y las
 # ontologías del catálogo: la ontología ({BASE_URI}onto/{slug}), no sus
 # versiones. A diferencia de las series de data/sintetico/, los ficheros de
 # vocabularios/ y ontologias/ NO repiten el triple de pertenencia: son lo
