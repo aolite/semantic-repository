@@ -42,11 +42,19 @@ UNAVAILABLE = {
 def crud_error_response(exc: catalogs.CrudError, uris: UrisDep) -> JSONResponse:
     if exc.status_code == status.HTTP_410_GONE and exc.tombstone is not None:
         return gone_json(exc.tombstone, uris)
+    if exc.status_code == status.HTTP_403_FORBIDDEN and exc.kind is not None:
+        forbidden = schemas.ForbiddenResponse(
+            detail=exc.detail,
+            kind=exc.kind,  # type: ignore[arg-type]
+        )
+        return JSONResponse(status_code=exc.status_code, content=forbidden.model_dump())
     if exc.kind is not None:  # 409 con kind (schemas.ConflictResponse)
         body = schemas.ConflictResponse(
             detail=exc.detail,
             kind=exc.kind,  # type: ignore[arg-type]
             datasets=exc.datasets,
+            resources=exc.resources,
+            used_by=exc.used_by,
         )
         return JSONResponse(status_code=exc.status_code, content=body.model_dump())
     return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
@@ -65,7 +73,8 @@ def _detail(store: StoreDep, uris: UrisDep, slug: str) -> schemas.CatalogDetail:
     response_model=schemas.CatalogPage,
     summary="Catálogos (lector anónimo)",
     description="Los catálogos `{BASE_URI}catalogo/{slug}`, por título, con su número de "
-    "datasets. No incluye el catálogo raíz ni los catálogos dados de baja.",
+    "datasets, esquemas SKOS y ontologías propias (decisión 50). No incluye el catálogo raíz "
+    "ni los catálogos dados de baja.",
     responses={status.HTTP_503_SERVICE_UNAVAILABLE: UNAVAILABLE},
 )
 def list_catalogs(store: StoreDep, uris: UrisDep) -> schemas.CatalogPage:
@@ -75,7 +84,7 @@ def list_catalogs(store: StoreDep, uris: UrisDep) -> schemas.CatalogPage:
 @router.get(
     "/{slug}",
     response_model=schemas.CatalogDetail,
-    summary="Ficha de un catálogo con sus datasets (lector anónimo)",
+    summary="Ficha de un catálogo con sus datasets, esquemas y ontologías (lector anónimo)",
     responses={
         status.HTTP_404_NOT_FOUND: NOT_FOUND,
         status.HTTP_410_GONE: GONE,
@@ -163,14 +172,16 @@ def update_catalog(
     summary="Da de baja un catálogo vacío (editor o admin)",
     description="Borrado lógico: el catálogo sale de los listados, de SPARQL y del raíz, y "
     "su URI responde 410 con una ficha mínima. 409 si todavía tiene datasets (en "
-    "`datasets`): antes hay que moverlos o darlos de baja. Su slug no se reutiliza.",
+    "`datasets`) o, desde la decisión 50, esquemas u ontologías (en `resources`): antes hay "
+    "que moverlos o darlos de baja. Su slug no se reutiliza.",
     responses={
         status.HTTP_401_UNAUTHORIZED: UNAUTHORIZED,
         status.HTTP_403_FORBIDDEN: FORBIDDEN,
         status.HTTP_404_NOT_FOUND: NOT_FOUND,
         status.HTTP_409_CONFLICT: {
             "model": schemas.ConflictResponse,
-            "description": "El catálogo tiene datasets (kind=catalog_not_empty, con datasets)",
+            "description": "El catálogo tiene datasets, esquemas u ontologías "
+            "(kind=catalog_not_empty, con datasets y resources)",
         },
         status.HTTP_410_GONE: GONE,
         status.HTTP_503_SERVICE_UNAVAILABLE: UNAVAILABLE,

@@ -22,6 +22,10 @@ RDF_RESPONSES = {
     },
     status.HTTP_404_NOT_FOUND: {"model": schemas.ErrorResponse},
     status.HTTP_406_NOT_ACCEPTABLE: {"model": schemas.ErrorResponse},
+    status.HTTP_410_GONE: {
+        "model": schemas.GoneResponse,
+        "description": "Dado de baja (decisión 50): ficha mínima (lápida)",
+    },
     status.HTTP_503_SERVICE_UNAVAILABLE: {"model": schemas.ErrorResponse},
 }
 

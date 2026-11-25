@@ -87,6 +87,18 @@ def test_backend_fixture_vocabularies_are_an_exact_copy_of_semantic(relative: st
     assert (mismatch, errors) == ([], [])
 
 
+def test_backend_fixture_invalid_examples_are_an_exact_copy_of_semantic() -> None:
+    """``backend/tests/fixtures/invalid-ontologias-vocabularios`` copia los ejemplos
+    inválidos de ontologías y vocabularios de ``semantico`` (con la pertenencia a un
+    catálogo de la decisión 50)."""
+    source = _require(REPO_SEMANTIC_DIR / "examples" / "invalid" / "ontologias-vocabularios")
+    copy = FIXTURE_SEMANTIC_DIR.parent / "invalid-ontologias-vocabularios"
+    names = sorted(p.name for p in source.glob("*.ttl"))
+    assert sorted(p.name for p in copy.glob("*.ttl")) == names
+    _match, mismatch, errors = filecmp.cmpfiles(source, copy, names, shallow=False)
+    assert (mismatch, errors) == ([], [])
+
+
 # --- infra -> backend ------------------------------------------------------------------
 
 
@@ -216,7 +228,19 @@ def _nullable(schema: dict) -> bool:
 # aquí, con su decisión, y se borran cuando frontend/src/api/types.ts los incorpore.
 # Tienen que ser opcionales en el contrato (no requeridos), para no romper al cliente que
 # aún no los conoce.
-PENDING_FRONTEND: dict[str, set[str]] = {}
+# Decisión 50 (contrato del backend antes que el frontend): campos nuevos, todos opcionales
+# en el contrato, que frontend aún no tiene en types.ts.
+PENDING_FRONTEND: dict[str, set[str]] = {
+    "IngestIssue": {"replaced_by"},
+    "VocabularyCard": {"catalog"},
+    "OntologyDetail": {"catalog"},
+    "SchemeDetail": {"catalog"},
+    "ConceptNode": {"deprecated"},
+    "ConceptDetail": {"deprecated", "replaced_by"},
+    "CatalogSummary": {"scheme_count", "ontology_count"},
+    "CatalogDetail": {"scheme_count", "ontology_count", "schemes", "ontologies"},
+    "ConflictResponse": {"resources", "used_by"},
+}
 
 
 def test_pending_frontend_fields_are_optional_in_the_contract() -> None:

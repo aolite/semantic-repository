@@ -41,7 +41,7 @@ from rdflib import Graph, URIRef
 from rdflib.namespace import RDF
 from sqlalchemy.exc import IntegrityError
 
-from app import audit, bajas, catalog, distributions, schemas
+from app import audit, bajas, catalog, catalogs, distributions, schemas
 from app.deps import DbDep, OptionalUser, SettingsDep, StorageDep, StoreDep, UrisDep
 from app.models import AuditAction, DistributionFile, UsedDownloadToken, User
 from app.negotiation import HTML, JSONLD, RDFXML, TURTLE, negotiate
@@ -136,11 +136,19 @@ GONE_PAGE = """<!doctype html>
 """
 
 
+GONE_KIND_LABELS = {
+    "catalog": "Catálogo",
+    "dataset": "Dataset",
+    "scheme": "Esquema SKOS",
+    "ontology": "Ontología",
+}
+
+
 def gone(request: Request, tombstone: bajas.Tombstone, uris: UrisDep) -> Response:
     """410 Gone con la ficha mínima, negociada como el resto de URIs persistentes."""
     media = negotiate(request.headers.get("accept"), OFFERED) or HTML
     if media == HTML:
-        kind = "Catálogo" if uris.catalog_slug(tombstone.uri) is not None else "Dataset"
+        kind = GONE_KIND_LABELS[catalogs.gone_kind(uris, tombstone.uri)]
         page = GONE_PAGE.format(
             title=escape(tombstone.title or tombstone.uri),
             kind=kind,

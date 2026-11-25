@@ -15,7 +15,11 @@ from app.config import Settings
 from app.models import AuditAction, AuditEvent, OntologyMetricsRecord, Role, User
 from app.triplestore import MemoryStore
 from app.uris import SKOS, Uris
-from tests.conftest import BASE_URI, FIXTURE_SEMANTIC_DIR, user_graphs
+from tests.conftest import BASE_URI, FIXTURE_SEMANTIC_DIR, TEST_CATALOG_URI, user_graphs
+
+# Decisión 50: esquemas y ontologías se publican en un catálogo (el de las pruebas).
+ONTOLOGIES = "/ontologies?catalog=pruebas"
+SCHEMES = "/schemes?catalog=pruebas"
 
 ONTO_DIR = FIXTURE_SEMANTIC_DIR / "ontologias" / "itot"
 VOCAB_DIR = FIXTURE_SEMANTIC_DIR / "vocabularios"
@@ -73,7 +77,7 @@ def test_ingest_ontology_computes_and_stores_metrics(
     store: MemoryStore,
     session_factory: sessionmaker[Session],
 ) -> None:
-    response = client.post("/ontologies", content=ONTO_120, headers=editor | TTL)
+    response = client.post(ONTOLOGIES, content=ONTO_120, headers=editor | TTL)
     assert response.status_code == 201, response.text
     body = response.json()
     version_iri = f"{BASE_URI}onto/itot/1.2.0"
@@ -130,13 +134,13 @@ def test_reingest_identical_does_not_recompute(
     session_factory: sessionmaker[Session],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    assert client.post("/ontologies", content=ONTO_120, headers=editor | TTL).status_code == 201
+    assert client.post(ONTOLOGIES, content=ONTO_120, headers=editor | TTL).status_code == 201
 
     def fail(*_args: object, **_kwargs: object) -> None:
         raise AssertionError("no debería recalcular las métricas")
 
     monkeypatch.setattr(vocab_ingest, "compute_ontology_metrics", fail)
-    response = client.post("/ontologies", content=ONTO_120, headers=editor | TTL)
+    response = client.post(ONTOLOGIES, content=ONTO_120, headers=editor | TTL)
     assert response.status_code == 200
     body = response.json()
     assert body["created"] is False and body["changed"] is False
@@ -159,7 +163,7 @@ def test_changed_content_recomputes(
         return metrics, owl_metrics.Consistency(detail="sin razonador en esta prueba").to_dict()
 
     monkeypatch.setattr(vocab_ingest, "compute_ontology_metrics", fake)
-    first = client.post("/ontologies", content=_onto(":A a owl:Class ."), headers=editor | TTL)
+    first = client.post(ONTOLOGIES, content=_onto(":A a owl:Class ."), headers=editor | TTL)
     assert first.status_code == 201
     assert first.json()["metrics"]["classes"] == 1
     assert first.json()["consistency"]["consistent"] is None
@@ -167,7 +171,7 @@ def test_changed_content_recomputes(
     # versionIRI es 409 sin recalcular nada; las métricas se recalculan si el contenido
     # guardado cambia (aquí, el registro de métricas no coincide con el grafo).
     second = client.post(
-        "/ontologies", content=_onto(":A a owl:Class . :B a owl:Class ."), headers=editor | TTL
+        ONTOLOGIES, content=_onto(":A a owl:Class . :B a owl:Class ."), headers=editor | TTL
     )
     assert second.status_code == 409
     assert second.json()["kind"] == "version_immutable"
@@ -177,7 +181,7 @@ def test_changed_content_recomputes(
         assert record is not None
         record.content_hash = "0" * 64  # métricas de otro contenido
         session.commit()
-    third = client.post("/ontologies", content=_onto(":A a owl:Class ."), headers=editor | TTL)
+    third = client.post(ONTOLOGIES, content=_onto(":A a owl:Class ."), headers=editor | TTL)
     assert third.status_code == 200
     assert third.json()["changed"] is False
     assert third.json()["metrics_recomputed"] is True
@@ -192,7 +196,7 @@ def test_ingest_inconsistent_ontology_is_accepted_and_reported(
         ":A a owl:Class . :B a owl:Class . :A owl:disjointWith :B . "
         ":x a owl:NamedIndividual , :A , :B ."
     )
-    response = client.post("/ontologies", content=body, headers=editor | TTL)
+    response = client.post(ONTOLOGIES, content=body, headers=editor | TTL)
     assert response.status_code == 201, response.text
     assert response.json()["consistency"]["consistent"] is False
 
@@ -226,7 +230,7 @@ def test_ingest_ontology_jsonld(
         "vann:preferredNamespaceUri": {"@id": "onto/jsonld#"},
     }
     response = client.post(
-        "/ontologies",
+        ONTOLOGIES,
         content=json.dumps(document),
         headers=editor | {"Content-Type": "application/ld+json"},
     )
@@ -250,7 +254,7 @@ def fake_metrics(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.usefixtures("fake_metrics")
-@pytest.mark.parametrize(("path", "content"), [("/ontologies", ONTO_120), ("/schemes", SCHEME_OT)])
+@pytest.mark.parametrize(("path", "content"), [(ONTOLOGIES, ONTO_120), (SCHEMES, SCHEME_OT)])
 def test_admin_inherits_editor_permissions(
     client: TestClient,
     make_user: Callable[..., User],
@@ -263,7 +267,7 @@ def test_admin_inherits_editor_permissions(
     assert response.status_code == 201, response.text
 
 
-@pytest.mark.parametrize("path", ["/ontologies", "/schemes"])
+@pytest.mark.parametrize("path", [ONTOLOGIES, SCHEMES])
 def test_member_is_forbidden(
     client: TestClient,
     make_user: Callable[..., User],
@@ -277,7 +281,7 @@ def test_member_is_forbidden(
     assert user_graphs(store) == set()
 
 
-@pytest.mark.parametrize("path", ["/ontologies", "/schemes"])
+@pytest.mark.parametrize("path", [ONTOLOGIES, SCHEMES])
 @pytest.mark.parametrize(
     "headers",
     [
@@ -297,10 +301,10 @@ def test_anonymous_gets_401_before_body_checks(
 def test_unsupported_media_and_too_large(
     client: TestClient, editor: dict[str, str], settings: Settings
 ) -> None:
-    bad = client.post("/ontologies", content=b"x", headers=editor | {"Content-Type": "text/xml"})
+    bad = client.post(ONTOLOGIES, content=b"x", headers=editor | {"Content-Type": "text/xml"})
     assert bad.status_code == 415
     big = b"#" * (settings.ingest_max_bytes + 1)
-    assert client.post("/schemes", content=big, headers=editor | TTL).status_code == 413
+    assert client.post(SCHEMES, content=big, headers=editor | TTL).status_code == 413
 
 
 # --- POST /ontologies: inválida ---------------------------------------------------------
@@ -364,7 +368,7 @@ def test_invalid_ontology_is_rejected(
     content: bytes,
     kind: str,
 ) -> None:
-    response = client.post("/ontologies", content=content, headers=editor | TTL)
+    response = client.post(ONTOLOGIES, content=content, headers=editor | TTL)
     assert response.status_code == 422, response.text
     assert response.json()["kind"] == kind
     assert user_graphs(store) == set()
@@ -381,7 +385,7 @@ def test_external_subjects_are_allowed_in_ontology(
         ":A a owl:Class ; rdfs:subClassOf <https://example.org/externa/sensores#Plataforma> . "
         "<https://example.org/externa/sensores#Plataforma> a owl:Class ."
     )
-    response = client.post("/ontologies", content=body, headers=editor | TTL)
+    response = client.post(ONTOLOGIES, content=body, headers=editor | TTL)
     assert response.status_code == 201, response.text
     assert user_graphs(store) == {f"{BASE_URI}onto/prueba/1.0.0"}
 
@@ -389,7 +393,7 @@ def test_external_subjects_are_allowed_in_ontology(
 def test_deep_nesting_is_rejected(client: TestClient, editor: dict[str, str]) -> None:
     nested = "[ rdfs:seeAlso " * 80 + "<urn:x:fin>" + " ]" * 80
     body = _onto(f":A rdfs:seeAlso {nested} .")
-    response = client.post("/ontologies", content=body, headers=editor | TTL)
+    response = client.post(ONTOLOGIES, content=body, headers=editor | TTL)
     assert response.status_code == 422
     assert response.json()["kind"] == "syntax"
 
@@ -397,7 +401,7 @@ def test_deep_nesting_is_rejected(client: TestClient, editor: dict[str, str]) ->
 def test_remote_jsonld_context_is_rejected(client: TestClient, editor: dict[str, str]) -> None:
     document = {"@context": "https://example.org/contexto.jsonld", "@id": "onto/x"}
     response = client.post(
-        "/schemes",
+        SCHEMES,
         content=json.dumps(document),
         headers=editor | {"Content-Type": "application/ld+json"},
     )
@@ -414,7 +418,7 @@ def test_ingest_domain_scheme(
     store: MemoryStore,
     session_factory: sessionmaker[Session],
 ) -> None:
-    response = client.post("/schemes", content=SCHEME_OT, headers=editor | TTL)
+    response = client.post(SCHEMES, content=SCHEME_OT, headers=editor | TTL)
     assert response.status_code == 201, response.text
     body = response.json()
     assert body == {
@@ -426,9 +430,10 @@ def test_ingest_domain_scheme(
         "triples": body["triples"],
         "created": True,
         "changed": True,
+        "catalog": TEST_CATALOG_URI,
     }
     assert user_graphs(store) == {f"{BASE_URI}vocab/ot"}
-    again = client.post("/schemes", content=SCHEME_OT, headers=editor | TTL)
+    again = client.post(SCHEMES, content=SCHEME_OT, headers=editor | TTL)
     assert again.status_code == 200
     assert again.json()["changed"] is False
     events = _events(session_factory, AuditAction.SCHEME_PUBLISHED)
@@ -438,7 +443,7 @@ def test_ingest_domain_scheme(
 
 
 def test_ingest_corp_scheme(client: TestClient, editor: dict[str, str], store: MemoryStore) -> None:
-    response = client.post("/schemes", content=SCHEME_CORP, headers=editor | TTL)
+    response = client.post(SCHEMES, content=SCHEME_CORP, headers=editor | TTL)
     assert response.status_code == 201, response.text
     assert response.json()["corp"] is True
     assert response.json()["slug"] == "trl"
@@ -487,7 +492,7 @@ def test_invalid_scheme_is_rejected(
     content: bytes,
     kind: str,
 ) -> None:
-    response = client.post("/schemes", content=content, headers=editor | TTL)
+    response = client.post(SCHEMES, content=content, headers=editor | TTL)
     assert response.status_code == 422, response.text
     assert response.json()["kind"] == kind
     assert user_graphs(store) == set()
@@ -501,9 +506,9 @@ def test_invalid_scheme_is_rejected(
 def test_valid_minimal_ontology_and_scheme_pass_shacl(
     client: TestClient, editor: dict[str, str]
 ) -> None:
-    onto = client.post("/ontologies", content=_onto(":A a owl:Class ."), headers=editor | TTL)
+    onto = client.post(ONTOLOGIES, content=_onto(":A a owl:Class ."), headers=editor | TTL)
     assert onto.status_code == 201, onto.text
-    scheme = client.post("/schemes", content=_scheme(""), headers=editor | TTL)
+    scheme = client.post(SCHEMES, content=_scheme(""), headers=editor | TTL)
     assert scheme.status_code == 201, scheme.text
 
 
@@ -512,7 +517,7 @@ def test_shacl_violations_reject_ontology_and_scheme(
     client: TestClient, editor: dict[str, str], store: MemoryStore
 ) -> None:
     onto = client.post(
-        "/ontologies", content=_onto(":A a owl:Class .", status=False), headers=editor | TTL
+        ONTOLOGIES, content=_onto(":A a owl:Class .", status=False), headers=editor | TTL
     )
     assert onto.status_code == 422
     body = onto.json()
@@ -520,7 +525,7 @@ def test_shacl_violations_reject_ontology_and_scheme(
     assert body["report"]
     assert any(i["path"] == "http://www.w3.org/ns/adms#status" for i in body["issues"])
 
-    scheme = client.post("/schemes", content=_scheme("", description=False), headers=editor | TTL)
+    scheme = client.post(SCHEMES, content=_scheme("", description=False), headers=editor | TTL)
     assert scheme.status_code == 422
     assert scheme.json()["kind"] == "shacl"
     assert user_graphs(store) == set()

@@ -9,9 +9,13 @@ Funciones de bajo nivel sobre el triplestore, sin dependencias de la ingesta (la
   deja en uno solo (alta o traslado).
 - **Catálogo raíz.** ``{BASE_URI}catalogo`` agrupa los catálogos con ``dcat:catalog``; el
   backend añade o quita ese triple al crear o dar de baja un catálogo.
-- **Lápidas.** Un catálogo o una serie dados de baja quedan solo como lápida en el grafo
-  ``{BASE_URI}bajas`` (forma ``itsh:BajaShape``): ``rdf:type prov:Entity``, ``dct:title``,
-  ``adms:status …/Withdrawn`` y ``prov:invalidatedAtTime``. Ese grafo no se publica.
+- **Pertenencia de esquemas y ontologías (decisión 50).** Igual que las series, con
+  ``<catálogo> dcat:resource <recurso>`` en el grafo del catálogo (``resource_catalogs``,
+  ``set_resource_membership``).
+- **Lápidas.** Un catálogo, una serie, un esquema o una ontología dados de baja quedan
+  solo como lápida en el grafo ``{BASE_URI}bajas`` (forma ``itsh:BajaShape``):
+  ``rdf:type prov:Entity``, ``dct:title``, ``adms:status …/Withdrawn`` y
+  ``prov:invalidatedAtTime``. Ese grafo no se publica.
 
 Escrituras atómicas (QA-49-01): ninguna función lee un grafo entero para reescribirlo.
 Añadir triples es un ``POST`` del Graph Store Protocol (``append_graph``, se añade al
@@ -39,14 +43,13 @@ _SUBJECT_QUERY = "CONSTRUCT { $s ?p ?o } WHERE { GRAPH $graph { $s ?p ?o } }"
 
 # SPARQL Update solo con IRIs (``app.sparql.iri``): nunca literales ni texto del usuario.
 _DELETE_DATA = "DELETE DATA { GRAPH $graph { $s $p $o } }"
-_SET_MEMBERSHIP = """DELETE { GRAPH ?c { ?c $dataset $series } }
-WHERE { GRAPH ?c { ?c $dataset $series }
+_SET_MEMBERSHIP = """DELETE { GRAPH ?c { ?c $prop $member } }
+WHERE { GRAPH ?c { ?c $prop $member }
   FILTER(STRSTARTS(STR(?c), $catalog_ns) && ?c != $target) } ;
-INSERT DATA { GRAPH $target { $target $dataset $series } }"""
+INSERT DATA { GRAPH $target { $target $prop $member } }"""
 
-_MEMBERSHIP_QUERY = """PREFIX dcat: <http://www.w3.org/ns/dcat#>
-CONSTRUCT { ?c dcat:dataset $series } WHERE {
-  GRAPH ?c { ?c dcat:dataset $series }
+_MEMBERSHIP_QUERY = """CONSTRUCT { ?c $prop $member } WHERE {
+  GRAPH ?c { ?c $prop $member }
   FILTER(STRSTARTS(STR(?c), $catalog_ns))
 }"""
 
@@ -143,12 +146,37 @@ def remove_from_root(store: TripleStore, uris: Uris, catalog_uri: str) -> None:
 # --- Pertenencia de las series ---------------------------------------------------------
 
 
+def _member_catalogs(store: TripleStore, uris: Uris, prop: URIRef, member: str) -> set[str]:
+    graph = store.construct(
+        render(
+            _MEMBERSHIP_QUERY,
+            prop=iri(str(prop)),
+            member=iri(member),
+            catalog_ns=literal(uris.catalog_ns),
+        )
+    )
+    return {str(c) for c in graph.subjects(prop, URIRef(member))}
+
+
+def _set_member(
+    store: TripleStore, uris: Uris, prop: URIRef, member: str, catalog_uri: str
+) -> set[str]:
+    previous = _member_catalogs(store, uris, prop, member) - {catalog_uri}
+    store.update(
+        render(
+            _SET_MEMBERSHIP,
+            prop=iri(str(prop)),
+            member=iri(member),
+            target=iri(catalog_uri),
+            catalog_ns=literal(uris.catalog_ns),
+        )
+    )
+    return previous
+
+
 def series_catalogs(store: TripleStore, uris: Uris, series_uri: str) -> set[str]:
     """Catálogos ``{BASE_URI}catalogo/{slug}`` cuyo grafo lista la serie."""
-    graph = store.construct(
-        render(_MEMBERSHIP_QUERY, series=iri(series_uri), catalog_ns=literal(uris.catalog_ns))
-    )
-    return {str(c) for c in graph.subjects(DCAT.dataset, URIRef(series_uri))}
+    return _member_catalogs(store, uris, DCAT.dataset, series_uri)
 
 
 def remove_membership(store: TripleStore, catalog_uri: str, series_uri: str) -> None:
@@ -164,14 +192,28 @@ def set_membership(store: TripleStore, uris: Uris, series_uri: str, catalog_uri:
     """Deja la serie solo en ``catalog_uri``, en **una** petición de Update (quita la
     pertenencia a cualquier otro catálogo y la añade al destino, atómicamente). Devuelve
     los catálogos de los que se quitó."""
-    previous = series_catalogs(store, uris, series_uri) - {catalog_uri}
-    store.update(
-        render(
-            _SET_MEMBERSHIP,
-            dataset=iri(str(DCAT.dataset)),
-            series=iri(series_uri),
-            target=iri(catalog_uri),
-            catalog_ns=literal(uris.catalog_ns),
-        )
-    )
-    return previous
+    return _set_member(store, uris, DCAT.dataset, series_uri, catalog_uri)
+
+
+# --- Pertenencia de esquemas SKOS y ontologías propias (decisión 50) -------------------
+#
+# «<{BASE_URI}catalogo/{slug}> dcat:resource <recurso>», en el grafo del catálogo (no en el
+# del esquema ni en el de la versión de ontología). Mismas escrituras atómicas que las
+# series.
+
+
+def resource_catalogs(store: TripleStore, uris: Uris, resource_uri: str) -> set[str]:
+    """Catálogos ``{BASE_URI}catalogo/{slug}`` que listan el esquema o la ontología."""
+    return _member_catalogs(store, uris, DCAT.resource, resource_uri)
+
+
+def remove_resource_membership(store: TripleStore, catalog_uri: str, resource_uri: str) -> None:
+    store.update(_delete_data(catalog_uri, catalog_uri, DCAT.resource, resource_uri))
+
+
+def set_resource_membership(
+    store: TripleStore, uris: Uris, resource_uri: str, catalog_uri: str
+) -> set[str]:
+    """Deja el esquema o la ontología solo en ``catalog_uri`` (una petición de Update).
+    Devuelve los catálogos de los que se quitó."""
+    return _set_member(store, uris, DCAT.resource, resource_uri, catalog_uri)

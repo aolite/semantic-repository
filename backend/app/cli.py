@@ -19,6 +19,7 @@ from typing import Annotated
 
 import typer
 from rdflib import Graph, URIRef
+from rdflib.compare import isomorphic
 from sqlalchemy.orm import Session
 
 from app import bajas, distributions, ingest, vocab_ingest, write_lock
@@ -28,7 +29,7 @@ from app.models import DistributionFile, Role
 from app.schemas import USERNAME_PATTERN
 from app.security import PASSWORD_MIN_LENGTH
 from app.storage import Storage, StorageError, hash_stream, storage_from_settings
-from app.triplestore import FusekiStore, TripleStore, TriplestoreError
+from app.triplestore import FusekiStore, MemoryStore, TripleStore, TriplestoreError
 from app.uris import CORP_SEGMENT, DCAT, DCT, Uris, is_slug, is_version
 from app.users import UsernameTakenError, create_user
 
@@ -106,6 +107,10 @@ class _Plan:
     """Todo lo que ``load-semantic`` va a escribir, ya validado."""
 
     schemes: list[tuple[str, vocab_ingest.PreparedScheme]] = field(default_factory=list)
+    # Decisión 50: por esquema, el grafo del fichero (sin los conceptos publicados desde la
+    # aplicación ni el triple de pertenencia) y sus catálogos, para volver a mezclarlo con
+    # lo publicado justo antes de escribir.
+    scheme_sources: dict[str, tuple[Graph, list[str]]] = field(default_factory=dict)
     ontologies: list[tuple[str, vocab_ingest.PreparedOntology, vocab_ingest.OntologyAnalysis]] = (
         field(default_factory=list)
     )
@@ -186,9 +191,66 @@ def _check_files(
     return failed
 
 
-def _write_catalogs_and_series(
+def _known_concepts(plan: _Plan) -> set[str]:
+    return {
+        str(c)
+        for _name, prepared in plan.schemes
+        for c in vocab_ingest.scheme_concepts(prepared.graph, prepared.uri)
+    }
+
+
+def _write_schemes_and_ontologies(
     store: TripleStore, session: Session, settings: Settings, uris: Uris, plan: _Plan
 ) -> None:
+    """Esquemas, externas y versiones de ontología. Las métricas y el razonador ya se
+    calcularon al validar. Decisión 50: cada esquema se vuelve a mezclar con lo publicado
+    justo antes de escribirlo (los conceptos añadidos desde la aplicación no se quitan) y
+    cada recurso queda en su catálogo (el que ya tenía, o el de ``data/catalogos/``)."""
+    known = _known_concepts(plan)
+    for name, scheme in plan.schemes:
+        source = plan.scheme_sources.get(scheme.uri)
+        if source is not None:
+            file_graph, catalogs = source
+            merged = vocab_ingest.merge_published_concepts(
+                store.get_graph(scheme.uri), file_graph, scheme.uri
+            )
+            if not isomorphic(merged, scheme.graph):
+                # Lo publicado cambió mientras se validaba: se valida otra vez la mezcla.
+                scheme = vocab_ingest.prepare_scheme(
+                    _with_membership(merged, scheme.uri, catalogs), uris, settings
+                )
+        result = vocab_ingest.publish_scheme_and_audit(
+            store,
+            session,
+            scheme,
+            actor_username=CLI_ACTOR,
+            via="cli",
+            other="keep",
+            check_concepts=False,
+            known_concepts=known,
+        )
+        state = "cargado" if result.changed else "sin cambios"
+        typer.echo(f"{name} -> <{result.graph_uri}>: {state} ({result.concepts} conceptos)")
+    for name, graph_uri, graph in plan.plain:
+        _created, changed = ingest.store_graph(store, graph_uri, graph)
+        typer.echo(f"{name} -> <{graph_uri}>: {'cargado' if changed else 'sin cambios'}")
+    for name, ontology, analysis in plan.ontologies:
+        onto = vocab_ingest.publish_ontology_and_audit(
+            store,
+            session,
+            ontology,
+            settings,
+            analysis=analysis,
+            actor_username=CLI_ACTOR,
+            via="cli",
+            other="keep",
+        )
+        state = "cargado" if onto.changed else "sin cambios"
+        metrics = "métricas calculadas" if onto.metrics_recomputed else "métricas al día"
+        typer.echo(f"{name} -> <{onto.graph_uri}>: {state}, {metrics}")
+
+
+def _write_catalogs(store: TripleStore, uris: Uris, plan: _Plan) -> None:
     for name, graph_uri, graph in plan.catalogs:
         # Decisión 49: se conservan los dcat:catalog del raíz y los dcat:dataset de cada
         # catálogo que ya están publicados (lo hecho desde la aplicación).
@@ -199,6 +261,11 @@ def _write_catalogs_and_series(
             graph = ingest.merge_catalog(current, graph, graph_uri)
         _created, changed = ingest.store_graph(store, graph_uri, graph)
         typer.echo(f"{name} -> <{graph_uri}>: {'cargado' if changed else 'sin cambios'}")
+
+
+def _write_series_and_files(
+    store: TripleStore, session: Session, settings: Settings, uris: Uris, plan: _Plan
+) -> None:
     for name, series in plan.series:
         published = ingest.publish_and_audit(
             store, session, series, actor_username=CLI_ACTOR, via="cli", other="keep"
@@ -246,6 +313,15 @@ def _skip_withdrawn_meanwhile(store: TripleStore, uris: Uris, plan: _Plan) -> No
     plan.series = [entry for entry in plan.series if entry[1].uri not in fresh]
     slugs = {slug for uri in fresh if (slug := uris.series_slug(uri)) is not None}
     plan.files = [entry for entry in plan.files if entry[2][0] not in slugs]
+    # Decisión 50: esquemas y ontologías dados de baja mientras se validaba.
+    for name, scheme in plan.schemes:
+        if scheme.uri in fresh:
+            typer.echo(f"  {name}: se omite (esquema dado de baja)")
+    plan.schemes = [entry for entry in plan.schemes if entry[1].uri not in fresh]
+    for name, ontology, _analysis in plan.ontologies:
+        if ontology.uri in fresh:
+            typer.echo(f"  {name}: se omite (ontología dada de baja)")
+    plan.ontologies = [entry for entry in plan.ontologies if entry[1].uri not in fresh]
 
 
 def _catalog_paths(semantic_dir: Path) -> list[Path]:
@@ -269,6 +345,79 @@ def _check_series_catalog(
         "El catálogo de la serie no existe, está dado de baja o no está en data/catalogos/",
         [ingest.Issue("Catálogo de la serie", focus_node=target)],
     )
+
+
+def _file_memberships(semantic_dir: Path, uris: Uris) -> dict[str, list[str]]:
+    """Decisión 50: catálogos que da ``data/catalogos/`` a cada esquema u ontología
+    (``<catálogo> dcat:resource <recurso>``). Un fichero que no se puede leer se ignora
+    aquí: lo informa la validación de los catálogos."""
+    result: dict[str, list[str]] = {}
+    for path in _catalog_paths(semantic_dir):
+        if not is_slug(path.stem):
+            continue
+        catalog_uri = uris.catalog(path.stem)
+        try:
+            graph = ingest.parse_file(path, uris.base)
+        except ingest.IngestError:
+            continue
+        for resource in graph.objects(URIRef(catalog_uri), DCAT.resource):
+            result.setdefault(str(resource), []).append(catalog_uri)
+    return result
+
+
+def _resource_catalogs(
+    store: TripleStore | None,
+    uris: Uris,
+    resource: str,
+    from_files: dict[str, list[str]],
+    loaded: set[str],
+) -> list[str]:
+    """Catálogo en el que queda un esquema o una ontología en ``load-semantic`` (decisión
+    50): si ya está en uno del triplestore, ese (un traslado hecho desde la aplicación no se
+    deshace); si es nuevo, el de ``data/catalogos/``, que tiene que cargarse en esta
+    ejecución o estar ya publicado."""
+    current = sorted(bajas.resource_catalogs(store, uris, resource)) if store is not None else []
+    if current:
+        return current
+    targets = sorted(set(from_files.get(resource, [])))
+    if not targets:
+        raise ingest.IngestError(
+            "catalog",
+            "El recurso no está en ningún catálogo de data/catalogos/ (dcat:resource) ni del "
+            "triplestore",
+            [ingest.Issue("Recurso sin catálogo", focus_node=resource)],
+        )
+    for target in targets:
+        if target not in loaded and not (store is not None and bajas.catalog_exists(store, target)):
+            raise ingest.IngestError(
+                "catalog",
+                "El catálogo del recurso no existe, está dado de baja o no está en data/catalogos/",
+                [ingest.Issue("Catálogo del recurso", focus_node=target)],
+            )
+    return targets
+
+
+def _with_membership(graph: Graph, resource: str, catalogs: list[str]) -> Graph:
+    result = Graph()
+    for prefix, namespace in graph.namespaces():
+        result.bind(prefix, namespace, override=True, replace=True)
+    for triple in graph:
+        result.add(triple)
+    for catalog_uri in catalogs:
+        result.add((URIRef(catalog_uri), DCAT.resource, URIRef(resource)))
+    return result
+
+
+def _check_prefix(session: Session, graph: Graph, resource: str) -> None:
+    """Decisión 50 (regla 7): el prefijo VANN de un recurso dado de baja no se reutiliza."""
+    prefix = vocab_ingest.resource_prefix(graph, resource)
+    owner = vocab_ingest.withdrawn_prefix_owner(session, prefix)
+    if owner is not None and owner != resource:
+        raise ingest.IngestError(
+            "prefix_withdrawn",
+            f"El prefijo VANN «{prefix}» era de un recurso dado de baja ({owner}) y no se "
+            "reutiliza",
+        )
 
 
 def _scheme_paths(semantic_dir: Path) -> list[Path]:
@@ -318,62 +467,10 @@ def _validate_all(
             )
         seen[graph_uri] = name
 
-    for path in _scheme_paths(semantic_dir):
-        name = str(path.relative_to(semantic_dir))
-        try:
-            graph = ingest.parse_file(path, uris.base, max_triples=settings.ingest_max_triples)
-            prepared = vocab_ingest.prepare_scheme(graph, uris, settings)
-            _check_scheme_path(path, prepared)
-            remember(name, prepared.uri)
-            plan.schemes.append((name, prepared))
-        except ingest.IngestError as exc:
-            _print_ingest_error(name, exc)
-            failed = True
-    # Esquemas auxiliares (vocab/dominio y vocab/tipo-dataset): data/vocab-minimo.ttl se
-    # valida entero y se reparte en un grafo por esquema, como el resto de esquemas.
-    auxiliary = semantic_dir / ingest.VOCAB_FILE
-    if auxiliary.is_file():  # obligatorio: load_semantic ya lo ha comprobado
-        name = str(auxiliary.relative_to(semantic_dir))
-        try:
-            graph = ingest.parse_file(auxiliary, uris.base, max_triples=settings.ingest_max_triples)
-            ingest.validate_shacl(graph, semantic_dir, uris.base, support=False)
-            for prepared in vocab_ingest.split_schemes(graph, uris):
-                remember(name, prepared.uri)
-                plan.schemes.append((f"{name} ({prepared.slug})", prepared))
-        except ingest.IngestError as exc:
-            _print_ingest_error(name, exc)
-            failed = True
-    for path in _ontology_paths(semantic_dir):
-        name = str(path.relative_to(semantic_dir))
-        try:
-            graph = ingest.parse_file(path, uris.base, max_triples=settings.ingest_max_triples)
-            prepared_onto = vocab_ingest.prepare_ontology(graph, uris, settings)
-            _check_ontology_path(path, prepared_onto)
-            remember(name, prepared_onto.version_iri)
-            if store is not None:
-                vocab_ingest.check_ontology_immutable(store, prepared_onto)
-            analysis = vocab_ingest.analyze_ontology(prepared_onto, settings, session)
-            plan.ontologies.append((name, prepared_onto, analysis))
-        except ingest.IngestError as exc:
-            _print_ingest_error(name, exc)
-            failed = True
-
-    plain_files: list[tuple[Path, str]] = []
-    externas = semantic_dir / ingest.EXTERNAL_ONTOLOGIES_FILE
-    if externas.is_file():
-        plain_files.append((externas, uris.external_ontologies_graph))
-    for path, graph_uri in plain_files:
-        name = str(path.relative_to(semantic_dir))
-        try:
-            graph = ingest.parse_file(path, uris.base, max_triples=settings.ingest_max_triples)
-            vocab_ingest.prepare_external(graph, uris, settings)
-            plan.plain.append((name, graph_uri, graph))
-        except ingest.IngestError as exc:
-            _print_ingest_error(name, exc)
-            failed = True
-
     # Catálogos (decisión 49). Lo dado de baja desde la aplicación manda sobre los
-    # ficheros: un catálogo o una serie con lápida se omite (su slug no se reutiliza).
+    # ficheros: un catálogo, una serie, un esquema o una ontología con lápida se omite (su
+    # slug no se reutiliza). Van primero porque los esquemas y las ontologías (decisión 50)
+    # necesitan saber qué catálogos se cargan.
     plan.withdrawn = bajas.withdrawn_uris(store, uris) if store is not None else set()
     root_file = semantic_dir / ingest.CATALOG_FILE
     try:
@@ -414,6 +511,11 @@ def _validate_all(
             ingest.Issue("El catálogo raíz no lista series", value=str(item))
             for item in graph.objects(root, DCAT.dataset)
         ]
+        # Decisión 50 (regla 2): dcat:resource sale solo de un catálogo catalogo/{slug}.
+        problems += [
+            ingest.Issue("El catálogo raíz no lista esquemas ni ontologías", value=str(item))
+            for item in graph.objects(root, DCAT.resource)
+        ]
         for item in graph.objects(root, DCAT.catalog):
             target = str(item)
             if target in plan.withdrawn:
@@ -432,6 +534,91 @@ def _validate_all(
             _print_ingest_error(
                 name, ingest.IngestError("structure", "Catálogo raíz no válido", problems)
             )
+            failed = True
+
+    # Decisión 50: catálogo de cada esquema y ontología según data/catalogos/.
+    from_files = _file_memberships(semantic_dir, uris)
+    for path in _scheme_paths(semantic_dir):
+        name = str(path.relative_to(semantic_dir))
+        try:
+            graph = ingest.parse_file(path, uris.base, max_triples=settings.ingest_max_triples)
+            uri = vocab_ingest.check_scheme_structure(graph, uris).uri
+            if uri in plan.withdrawn:
+                typer.echo(f"  {name}: se omite (esquema dado de baja)")
+                continue
+            catalogs = _resource_catalogs(store, uris, uri, from_files, loaded_catalogs)
+            source = graph
+            if store is not None:
+                source = vocab_ingest.merge_published_concepts(store.get_graph(uri), graph, uri)
+            prepared = vocab_ingest.prepare_scheme(
+                _with_membership(source, uri, catalogs), uris, settings
+            )
+            _check_scheme_path(path, prepared)
+            _check_prefix(session, prepared.graph, prepared.uri)
+            remember(name, prepared.uri)
+            plan.schemes.append((name, prepared))
+            plan.scheme_sources[prepared.uri] = (graph, catalogs)
+        except ingest.IngestError as exc:
+            _print_ingest_error(name, exc)
+            failed = True
+    # Esquemas auxiliares (vocab/dominio y vocab/tipo-dataset): data/vocab-minimo.ttl se
+    # valida entero y se reparte en un grafo por esquema, como el resto de esquemas. No
+    # están en ningún catálogo ni se gestionan desde la aplicación.
+    auxiliary = semantic_dir / ingest.VOCAB_FILE
+    if auxiliary.is_file():  # obligatorio: load_semantic ya lo ha comprobado
+        name = str(auxiliary.relative_to(semantic_dir))
+        try:
+            graph = ingest.parse_file(auxiliary, uris.base, max_triples=settings.ingest_max_triples)
+            ingest.validate_shacl(graph, semantic_dir, uris.base, support=False)
+            for prepared in vocab_ingest.split_schemes(graph, uris):
+                remember(name, prepared.uri)
+                plan.schemes.append((f"{name} ({prepared.slug})", prepared))
+        except ingest.IngestError as exc:
+            _print_ingest_error(name, exc)
+            failed = True
+    # Sustitutos (dct:isReplacedBy) vivos: de los esquemas de esta ejecución o publicados.
+    known = _known_concepts(plan)
+    for name, prepared in plan.schemes:
+        try:
+            vocab_ingest.check_replacements(store or MemoryStore(), uris, prepared, known)
+        except ingest.IngestError as exc:
+            _print_ingest_error(name, exc)
+            failed = True
+    for path in _ontology_paths(semantic_dir):
+        name = str(path.relative_to(semantic_dir))
+        try:
+            graph = ingest.parse_file(path, uris.base, max_triples=settings.ingest_max_triples)
+            uri = vocab_ingest.check_ontology_structure(graph, uris).uri
+            if uri in plan.withdrawn:
+                typer.echo(f"  {name}: se omite (ontología dada de baja)")
+                continue
+            catalogs = _resource_catalogs(store, uris, uri, from_files, loaded_catalogs)
+            prepared_onto = vocab_ingest.prepare_ontology(
+                _with_membership(graph, uri, catalogs), uris, settings
+            )
+            _check_ontology_path(path, prepared_onto)
+            _check_prefix(session, prepared_onto.graph, prepared_onto.uri)
+            remember(name, prepared_onto.version_iri)
+            if store is not None:
+                vocab_ingest.check_ontology_immutable(store, prepared_onto)
+            analysis = vocab_ingest.analyze_ontology(prepared_onto, settings, session)
+            plan.ontologies.append((name, prepared_onto, analysis))
+        except ingest.IngestError as exc:
+            _print_ingest_error(name, exc)
+            failed = True
+
+    plain_files: list[tuple[Path, str]] = []
+    externas = semantic_dir / ingest.EXTERNAL_ONTOLOGIES_FILE
+    if externas.is_file():
+        plain_files.append((externas, uris.external_ontologies_graph))
+    for path, graph_uri in plain_files:
+        name = str(path.relative_to(semantic_dir))
+        try:
+            graph = ingest.parse_file(path, uris.base, max_triples=settings.ingest_max_triples)
+            vocab_ingest.prepare_external(graph, uris, settings)
+            plan.plain.append((name, graph_uri, graph))
+        except ingest.IngestError as exc:
+            _print_ingest_error(name, exc)
             failed = True
 
     series_dir = semantic_dir / ingest.SYNTHETIC_DIR
@@ -470,6 +657,9 @@ def load_semantic() -> None:
     Decisión 49: lo hecho desde la aplicación se conserva. Los catálogos y las series dados
     de baja se omiten (con sus ficheros), una serie que ya está en un catálogo se queda en
     él, y los catálogos creados por la API siguen en el raíz.
+    Decisión 50: igual con los esquemas y las ontologías propias (se omiten los dados de
+    baja, uno que ya está en un catálogo se queda en él y uno nuevo va al catálogo que le
+    da ``data/catalogos/``), y no se quitan los conceptos añadidos desde la aplicación.
     Valida todo antes de escribir nada: si un fichero no es válido, no se carga ninguno. Es
     idempotente: un grafo con el mismo contenido no se reescribe, y las métricas de una
     versión de ontología solo se recalculan si su contenido ha cambiado.
@@ -498,37 +688,16 @@ def load_semantic() -> None:
             typer.echo("Validación fallida: no se ha cargado nada.", err=True)
             raise typer.Exit(code=1)
 
-        # 2. Escribir. Esquemas, ontologías externas y versiones de ontología no comparten
-        # grafos con el CRUD de catálogos: van fuera del bloqueo (las métricas y el
-        # razonador ya se calcularon al validar).
-        for name, scheme in plan.schemes:
-            result = vocab_ingest.publish_scheme_and_audit(
-                store, session, scheme, actor_username=CLI_ACTOR, via="cli"
-            )
-            state = "cargado" if result.changed else "sin cambios"
-            typer.echo(f"{name} -> <{result.graph_uri}>: {state} ({result.concepts} conceptos)")
-        for name, graph_uri, graph in plan.plain:
-            _created, changed = ingest.store_graph(store, graph_uri, graph)
-            typer.echo(f"{name} -> <{graph_uri}>: {'cargado' if changed else 'sin cambios'}")
-        for name, ontology, analysis in plan.ontologies:
-            onto = vocab_ingest.publish_ontology_and_audit(
-                store,
-                session,
-                ontology,
-                settings,
-                analysis=analysis,
-                actor_username=CLI_ACTOR,
-                via="cli",
-            )
-            state = "cargado" if onto.changed else "sin cambios"
-            metrics = "métricas calculadas" if onto.metrics_recomputed else "métricas al día"
-            typer.echo(f"{name} -> <{onto.graph_uri}>: {state}, {metrics}")
-        # 3. Catálogos, series y ficheros, con el bloqueo de las escrituras del catálogo
-        # (QA-49-01 y QA-49-03): solo esta fase, y lo dado de baja mientras se validaba
-        # también se omite.
+        # 2. Escribir, con el bloqueo de las escrituras del catálogo (QA-49-01 y QA-49-03).
+        # La validación (con el razonador) va fuera; lo dado de baja mientras se validaba se
+        # omite. Desde la decisión 50 los esquemas y las ontologías también van dentro:
+        # comparten con el CRUD los grafos de los catálogos (dcat:resource) y las bajas.
+        # Primero los catálogos, para que existan antes de enlazar sus recursos.
         with write_lock.catalog_write_lock(session):
             _skip_withdrawn_meanwhile(store, uris, plan)
-            _write_catalogs_and_series(store, session, settings, uris, plan)
+            _write_catalogs(store, uris, plan)
+            _write_schemes_and_ontologies(store, session, settings, uris, plan)
+            _write_series_and_files(store, session, settings, uris, plan)
     except TriplestoreError as exc:
         typer.echo(f"Error del triplestore: {exc}", err=True)
         raise typer.Exit(code=1) from None

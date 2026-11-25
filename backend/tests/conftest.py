@@ -34,12 +34,12 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-from rdflib import Graph
+from rdflib import Graph, URIRef
 from sqlalchemy import Engine, create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app import ingest, owl_metrics, vocab_ingest
+from app import bajas, ingest, owl_metrics, vocab_ingest
 from app.config import Settings, get_settings
 from app.db import Base, get_db
 from app.deps import get_storage, get_triplestore
@@ -55,6 +55,7 @@ from app.triplestore import MemoryStore
 from app.uris import Uris
 
 DEFAULT_PASSWORD = "contrasena-de-prueba-larga"
+DCAT_RESOURCE = URIRef("http://www.w3.org/ns/dcat#resource")
 BASE_URI = "https://semantic.example.org/itot/"  # valor por defecto del proyecto
 
 TESTS_DIR = Path(__file__).resolve().parent
@@ -198,6 +199,10 @@ def load_fixture_data(store: MemoryStore, semantic_dir: Path, uris: Uris) -> Non
         uri = uris.catalog(path.stem)
         # Sin los dcat:dataset del fichero: la pertenencia la aporta cada serie.
         ingest.store_graph(store, uri, ingest.merge_catalog(Graph(), graph, uri))
+        # Decisión 50: los esquemas y las ontologías del fichero (dcat:resource), como los
+        # deja load-semantic al publicarlos.
+        for resource in graph.objects(URIRef(uri), DCAT_RESOURCE):
+            bajas.set_resource_membership(store, uris, str(resource), uri)
     for path in sorted((data / "sintetico").glob("*.ttl")):
         graph = ingest.parse_file(path, uris.base)
         ingest.publish(store, ingest.prepare_series(graph, uris, semantic_dir))

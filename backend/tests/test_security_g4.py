@@ -36,6 +36,10 @@ from app.triplestore import MemoryStore
 from tests.conftest import BASE_URI, DEFAULT_PASSWORD, REPO_SEMANTIC_DIR
 from tests.fase4_data import AR, IANA, V1, V2, publish, series, upload
 
+# Decisión 50: esquemas y ontologías se publican en un catálogo (el de las pruebas).
+ONTOLOGIES = "/ontologies?catalog=pruebas"
+SCHEMES = "/schemes?catalog=pruebas"
+
 CSV = b"a,b\r\n1,2\r\n"
 FILE = "/dataset/prueba/1.0.0/{dist}/fichero"
 LINK = "/datasets/prueba/versions/1.0.0/distributions/{dist}/download-link"
@@ -243,7 +247,7 @@ def test_ontology_republish_with_other_content_is_409_and_keeps_stored_version(
     client: TestClient, editor: dict[str, str], store: MemoryStore, no_reasoner: None
 ) -> None:
     headers = editor | {"Content-Type": "text/turtle"}
-    assert client.post("/ontologies", content=_onto(":A a owl:Class ."), headers=headers)
+    assert client.post(ONTOLOGIES, content=_onto(":A a owl:Class ."), headers=headers)
     graph = f"{BASE_URI}onto/prueba/1.0.0"
     before = {str(t) for t in store.get_graph(graph)}
     assert before
@@ -252,7 +256,7 @@ def test_ontology_republish_with_other_content_is_409_and_keeps_stored_version(
         ":A a owl:Class ; rdfs:label 'cambiada'@es .",  # distinto
         "",  # menos
     ):
-        response = client.post("/ontologies", content=_onto(body), headers=headers)
+        response = client.post(ONTOLOGIES, content=_onto(body), headers=headers)
         assert response.status_code == 409, response.text
         assert response.json()["kind"] == "version_immutable"
         assert {str(t) for t in store.get_graph(graph)} == before
@@ -262,12 +266,12 @@ def test_ontology_republish_same_content_is_idempotent_and_new_version_is_added(
     client: TestClient, editor: dict[str, str], store: MemoryStore, no_reasoner: None
 ) -> None:
     headers = editor | {"Content-Type": "text/turtle"}
-    first = client.post("/ontologies", content=_onto(":A a owl:Class ."), headers=headers)
-    second = client.post("/ontologies", content=_onto(":A a owl:Class ."), headers=headers)
+    first = client.post(ONTOLOGIES, content=_onto(":A a owl:Class ."), headers=headers)
+    second = client.post(ONTOLOGIES, content=_onto(":A a owl:Class ."), headers=headers)
     assert first.status_code == 201, first.text
     assert second.status_code == 200, second.text
     newer = client.post(
-        "/ontologies", content=_onto(":A a owl:Class . :B a owl:Class .", "1.1.0"), headers=headers
+        ONTOLOGIES, content=_onto(":A a owl:Class . :B a owl:Class .", "1.1.0"), headers=headers
     )
     assert newer.status_code == 201, newer.text
     assert len(store.get_graph(f"{BASE_URI}onto/prueba/1.0.0")) > 0
@@ -276,12 +280,12 @@ def test_ontology_republish_same_content_is_idempotent_and_new_version_is_added(
 def test_ontology_ingest_needs_editor(client: TestClient, member: dict[str, str]) -> None:
     headers = member | {"Content-Type": "text/turtle"}
     assert (
-        client.post("/ontologies", content=_onto(":A a owl:Class ."), headers=headers).status_code
+        client.post(ONTOLOGIES, content=_onto(":A a owl:Class ."), headers=headers).status_code
         == 403
     )
     assert (
         client.post(
-            "/ontologies",
+            ONTOLOGIES,
             content=_onto(":A a owl:Class ."),
             headers={"Content-Type": "text/turtle"},
         ).status_code

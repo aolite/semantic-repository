@@ -25,6 +25,10 @@ from app.uris import Uris
 from tests.conftest import BASE_URI, user_graphs
 from tests.test_vocab_ingest import _onto, _scheme
 
+# Decisión 50: esquemas y ontologías se publican en un catálogo (el de las pruebas).
+ONTOLOGIES = "/ontologies?catalog=pruebas"
+SCHEMES = "/schemes?catalog=pruebas"
+
 TTL = {"Content-Type": "text/turtle"}
 XSD = "http://www.w3.org/2001/XMLSchema#"
 RDF_NS = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
@@ -93,10 +97,12 @@ def test_auxiliary_schemes_cannot_be_published_by_api(
         f'skos:prefLabel "X"@es .',
         uri=f"vocab/{slug}",
     )
-    response = client.post("/schemes", content=body, headers=editor | TTL)
-    assert response.status_code == 422
-    assert response.json()["kind"] == "uri"
-    assert "reservado" in response.json()["detail"]
+    response = client.post(SCHEMES, content=body, headers=editor | TTL)
+    # Decisión 50 (regla 12): no se gestionan desde la aplicación, 403 not_managed (antes,
+    # 422 uri).
+    assert response.status_code == 403
+    assert response.json()["kind"] == "not_managed"
+    assert "auxiliar" in response.json()["detail"]
     assert {n: len(loaded_store.get_graph(n)) for n in loaded_store.graph_names()} == before
 
 
@@ -127,7 +133,7 @@ def test_ill_typed_literal_is_422_and_writes_nothing(
     session_factory: sessionmaker[Session],
     body: str,
 ) -> None:
-    response = quiet.post("/ontologies", content=_onto(body), headers=editor | TTL)
+    response = quiet.post(ONTOLOGIES, content=_onto(body), headers=editor | TTL)
     assert response.status_code == 422, response.text
     payload = response.json()
     assert payload["kind"] == "syntax"
@@ -152,7 +158,7 @@ def test_any_owlready2_load_failure_is_422(
         raise owlready2.OwlReadyOntologyParsingError("fallo en /opt/venv/owlready2/x.py")
 
     monkeypatch.setattr(owlready2.World, "get_ontology", boom)
-    response = quiet.post("/ontologies", content=_onto(":A a owl:Class ."), headers=editor | TTL)
+    response = quiet.post(ONTOLOGIES, content=_onto(":A a owl:Class ."), headers=editor | TTL)
     assert response.status_code == 422, response.text
     assert "/opt/venv" not in response.text
     _nothing_written(store, session_factory)
@@ -172,7 +178,7 @@ def test_unexpected_reasoner_exception_gives_generic_null(
 
     monkeypatch.setattr(owl_metrics, "java_available", lambda: True)
     monkeypatch.setattr(owlready2, "sync_reasoner_pellet", boom)
-    response = quiet.post("/ontologies", content=_onto(":A a owl:Class ."), headers=editor | TTL)
+    response = quiet.post(ONTOLOGIES, content=_onto(":A a owl:Class ."), headers=editor | TTL)
     assert response.status_code == 201, response.text
     consistency = response.json()["consistency"]
     assert consistency["consistent"] is None
@@ -285,11 +291,11 @@ def test_hierarchy_deeper_than_the_limit_is_rejected(
     client: TestClient, editor: dict[str, str], store: MemoryStore
 ) -> None:
     depth = vocab_ingest.MAX_CONCEPT_DEPTH
-    too_deep = client.post("/schemes", content=_chain(depth + 2), headers=editor | TTL)
+    too_deep = client.post(SCHEMES, content=_chain(depth + 2), headers=editor | TTL)
     assert too_deep.status_code == 422
     assert too_deep.json()["kind"] == "limit"
     assert user_graphs(store) == set()
-    ok = client.post("/schemes", content=_chain(depth + 1), headers=editor | TTL)
+    ok = client.post(SCHEMES, content=_chain(depth + 1), headers=editor | TTL)
     assert ok.status_code == 201, ok.text
     node, levels = client.get("/schemes/prueba").json()["tree"][0], 0
     while node["children"]:
@@ -336,7 +342,7 @@ def test_unrepresentable_rdfxml_is_406_not_500(
     quiet: TestClient, editor: dict[str, str], predicate: str
 ) -> None:
     body = _onto(f':A a owl:Class ; <{predicate}> "v" .')
-    assert quiet.post("/ontologies", content=body, headers=editor | TTL).status_code == 201
+    assert quiet.post(ONTOLOGIES, content=body, headers=editor | TTL).status_code == 201
     assert quiet.get("/ontologies/prueba/rdf", params={"format": "rdfxml"}).status_code == 406
     accept = {"Accept": "application/rdf+xml"}
     assert quiet.get("/onto/prueba", headers=accept).status_code == 406
@@ -407,7 +413,7 @@ def small_limits(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     get_settings.cache_clear()
 
 
-@pytest.mark.parametrize("path", ["/datasets", "/schemes", "/ontologies"])
+@pytest.mark.parametrize("path", ["/datasets", SCHEMES, ONTOLOGIES])
 def test_triple_limit_applies_to_every_ingest(
     small_limits: None, client: TestClient, editor: dict[str, str], store: MemoryStore, path: str
 ) -> None:
@@ -433,7 +439,7 @@ def tiny_shacl_timeout(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 def test_shacl_timeout_kills_the_worker(
     tiny_shacl_timeout: None, client: TestClient, editor: dict[str, str], store: MemoryStore
 ) -> None:
-    response = client.post("/schemes", content=_chain(3), headers=editor | TTL)
+    response = client.post(SCHEMES, content=_chain(3), headers=editor | TTL)
     assert response.status_code == 422
     body = response.json()
     assert body["kind"] == "limit"
@@ -449,7 +455,7 @@ def test_shacl_out_of_memory_is_422(
         raise shacl_worker.ShaclLimitError("memory")
 
     monkeypatch.setattr(shacl_worker, "validate", no_memory)
-    response = client.post("/schemes", content=_chain(3), headers=editor | TTL)
+    response = client.post(SCHEMES, content=_chain(3), headers=editor | TTL)
     assert response.status_code == 422
     assert response.json()["kind"] == "limit"
     assert "memoria" in response.json()["detail"]

@@ -13,8 +13,11 @@ con **todas** las formas SHACL (como cualquier ingesta) y se escriben en el trip
 - Baja (borrado lógico): el grafo del recurso se borra, el enlace desde su catálogo (o
   desde el raíz) se quita, sus ficheros se eliminan y queda una lápida en
   ``{BASE_URI}bajas``. Quién la dio de baja va a la auditoría, no al RDF.
-- Un slug dado de baja no se reutiliza (409) y un catálogo con datasets no se puede dar de
-  baja (409).
+- Un slug dado de baja no se reutiliza (409) y un catálogo con datasets (o, desde la
+  decisión 50, con esquemas u ontologías) no se puede dar de baja (409).
+
+El CRUD de esquemas SKOS y ontologías propias (decisión 50) está en ``app.vocab_crud`` y
+reutiliza de aquí el bloqueo, los errores y la lápida.
 """
 
 import logging
@@ -39,7 +42,7 @@ from app.write_lock import catalog_write_lock
 logger = logging.getLogger(__name__)
 
 
-def _locked[**P, R](function: Callable[P, R]) -> Callable[P, R]:
+def locked[**P, R](function: Callable[P, R]) -> Callable[P, R]:
     """Toda la operación (comprobaciones y escrituras) con el bloqueo de las escrituras del
     catálogo (``app.write_lock``, QA-49-01). La sesión es el segundo argumento."""
 
@@ -64,13 +67,17 @@ class CrudError(Exception):
     detail: str
     tombstone: bajas.Tombstone | None = None
     datasets: list[str] = field(default_factory=list)
-    kind: str | None = None  # 409: schemas.ConflictKind
+    kind: str | None = None  # 409: schemas.ConflictKind; 403: schemas.ForbiddenKind
+    # Decisión 50: esquemas y ontologías de un catálogo (catalog_not_empty) y recursos que
+    # usan el esquema o la ontología que se quiere dar de baja (in_use).
+    resources: list[str] = field(default_factory=list)
+    used_by: list[schemas.UsageRef] = field(default_factory=list)
 
     def __str__(self) -> str:
         return self.detail
 
 
-def _missing(store: TripleStore, uris: Uris, uri: str, what: str) -> CrudError:
+def missing(store: TripleStore, uris: Uris, uri: str, what: str) -> CrudError:
     """404, o 410 con la lápida si el recurso se dio de baja."""
     tombstone = bajas.get_tombstone(store, uris, uri)
     if tombstone is not None:
@@ -100,7 +107,7 @@ def _remove_node(graph: Graph, node: Any) -> None:
         graph.remove((node, None, None))
 
 
-def _set_publisher(graph: Graph, node: URIRef, name: str | None) -> None:
+def set_publisher(graph: Graph, node: URIRef, name: str | None) -> None:
     if name is None:
         return
     previous = list(graph.objects(node, DCT.publisher))
@@ -119,12 +126,20 @@ def _validate_catalog(graph: Graph, uris: Uris, uri: str, settings: Settings) ->
     ingest.validate_plain(graph, settings.semantic_dir, uris.base)
 
 
-def _tombstone(
+def write_tombstone(
     store: TripleStore, uris: Uris, uri: str, titles: list[Literal], settings: Settings
 ) -> Graph:
-    # Solo el catálogo y la serie tienen lápida (semantic/uris.md), con título no vacío.
-    if uris.catalog_slug(uri) is None and uris.series_slug(uri) is None:
-        raise ValueError(f"Solo un catálogo o una serie pueden darse de baja: {uri}")
+    # Tienen lápida el catálogo, la serie (decisión 49), el esquema SKOS no auxiliar y la
+    # ontología propia (decisión 50), con título no vacío (semantic/uris.md).
+    if (
+        uris.catalog_slug(uri) is None
+        and uris.series_slug(uri) is None
+        and uris.managed_resource(uri) is None
+    ):
+        raise ValueError(
+            f"Solo un catálogo, una serie, un esquema o una ontología propia pueden darse de "
+            f"baja: {uri}"
+        )
     titles = [t for t in titles if str(t).strip()]
     graph = bajas.tombstone_graph(uri, titles or [Literal(uri)])
     ingest.validate_plain(graph, settings.semantic_dir, uris.base)  # forma itsh:BajaShape
@@ -135,7 +150,7 @@ def _tombstone(
 # --- Catálogos --------------------------------------------------------------------------
 
 
-@_locked
+@locked
 def create_catalog(
     store: TripleStore,
     session: Session,
@@ -152,7 +167,7 @@ def create_catalog(
     graph.add((node, RDF.type, DCAT.Catalog))
     _set_text(graph, node, DCT.title, data.title)
     _set_text(graph, node, DCT.description, data.description)
-    _set_publisher(graph, node, data.publisher_name)
+    set_publisher(graph, node, data.publisher_name)
     _validate_catalog(graph, uris, uri, settings)
     store.put_graph(uri, graph)
     bajas.add_to_root(store, uris, uri)
@@ -166,7 +181,7 @@ def create_catalog(
     return uri
 
 
-@_locked
+@locked
 def update_catalog(
     store: TripleStore,
     session: Session,
@@ -181,10 +196,10 @@ def update_catalog(
     graph = store.get_graph(uri)
     node = URIRef(uri)
     if (node, RDF.type, DCAT.Catalog) not in graph:
-        raise _missing(store, uris, uri, "El catálogo")
+        raise missing(store, uris, uri, "El catálogo")
     _set_text(graph, node, DCT.title, data.title)
     _set_text(graph, node, DCT.description, data.description)
-    _set_publisher(graph, node, data.publisher_name)
+    set_publisher(graph, node, data.publisher_name)
     _validate_catalog(graph, uris, uri, settings)
     _created, changed = ingest.store_graph(store, uri, graph)
     audit.record(
@@ -202,7 +217,7 @@ def update_catalog(
     return uri
 
 
-@_locked
+@locked
 def withdraw_catalog(
     store: TripleStore,
     session: Session,
@@ -216,17 +231,21 @@ def withdraw_catalog(
     graph = store.get_graph(uri)
     node = URIRef(uri)
     if (node, RDF.type, DCAT.Catalog) not in graph:
-        raise _missing(store, uris, uri, "El catálogo")
+        raise missing(store, uris, uri, "El catálogo")
     datasets = sorted(str(d) for d in graph.objects(node, DCAT.dataset))
-    if datasets:
+    # Decisión 50 (regla 10): tampoco con esquemas u ontologías (dcat:resource).
+    resources = sorted(str(r) for r in graph.objects(node, DCAT.resource))
+    if datasets or resources:
         raise CrudError(
             409,
-            "El catálogo tiene datasets: muévelos a otro catálogo o dalos de baja antes",
+            "El catálogo tiene datasets, esquemas u ontologías: muévelos a otro catálogo o "
+            "dalos de baja antes",
             datasets=datasets,
+            resources=resources,
             kind="catalog_not_empty",
         )
     titles = sorted((t for t in graph.objects(node, DCT.title) if isinstance(t, Literal)), key=str)
-    _tombstone(store, uris, uri, titles, settings)
+    write_tombstone(store, uris, uri, titles, settings)
     bajas.remove_from_root(store, uris, uri)
     store.delete_graph(uri)
     audit.record(
@@ -241,7 +260,7 @@ def withdraw_catalog(
 # --- Datasets (series) ------------------------------------------------------------------
 
 
-def _catalog_or_error(store: TripleStore, uris: Uris, slug: str, *, status_missing: int) -> str:
+def catalog_or_error(store: TripleStore, uris: Uris, slug: str, *, status_missing: int) -> str:
     """URI del catálogo ``slug`` si existe. Si no, ``status_missing`` (404 en la ruta del
     catálogo, 422 en un campo del cuerpo) o 410/422 si está dado de baja."""
     uri = uris.catalog(slug)
@@ -258,7 +277,7 @@ def _catalog_or_error(store: TripleStore, uris: Uris, slug: str, *, status_missi
     )
 
 
-@_locked
+@locked
 def create_series(
     store: TripleStore,
     session: Session,
@@ -269,7 +288,7 @@ def create_series(
     actor: User,
 ) -> str:
     store.ensure_writable()
-    catalog_uri = _catalog_or_error(store, uris, catalog_slug, status_missing=404)
+    catalog_uri = catalog_or_error(store, uris, catalog_slug, status_missing=404)
     uri = uris.series(data.slug)
     _check_slug_free(store, uris, uri, len(store.get_graph(uri)) > 0, "El dataset")
     node = URIRef(uri)
@@ -277,7 +296,7 @@ def create_series(
     graph.add((node, RDF.type, DCAT.DatasetSeries))
     _set_text(graph, node, DCT.title, data.title)
     _set_text(graph, node, DCT.description, data.description)
-    _set_publisher(graph, node, data.publisher_name)
+    set_publisher(graph, node, data.publisher_name)
     graph.add((URIRef(catalog_uri), DCAT.dataset, node))
     prepared = ingest.prepare_series(graph, uris, settings.semantic_dir)
     ingest.publish(store, prepared)
@@ -291,7 +310,7 @@ def create_series(
     return uri
 
 
-@_locked
+@locked
 def update_series(
     store: TripleStore,
     session: Session,
@@ -306,10 +325,10 @@ def update_series(
     store.ensure_writable()
     graph = catalog.series_graph(store, uris, slug)
     if (node, RDF.type, DCAT.DatasetSeries) not in graph:
-        raise _missing(store, uris, uri, "El dataset")
+        raise missing(store, uris, uri, "El dataset")
     current_catalogs = bajas.series_catalogs(store, uris, uri)
     if data.catalog is not None:
-        target = _catalog_or_error(store, uris, data.catalog, status_missing=422)
+        target = catalog_or_error(store, uris, data.catalog, status_missing=422)
     elif current_catalogs:
         target = sorted(current_catalogs)[0]
     else:  # serie sin catálogo (datos anteriores a la decisión 49): hay que indicarlo
@@ -320,7 +339,7 @@ def update_series(
         )
     _set_text(graph, node, DCT.title, data.title)
     _set_text(graph, node, DCT.description, data.description)
-    _set_publisher(graph, node, data.publisher_name)
+    set_publisher(graph, node, data.publisher_name)
     graph.add((URIRef(target), DCAT.dataset, node))
     # Misma validación que POST /datasets: estructura y SHACL de la serie completa (con
     # sus versiones, que no cambian) y su triple de pertenencia.
@@ -344,7 +363,7 @@ def update_series(
     return uri
 
 
-@_locked
+@locked
 def withdraw_series(
     store: TripleStore,
     session: Session,
@@ -359,10 +378,10 @@ def withdraw_series(
     store.ensure_writable()
     graph = catalog.series_graph(store, uris, slug)
     if (node, RDF.type, DCAT.DatasetSeries) not in graph:
-        raise _missing(store, uris, uri, "El dataset")
+        raise missing(store, uris, uri, "El dataset")
     titles = sorted((t for t in graph.objects(node, DCT.title) if isinstance(t, Literal)), key=str)
     versions = sorted(ingest.published_versions(graph, uri))
-    _tombstone(store, uris, uri, titles, settings)
+    write_tombstone(store, uris, uri, titles, settings)
     catalogs = sorted(bajas.series_catalogs(store, uris, uri))
     for catalog_uri in catalogs:
         bajas.remove_membership(store, catalog_uri, uri)
@@ -418,8 +437,20 @@ def withdraw_series(
 # --- 410 por prefijo --------------------------------------------------------------------
 
 
+def gone_kind(uris: Uris, uri: str) -> schemas.GoneResource:
+    """Qué era un recurso dado de baja: se deduce de su URI (la lápida pierde el tipo)."""
+    if uris.catalog_slug(uri) is not None:
+        return "catalog"
+    managed = uris.managed_resource(uri)
+    if managed == "scheme":
+        return "scheme"
+    if managed == "ontology":
+        return "ontology"
+    return "dataset"
+
+
 def gone_response(tombstone: bajas.Tombstone, uris: Uris) -> schemas.GoneResponse:
-    resource = "catalog" if uris.catalog_slug(tombstone.uri) is not None else "dataset"
+    resource = gone_kind(uris, tombstone.uri)
     return schemas.GoneResponse(
         detail="Recurso dado de baja",
         uri=tombstone.uri,
