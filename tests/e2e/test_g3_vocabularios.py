@@ -1,6 +1,6 @@
 """Puerta G3 · «vocabularios cargados», de extremo a extremo sobre Docker Compose.
 
-Recorre el criterio de la puerta con el Compose real: ``load-semantic`` carga los 20
+Recorre el criterio de la puerta con el Compose real: ``load-semantic`` carga los 21
 ficheros de ``semantic/`` (esquemas SKOS, ontologías propias con todas sus versiones,
 ontologías externas, catálogo y series); ``/vocabularies`` da los recuentos y filtra; la
 ficha de ``itot`` trae métricas de owlready2 y la consistencia de Pellet (el de verdad: la
@@ -190,6 +190,7 @@ def _series_ttl(slug: str, theme: str) -> str:
     return f"""
 @prefix dcat: <http://www.w3.org/ns/dcat#> .
 @prefix dct:  <http://purl.org/dc/terms/> .
+<catalogo/e2e-pruebas> dcat:dataset <dataset/{slug}> .
 <dataset/{slug}> a dcat:DatasetSeries ;
     dct:type <vocab/tipo-dataset/sintetico> ;
     dct:title "Serie de la prueba {slug}"@es ;
@@ -223,7 +224,7 @@ def _walk(nodes: list[dict]) -> list[dict]:
 
 
 @pytest.fixture(scope="module")
-def g3_editor(stack: Stack, admin: Account) -> Account:
+def g3_editor(stack: Stack, admin: Account, e2e_catalog: str) -> Account:
     return create_account(stack, admin, "editor")
 
 
@@ -324,7 +325,7 @@ def test_la_migracion_ha_creado_la_tabla_de_metricas(stack: Stack) -> None:
 
 
 def _expected_graphs(base: str) -> dict[str, str]:
-    """``fichero (relativo a semantic/) -> grafo`` de los 20 ficheros (21 grafos)."""
+    """``fichero (relativo a semantic/) -> grafo`` de los 21 ficheros (22 grafos)."""
     expected = {
         **{f"vocabularios/{slug}.ttl": f"{base}vocab/{slug}" for slug in DOMAIN_SCHEMES},
         **{f"vocabularios/corp/{slug}.ttl": f"{base}vocab/corp/{slug}" for slug in CORP_SCHEMES},
@@ -332,6 +333,7 @@ def _expected_graphs(base: str) -> dict[str, str]:
         "data/vocab-minimo.ttl (tipo-dataset)": f"{base}vocab/tipo-dataset",
         "ontologias/externas.ttl": f"{base}onto/externas",
         "data/catalogo.ttl": f"{base}catalogo",
+        "data/catalogos/sintetico.ttl": f"{base}catalogo/sintetico",  # decisión 49
     }
     for slug, versions in ONTOLOGY_VERSIONS.items():
         for version in versions:
@@ -341,16 +343,16 @@ def _expected_graphs(base: str) -> dict[str, str]:
     return expected
 
 
-def test_load_semantic_carga_las_veinte_piezas(stack: Stack, loaded: str) -> None:
+def test_load_semantic_carga_las_veintiuna_piezas(stack: Stack, loaded: str) -> None:
     base = _base(stack)
     expected = _expected_graphs(base)
-    assert len(expected) == 21
-    assert len({name.split(" (")[0] for name in expected}) == 20
-    # Los 20 ficheros existen en semantic/ (lo que se monta en el backend).
+    assert len(expected) == 22
+    assert len({name.split(" (")[0] for name in expected}) == 21
+    # Los 21 ficheros existen en semantic/ (lo que se monta en el backend).
     for name in expected:
         assert (SEMANTIC / name.split(" (")[0]).is_file(), name
     lines = [line for line in loaded.splitlines() if " -> <" in line]
-    assert len(lines) == 21, loaded
+    assert len(lines) == 22, loaded
     for name, graph in expected.items():
         assert any(line.startswith(f"{name} -> <{graph}>") for line in lines), f"{name}\n{loaded}"
     graphs = _graphs(stack)
@@ -386,7 +388,7 @@ def test_load_semantic_es_idempotente_y_no_recalcula_metricas(stack: Stack, load
     code, output = _load_semantic(stack)
     assert code == 0, output
     lines = [line for line in output.splitlines() if " -> <" in line]
-    assert len(lines) == 21, output
+    assert len(lines) == 22, output
     assert all("sin cambios" in line for line in lines), output
     ontology_lines = [
         line for line in lines if line.startswith("ontologias/") and "externas" not in line

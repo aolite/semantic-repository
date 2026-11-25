@@ -1,10 +1,37 @@
-export { ApiError, apiHref, apiRequest, apiRequestRaw, apiRequestText, apiUrl, isAbortError, withQuery } from './client'
+export {
+  ApiError,
+  apiHref,
+  apiRequest,
+  apiRequestRaw,
+  apiRequestText,
+  apiRequestVoid,
+  apiUrl,
+  isAbortError,
+  jsonBody,
+  withQuery,
+} from './client'
 export { requestToken, fetchCurrentUser } from './auth'
 export { fetchHealth } from './health'
-export { fetchDataset, fetchDatasetRdf, listDatasets, requestDownloadLink } from './datasets'
+export {
+  fetchDataset,
+  fetchDatasetRdf,
+  listDatasets,
+  publishDatasetRdf,
+  requestDownloadLink,
+  updateDataset,
+  withdrawDataset,
+} from './datasets'
+export {
+  createCatalog,
+  createDatasetInCatalog,
+  fetchCatalog,
+  listCatalogs,
+  updateCatalog,
+  withdrawCatalog,
+} from './catalogs'
 export { createSavedQuery, listSavedQueries, runSparql, SPARQL_RESULTS_JSON } from './sparql'
 export type { SparqlRunResult } from './sparql'
-export type { ListDatasetsParams } from './datasets'
+export type { IngestMediaType, ListDatasetsParams } from './datasets'
 export {
   fetchConcept,
   fetchOntology,
@@ -17,16 +44,26 @@ export type { ListVocabulariesParams } from './vocabularies'
 export type {
   AccessRights,
   Alignment,
+  CatalogCreate,
+  CatalogDatasetRef,
+  CatalogDetail,
+  CatalogPage,
+  CatalogRef,
+  CatalogSummary,
+  CatalogUpdate,
   AlignmentMapping,
   ConceptDetail,
   ConceptNode,
   ConceptRef,
   ConceptUsage,
+  ConflictResponse,
   ConsistencyRead,
   CurrentUser,
   DatasetCard,
   DatasetDetail,
+  DatasetCreate,
   DatasetPage,
+  DatasetUpdate,
   DatasetUse,
   DatasetVersionUse,
   DcatMetadata,
@@ -38,10 +75,12 @@ export type {
   DomainSlug,
   FairStatus,
   FairSummary,
+  GoneResponse,
   HealthResponse,
   ImportRef,
   IngestErrorResponse,
   IngestIssue,
+  IngestResult,
   LangLiteral,
   MetricsSummary,
   OntologyDetail,

@@ -64,6 +64,10 @@ class Settings(BaseSettings):
 
     # Razonador de la ingesta de ontologías (Pellet, que se ejecuta en Java).
     reasoner_timeout_seconds: float = Field(default=120.0, gt=0, le=3600)
+
+    # Espera máxima del bloqueo de escritura del catálogo (QA-49-03, app.write_lock): si
+    # otra escritura no termina antes, la API responde 503.
+    catalog_lock_timeout_seconds: float = Field(default=30.0, gt=0, le=3600)
     reasoner_java_memory_mb: int = Field(default=1024, ge=256, le=65536)
 
     # Frontend al que redirigen (303) las URIs persistentes cuando se pide HTML.

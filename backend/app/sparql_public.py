@@ -7,9 +7,15 @@ Validación **antes** de enviar nada a Fuseki, con el analizador de rdflib:
   (``INSERT``, ``DELETE``, ``LOAD``, ``DROP``…) da 400, y lo que no se puede analizar,
   400 con un mensaje legible y sin trazas.
 - Sin ``SERVICE`` en ningún punto de la consulta (evita SSRF y federación): 400.
-- ``FROM`` y ``FROM NAMED`` solo hacia grafos del repositorio: IRIs bajo ``BASE_URI``
-  (todos los grafos del triplestore que escribe el backend están ahí y son públicos). Fuseki
-  no descarga IRIs remotas en ``FROM``, pero así ni siquiera se le piden.
+- ``FROM`` y ``FROM NAMED`` solo hacia grafos del repositorio: IRIs bajo ``BASE_URI``.
+  Fuseki no descarga IRIs remotas en ``FROM``, pero así ni siquiera se le piden. Nunca hacia
+  un grafo no publicado (``excluded``: hoy, ``{BASE_URI}bajas``, decisión 49): 400.
+
+Grafos publicados (decisión 49): todos los del triplestore salvo los no publicados. Si la
+consulta no trae ``FROM`` ni ``FROM NAMED``, el backend le pasa a Fuseki la descripción del
+dataset en el protocolo (``default-graph-uri`` y ``named-graph-uri`` con los grafos
+publicados): así ni el grafo por defecto ni ``GRAPH ?g`` ven las lápidas. Si la trae, el
+dataset es solo el que nombra la consulta, que ya no puede incluir un grafo no publicado.
 
 Ejecución contra el endpoint de **consulta** de Fuseki (``/{dataset}/query``, anónimo y de
 solo lectura), con ``SPARQL_TIMEOUT_SECONDS`` como tiempo máximo total (504 al
@@ -79,6 +85,7 @@ class SparqlBackendError(Exception):
 class ValidatedQuery:
     text: str
     kind: QueryKind
+    has_dataset_clause: bool = False
 
 
 def _walk(node: Any) -> Any:
@@ -92,7 +99,9 @@ def _walk(node: Any) -> Any:
             stack.extend(current)
 
 
-def validate(text: str, base_uri: str) -> ValidatedQuery:
+def validate(
+    text: str, base_uri: str, excluded: frozenset[str] | set[str] = frozenset()
+) -> ValidatedQuery:
     if len(text.encode("utf-8")) > MAX_QUERY_BYTES:
         raise SparqlRequestError("La consulta supera el máximo de 20 KB", status_code=413)
     if not text.strip():
@@ -118,13 +127,13 @@ def validate(text: str, base_uri: str) -> ValidatedQuery:
         raise SparqlRequestError("Solo se admiten SELECT, ASK, CONSTRUCT y DESCRIBE")
     if any(node.name == "ServiceGraphPattern" for node in _walk(parsed)):
         raise SparqlRequestError("SERVICE no está permitido (consultas federadas)")
-    _check_dataset_clause(parsed, base_uri)
-    return ValidatedQuery(text=text, kind=kind)
+    has_dataset = _check_dataset_clause(parsed, base_uri, excluded)
+    return ValidatedQuery(text=text, kind=kind, has_dataset_clause=has_dataset)
 
 
-def _check_dataset_clause(parsed: Any, base_uri: str) -> None:
+def _check_dataset_clause(parsed: Any, base_uri: str, excluded: frozenset[str] | set[str]) -> bool:
     if not any(node.name == "DatasetClause" for node in _walk(parsed)):
-        return
+        return False
     try:
         clauses = translateQuery(parsed).algebra.get("datasetClause") or []
     except Exception:  # noqa: BLE001 - sin poder resolver las IRIs, se rechaza
@@ -135,6 +144,9 @@ def _check_dataset_clause(parsed: Any, base_uri: str) -> None:
             raise SparqlRequestError(
                 "FROM y FROM NAMED solo admiten grafos del repositorio (bajo BASE_URI)"
             )
+        if str(target) in excluded:
+            raise SparqlRequestError("FROM y FROM NAMED solo admiten grafos publicados")
+    return True
 
 
 # --- Resultados ---------------------------------------------------------------------------
@@ -210,8 +222,21 @@ class FusekiQueryRunner:
         self._endpoint = f"{base_url}/{dataset}/query"
         self._transport = transport
 
-    def run(self, query: ValidatedQuery, *, max_rows: int, timeout: float) -> QueryResult:
+    def run(
+        self,
+        query: ValidatedQuery,
+        *,
+        max_rows: int,
+        timeout: float,
+        graphs: list[str] | None = None,
+    ) -> QueryResult:
+        """``graphs``: grafos publicados que forman el dataset de la consulta (protocolo
+        SPARQL: ``default-graph-uri`` y ``named-graph-uri``). ``None``: el de Fuseki."""
         deadline = time.monotonic() + timeout
+        data: dict[str, Any] = {"query": query.text, "timeout": f"{timeout:g}"}
+        if graphs is not None:
+            data["default-graph-uri"] = graphs
+            data["named-graph-uri"] = graphs
         graph_result = query.kind in ("CONSTRUCT", "DESCRIBE")
         accept = "application/n-triples" if graph_result else "application/sparql-results+json"
         try:
@@ -225,7 +250,7 @@ class FusekiQueryRunner:
                     self._endpoint,
                     # ``timeout`` es el parámetro de Fuseki (segundos) para cortar la consulta
                     # en el servidor; el cliente corta igualmente al agotar el plazo.
-                    data={"query": query.text, "timeout": f"{timeout:g}"},
+                    data=data,
                     headers={"Accept": accept},
                 ) as response,
             ):
@@ -455,15 +480,31 @@ class MemoryQueryRunner:
     def __init__(self, dataset: Dataset) -> None:
         self.dataset = dataset
         self.queries: list[str] = []
+        self.graphs: list[list[str] | None] = []
 
-    def run(self, query: ValidatedQuery, *, max_rows: int, timeout: float) -> QueryResult:
+    def run(
+        self,
+        query: ValidatedQuery,
+        *,
+        max_rows: int,
+        timeout: float,
+        graphs: list[str] | None = None,
+    ) -> QueryResult:
         self.queries.append(query.text)
-        previous = self.dataset.default_union
-        self.dataset.default_union = True
+        self.graphs.append(graphs)
+        dataset = self.dataset
+        if graphs is not None:  # como Fuseki con default-graph-uri / named-graph-uri
+            dataset = Dataset()
+            for name in graphs:
+                target = dataset.graph(URIRef(name))
+                for triple in self.dataset.graph(URIRef(name)):
+                    target.add(triple)
+        previous = dataset.default_union
+        dataset.default_union = True
         try:
             # rdflib evalúa al iterar: todo se materializa antes de restaurar el grafo
             # por defecto.
-            result = self.dataset.query(query.text)
+            result = dataset.query(query.text)
             if query.kind == "ASK":
                 return QueryResult(kind="ASK", boolean=bool(result.askAnswer))
             if query.kind == "SELECT":
@@ -484,7 +525,7 @@ class MemoryQueryRunner:
                 )
             triples = list(result.graph or [])
         finally:
-            self.dataset.default_union = previous
+            dataset.default_union = previous
         graph = Graph()
         for triple in triples[:max_rows]:
             graph.add(triple)

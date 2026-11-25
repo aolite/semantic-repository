@@ -10,8 +10,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 from typer.testing import CliRunner
 
+from app import bajas, ingest, owl_metrics, vocab_ingest
 from app import cli as cli_module
-from app import ingest, owl_metrics, vocab_ingest
 from app.config import get_settings
 from app.models import AuditAction, AuditEvent, DistributionFile, FairEvaluation
 from app.storage import DiskStorage
@@ -138,7 +138,9 @@ def test_changed_published_version_fails_without_writing(
 def test_catalog_keeps_series_published_by_api(
     semantic_copy: Path, cli_env: DiskStorage, store: MemoryStore, uris: Uris
 ) -> None:
-    ingest.ensure_in_catalog(store, uris.catalog, uris.series("prueba"))
+    sintetico = uris.catalog("sintetico")
+    bajas.add_membership(store, sintetico, uris.series("prueba"))
     assert _load().exit_code == 0
-    catalog = store.get_graph(uris.catalog)
-    assert (URIRef(uris.catalog), DCAT.dataset, URIRef(uris.series("prueba"))) in catalog
+    catalog = store.get_graph(sintetico)
+    assert (URIRef(sintetico), DCAT.dataset, URIRef(uris.series("prueba"))) in catalog
+    assert not list(store.get_graph(uris.root_catalog).triples((None, DCAT.dataset, None)))

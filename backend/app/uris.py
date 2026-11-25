@@ -88,9 +88,31 @@ class Uris:
         return f"{self.base}vocab/"
 
     @property
-    def catalog(self) -> str:
-        """``dcat:Catalog`` único; también es el nombre de su grafo."""
+    def root_catalog(self) -> str:
+        """Catálogo raíz ``{BASE_URI}catalogo`` (decisión 49): fijo, agrupa los catálogos
+        con ``dcat:catalog`` y no lista series. También es el nombre de su grafo."""
         return f"{self.base}catalogo"
+
+    @property
+    def catalog_ns(self) -> str:
+        return f"{self.base}catalogo/"
+
+    def catalog(self, slug: str) -> str:
+        """Catálogo ``{BASE_URI}catalogo/{slug}``; también es el nombre de su grafo."""
+        return f"{self.catalog_ns}{slug}"
+
+    def catalog_slug(self, uri: str) -> str | None:
+        """Slug de ``{BASE_URI}catalogo/{slug}``, o ``None`` si no sigue el patrón."""
+        if not uri.startswith(self.catalog_ns):
+            return None
+        rest = uri[len(self.catalog_ns) :]
+        return rest if is_slug(rest) else None
+
+    @property
+    def withdrawn_graph(self) -> str:
+        """Grafo ``{BASE_URI}bajas`` con las lápidas (decisión 49). No se publica: ni en
+        SPARQL ni en los listados; solo lo lee el backend para responder 410."""
+        return f"{self.base}bajas"
 
     @property
     def synthetic_type(self) -> str:

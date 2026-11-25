@@ -51,7 +51,7 @@ from app.models import AuditAction, AuditEvent, OntologyMetricsRecord, Role, Use
 from app.negotiation import JSONLD, RDFXML, TURTLE
 from app.triplestore import MemoryStore
 from app.uris import DCAT, DCT, SKOS, Uris
-from tests.conftest import BASE_URI
+from tests.conftest import BASE_URI, user_graphs
 from tests.test_security_fase2 import INJECTIONS
 from tests.test_security_fase3 import _assert_only_fixed_queries
 from tests.test_vocab_ingest import _onto, _scheme
@@ -92,7 +92,7 @@ def fake_reasoner(monkeypatch: pytest.MonkeyPatch) -> None:
 def _snapshot(store: MemoryStore) -> dict[str, set[tuple[str, str, str]]]:
     return {
         name: {(s.n3(), p.n3(), o.n3()) for s, p, o in store.dataset.graph(URIRef(name))}
-        for name in sorted(store.graph_names())
+        for name in sorted(user_graphs(store))
     }
 
 
@@ -307,7 +307,7 @@ def test_scheme_ingest_rejects_external_subjects(
 ) -> None:
     body = _scheme(CONCEPT + '. <https://otro.example/vocab/x> skos:prefLabel "externo"@es .')
     assert client.post("/schemes", content=body, headers=editor | TTL).status_code == 422
-    assert store.graph_names() == set()
+    assert user_graphs(store) == set()
 
 
 # IRIs que se parecen a BASE_URI pero no son la misma cadena. Pueden admitirse como
@@ -380,7 +380,7 @@ def test_ontology_slug_rules(
     body = _onto(":A a owl:Class .", slug=slug)
     response = client.post("/ontologies", content=body, headers=editor | TTL)
     assert response.status_code == 422, response.text
-    assert store.graph_names() == set()
+    assert user_graphs(store) == set()
 
 
 @pytest.mark.parametrize("uri", ["vocab/corp", "vocab/corp/", "vocab/corp/corp/x", "vocab/Corp"])
@@ -389,7 +389,7 @@ def test_corp_is_a_reserved_scheme_slug(
 ) -> None:
     response = client.post("/schemes", content=_scheme("", uri=uri), headers=editor | TTL)
     assert response.status_code == 422, response.text
-    assert store.graph_names() == set()
+    assert user_graphs(store) == set()
 
 
 @pytest.mark.parametrize("slug", ["dominio", "tipo-dataset"])
@@ -694,7 +694,7 @@ def test_xml_is_not_an_ingest_format(
     response = client.post(path, content=XXE, headers=editor | {"Content-Type": content_type})
     assert response.status_code == 415, response.text
     assert "root:" not in response.text
-    assert store.graph_names() == set()
+    assert user_graphs(store) == set()
     assert no_network == []
 
 
@@ -712,7 +712,7 @@ def test_xml_sent_as_turtle_or_jsonld_is_a_syntax_error(
     assert response.status_code == 422, response.text
     assert response.json()["kind"] == "syntax"
     assert "root:" not in response.text
-    assert store.graph_names() == set()
+    assert user_graphs(store) == set()
     assert no_network == []
 
 
@@ -790,7 +790,7 @@ def test_expansion_bomb_is_rejected_by_every_ingest_endpoint(
     assert response.json()["kind"] == "limit"
     assert len(response.text) < 5_000, "la respuesta no debe devolver la IRI desmesurada"
     assert time.monotonic() - start < 20
-    assert store.graph_names() == set()
+    assert user_graphs(store) == set()
     assert _events(session_factory, *PUBLISH_ACTIONS, AuditAction.DATASET_PUBLISHED) == []
 
 
@@ -817,7 +817,7 @@ def test_body_over_the_limit_is_rejected_before_parsing(
         for headers in (TTL, LD):
             response = client.post(path, content=big, headers=editor | headers)
             assert response.status_code == 413, response.text
-    assert store.graph_names() == set()
+    assert user_graphs(store) == set()
 
 
 # --- Tokens y roles -------------------------------------------------------------------------
@@ -885,7 +885,7 @@ def test_forged_tokens_cannot_publish(
             path, content=body, headers=TTL | {"Authorization": f"Bearer {token}"}
         )
         assert response.status_code == 403, response.text
-    assert store.graph_names() == set()
+    assert user_graphs(store) == set()
     assert _events(session_factory, *PUBLISH_ACTIONS) == []
     # Y el editor auténtico sí publica.
     assert (
@@ -1008,7 +1008,7 @@ def test_hung_reasoner_is_killed_and_the_service_keeps_working(
     assert "tiempo" in consistency["detail"]
     assert elapsed < short_timeout + 20, f"tardó {elapsed:.1f} s con un límite de {short_timeout} s"
     assert _pellet_processes() == [], "el proceso Java de Pellet sigue vivo tras el timeout"
-    assert f"{PRUEBA}/1.0.0" in store.graph_names()
+    assert f"{PRUEBA}/1.0.0" in user_graphs(store)
     assert _metric_rows(session_factory) == [f"{PRUEBA}/1.0.0"]
     # La ficha se sirve y el razonador sigue disponible para la siguiente ingesta.
     detail = client.get("/ontologies/prueba")
@@ -1201,7 +1201,7 @@ def test_ontology_that_owlready2_cannot_load_is_not_a_500(
     response = quiet.post("/ontologies", content=_onto(UNLOADABLE[name]), headers=editor | TTL)
     assert response.status_code in (201, 422), f"{response.status_code}: {response.text}"
     if response.status_code == 422:
-        assert store.graph_names() == set()
+        assert user_graphs(store) == set()
         assert _events(session_factory, *PUBLISH_ACTIONS) == []
 
 
@@ -1218,7 +1218,7 @@ def test_unloadable_ontology_leaves_nothing_behind(
     medias, no filtra la traza y la siguiente ingesta funciona."""
     response = quiet.post("/ontologies", content=_onto(UNLOADABLE[name]), headers=editor | TTL)
     if response.status_code != 201:
-        assert store.graph_names() == set()
+        assert user_graphs(store) == set()
         assert _metric_rows(session_factory) == []
         assert _events(session_factory, *PUBLISH_ACTIONS) == []
     assert "Traceback" not in response.text and "owlready2" not in response.text
@@ -1561,7 +1561,7 @@ def test_deep_concept_hierarchy_does_not_break_the_scheme(
     for depth in (300, 1500):
         response = quiet.post("/schemes", content=_chain(depth), headers=editor | TTL)
         assert response.status_code == 422, f"{depth}: {response.status_code}"
-        assert store.graph_names() == set()
+        assert user_graphs(store) == set()
     # En el límite se admite y se sirve entero.
     response = quiet.post("/schemes", content=_chain(64), headers=editor | TTL)
     assert response.status_code == 201, response.text

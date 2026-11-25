@@ -8,6 +8,10 @@ memoria, y el texto de búsqueda (``q``) **no llega nunca a SPARQL**: se filtra 
 - Catálogo: un ``CONSTRUCT`` con las propiedades de las series, de sus versiones, de las
   distribuciones y de los conceptos SKOS de sus temas.
 - Ficha: el grafo con nombre completo de la serie más las etiquetas de sus temas.
+- Catálogos (decisión 49): cada catálogo ``{BASE_URI}catalogo/{slug}`` en el grafo de su
+  URI, con ``dcat:dataset`` hacia sus series. Las tarjetas y la ficha dicen a qué catálogo
+  pertenece cada serie. Las lápidas del grafo ``{BASE_URI}bajas`` no se leen aquí: no
+  tienen tipo DCAT y su grafo no casa con ningún patrón de estas consultas.
 """
 
 import unicodedata
@@ -87,8 +91,12 @@ CATALOG_QUERY = (
   ?c ?cp ?co .
   ?sch skos:prefLabel ?schl . ?sch dct:subject ?dom .
   ?dom skos:prefLabel ?doml .
+  ?cat dcat:dataset ?ms . ?cat dct:title ?catl .
 } WHERE {
   {
+    GRAPH ?cat { ?cat a dcat:Catalog ; dcat:dataset ?ms . OPTIONAL { ?cat dct:title ?catl } }
+    FILTER(STRSTARTS(STR(?cat), $catalog_ns))
+  } UNION {
     GRAPH ?s { ?s a dcat:DatasetSeries ; ?sp ?so . }
     VALUES ?sp { dct:title dct:description dcat:last dct:type }
     FILTER(STRSTARTS(STR(?s), $dataset_ns))
@@ -113,6 +121,39 @@ CATALOG_QUERY = (
 )
 
 SERIES_GRAPH_QUERY = "CONSTRUCT { ?s ?p ?o } WHERE { GRAPH $graph { ?s ?p ?o } }"
+
+# Catálogo de una serie (decisión 49): el triple de pertenencia está en el grafo del
+# catálogo, no en el de la serie.
+SERIES_CATALOG_QUERY = (
+    PREFIXES
+    + """CONSTRUCT { ?cat dcat:dataset $series . ?cat dct:title ?catl . } WHERE {
+  GRAPH ?cat { ?cat a dcat:Catalog ; dcat:dataset $series . OPTIONAL { ?cat dct:title ?catl } }
+  FILTER(STRSTARTS(STR(?cat), $catalog_ns))
+}"""
+)
+
+# Catálogos: metadatos de cada catálogo {BASE_URI}catalogo/{slug} y sus series (con el
+# título de la serie, que está en el grafo de la serie).
+CATALOGS_QUERY = (
+    PREFIXES
+    + """PREFIX foaf: <http://xmlns.com/foaf/0.1/>
+CONSTRUCT {
+  ?cat a dcat:Catalog . ?cat ?cp ?co . ?pub foaf:name ?pubn . ?ms dct:title ?mst .
+} WHERE {
+  {
+    GRAPH ?cat { ?cat a dcat:Catalog ; ?cp ?co . }
+    VALUES ?cp { dct:title dct:description dct:publisher dcat:dataset }
+    FILTER(STRSTARTS(STR(?cat), $catalog_ns))
+  } UNION {
+    GRAPH ?cat { ?cat a dcat:Catalog ; dct:publisher ?pub . ?pub foaf:name ?pubn . }
+    FILTER(STRSTARTS(STR(?cat), $catalog_ns))
+  } UNION {
+    GRAPH ?cat { ?cat a dcat:Catalog ; dcat:dataset ?ms . }
+    GRAPH ?ms { ?ms a dcat:DatasetSeries ; dct:title ?mst . }
+    FILTER(STRSTARTS(STR(?cat), $catalog_ns))
+  }
+}"""
+)
 
 THEME_LABELS_QUERY = (
     PREFIXES
@@ -367,6 +408,18 @@ class SeriesView:
             return None
         return access_rights(self.graph.value(version, DCT.accessRights))
 
+    def catalog(self) -> schemas.CatalogRef | None:
+        """Catálogo ``{BASE_URI}catalogo/{slug}`` que lista la serie (decisión 49)."""
+        for node in sorted_nodes(self.graph.subjects(DCAT.dataset, self.node)):
+            slug = self.uris.catalog_slug(str(node)) if isinstance(node, URIRef) else None
+            if slug is not None:
+                return schemas.CatalogRef(
+                    slug=slug,
+                    uri=str(node),
+                    title=pick_literal(self.graph.objects(node, DCT.title)),
+                )
+        return None
+
 
 # --- Catálogo --------------------------------------------------------------------------
 
@@ -379,6 +432,7 @@ def _card(view: SeriesView, slug: str) -> schemas.DatasetCard:
         uri=view.uri,
         title=view.title(),
         description=view.description(),
+        catalog=view.catalog(),
         domain=domains[0] if domains else None,
         domains=domains,
         themes=view.themes(current),
@@ -411,6 +465,7 @@ def list_datasets(
     *,
     q: str | None = None,
     domain: str | None = None,
+    catalog: str | None = None,
     page: int = 1,
     page_size: int = 20,
 ) -> schemas.DatasetPage:
@@ -418,6 +473,7 @@ def list_datasets(
         render(
             CATALOG_QUERY,
             dataset_ns=literal(uris.dataset_ns),
+            catalog_ns=literal(uris.catalog_ns),
             **vocab_params(uris),
         )
     )
@@ -433,6 +489,8 @@ def list_datasets(
             continue
         card = _card(view, slug)
         if domain and domain not in {d.slug for d in card.domains}:
+            continue
+        if catalog and (card.catalog is None or card.catalog.slug != catalog):
             continue
         cards.append(card)
     cards.sort(key=lambda c: (normalize(c.title or ""), c.slug))
@@ -460,7 +518,78 @@ def load_series(store: TripleStore, uris: Uris, slug: str) -> SeriesView:
     )
     for triple in labels:
         graph.add(triple)
+    for triple in series_catalog_graph(store, uris, uris.series(slug)):
+        graph.add(triple)
     return SeriesView(graph, node, uris)
+
+
+def series_catalog_graph(store: TripleStore, uris: Uris, series_uri: str) -> Graph:
+    return store.construct(
+        render(SERIES_CATALOG_QUERY, series=iri(series_uri), catalog_ns=literal(uris.catalog_ns))
+    )
+
+
+# --- Catálogos (decisión 49) ------------------------------------------------------------
+
+
+def _catalog_summary(graph: Graph, node: URIRef, slug: str) -> schemas.CatalogSummary:
+    publisher = graph.value(node, DCT.publisher)
+    return schemas.CatalogSummary(
+        slug=slug,
+        uri=str(node),
+        title=pick_literal(graph.objects(node, DCT.title)),
+        description=pick_literal(graph.objects(node, DCT.description)),
+        publisher=resource_ref(graph, publisher),
+        dataset_count=len(set(graph.objects(node, DCAT.dataset))),
+    )
+
+
+def _catalogs_graph(store: TripleStore, uris: Uris) -> Graph:
+    return store.construct(render(CATALOGS_QUERY, catalog_ns=literal(uris.catalog_ns)))
+
+
+def list_catalogs(store: TripleStore, uris: Uris) -> schemas.CatalogPage:
+    """Catálogos ``{BASE_URI}catalogo/{slug}`` publicados (sin el raíz ni las bajas)."""
+    graph = _catalogs_graph(store, uris)
+    items = []
+    for node in sorted_nodes(graph.subjects(RDF.type, DCAT.Catalog)):
+        slug = uris.catalog_slug(str(node)) if isinstance(node, URIRef) else None
+        if slug is not None:
+            items.append(_catalog_summary(graph, node, slug))
+    items.sort(key=lambda c: (normalize(c.title or ""), c.slug))
+    return schemas.CatalogPage(items=items, total=len(items))
+
+
+def get_catalog(store: TripleStore, uris: Uris, slug: str) -> schemas.CatalogDetail:
+    graph = _catalogs_graph(store, uris)
+    node = URIRef(uris.catalog(slug))
+    if (node, RDF.type, DCAT.Catalog) not in graph:
+        raise NotFoundError(slug)
+    summary = _catalog_summary(graph, node, slug)
+    datasets = []
+    for series in sorted_nodes(graph.objects(node, DCAT.dataset)):
+        series_slug = uris.series_slug(str(series)) if isinstance(series, URIRef) else None
+        if series_slug is not None:
+            datasets.append(
+                schemas.CatalogDatasetRef(
+                    slug=series_slug,
+                    uri=str(series),
+                    title=pick_literal(graph.objects(series, DCT.title)),
+                )
+            )
+    datasets.sort(key=lambda d: (normalize(d.title or ""), d.slug))
+    return schemas.CatalogDetail(**summary.model_dump(), datasets=datasets)
+
+
+def catalog_rdf(store: TripleStore, uris: Uris, catalog_uri: str) -> Graph:
+    """RDF de un catálogo (su grafo con nombre). ``NotFoundError`` si no existe."""
+    graph = store.construct(render(SERIES_GRAPH_QUERY, graph=iri(catalog_uri)))
+    if (URIRef(catalog_uri), RDF.type, DCAT.Catalog) not in graph:
+        raise NotFoundError(catalog_uri)
+    result = _new_graph(graph, uris)
+    for triple in graph:
+        result.add(triple)
+    return result
 
 
 def _provenance(graph: Graph, version: URIRef) -> list[schemas.ProvenanceStep]:
@@ -612,6 +741,8 @@ def get_dataset(
         uri=view.uri,
         title=view.title(),
         description=view.description(),
+        catalog=view.catalog(),
+        publisher=resource_ref(view.graph, view.graph.value(view.node, DCT.publisher)),
         synthetic=view.is_synthetic(current),
         domain=domains[0] if domains else None,
         domains=domains,
@@ -666,12 +797,16 @@ def version_subgraph(graph: Graph, series: URIRef, version: URIRef) -> Graph:
 
 
 def series_rdf(store: TripleStore, uris: Uris, slug: str) -> Graph:
-    """RDF completo de la serie (su grafo con nombre)."""
+    """RDF completo de la serie (su grafo con nombre) y su triple de pertenencia
+    («<catálogo> dcat:dataset <serie>», que vive en el grafo del catálogo)."""
     graph = series_graph(store, uris, slug)
-    if (URIRef(uris.series(slug)), RDF.type, DCAT.DatasetSeries) not in graph:
+    node = URIRef(uris.series(slug))
+    if (node, RDF.type, DCAT.DatasetSeries) not in graph:
         raise NotFoundError(slug)
     result = _new_graph(graph, uris)
     for triple in graph:
+        result.add(triple)
+    for triple in series_catalog_graph(store, uris, str(node)).triples((None, DCAT.dataset, node)):
         result.add(triple)
     return result
 

@@ -45,7 +45,9 @@ Los patrones marcados con *(prototipo)* aparecen literalmente en la pantalla «F
 | Fichero de una distribución | `{BASE_URI}dataset/{slug}/{version}/{dist}/fichero` | — | `{BASE_URI}dataset/modbus-tcp-testbed/2.1.0/pcap/fichero` | **[PROPUESTA del orquestador, fase 4]** |
 | Endpoint SPARQL | `{BASE_URI}sparql` | — | `{BASE_URI}sparql` | prototipo |
 | Consulta de referencia | `{BASE_URI}consulta/{id}` | — | `{BASE_URI}consulta/ot-datasets` | **[PROPUESTA del orquestador, fase 4]** |
-| Catálogo | `{BASE_URI}catalogo` | `dcat:Catalog` | `{BASE_URI}catalogo` (`dct:identifier "itot-catalogo"`) | **[PROPUESTA]** |
+| Catálogo raíz | `{BASE_URI}catalogo` | `dcat:Catalog` | `{BASE_URI}catalogo` (`dct:identifier "itot-catalogo"`) | **[PROPUESTA]** (fase 1); raíz fijo: **Decidido (2026-11-21, decisión 49)** |
+| Catálogo | `{BASE_URI}catalogo/{slug}` | `dcat:Catalog` | `{BASE_URI}catalogo/sintetico` | **Decidido (2026-11-21, decisión 49)** |
+| Grafo de bajas (lápidas) | `{BASE_URI}bajas` | — | `{BASE_URI}bajas` | **Decidido (2026-11-21, decisión 49)** |
 | Esquema de tipos de dataset | `{BASE_URI}vocab/tipo-dataset` | `skos:ConceptScheme` | `{BASE_URI}vocab/tipo-dataset` | **[PROPUESTA del orquestador]** |
 | Tipo de dataset | `{BASE_URI}vocab/tipo-dataset/{slug}` | `skos:Concept` | `{BASE_URI}vocab/tipo-dataset/sintetico` | **[PROPUESTA del orquestador]** |
 | Formas SHACL | `{BASE_URI}shapes#{Nombre}` | `sh:NodeShape`, `sh:PropertyShape` | `{BASE_URI}shapes#DatasetShape` | **[PROPUESTA]** |
@@ -57,7 +59,7 @@ Detalles:
 - La versión de una ontología sigue `{version}` (semver). La de un esquema SKOS no forma parte de su URI y admite dos o tres números (`1.0`, `2026.1`), porque así la da el prototipo (ver «Vocabularios y ontologías»).
 - Una serie y sus versiones comparten `{slug}`: la URI de una versión es siempre la de su serie seguida de `/{version}`. Así, `dcat:inSeries` de una versión apunta a la URI que resulta de quitar el último segmento.
 - La versión de dataset y la de ontología siguen la misma regla `{version}`, y `dcat:version` u `owl:versionInfo` llevan exactamente esa cadena.
-- El catálogo es único, así que su URI no lleva slug. El identificador del prototipo, «itot-catalogo», va en `dct:identifier`.
+- El catálogo raíz no lleva slug: es el de la fase 1, que conserva su URI y su `dct:identifier` «itot-catalogo». Los demás catálogos llevan `{slug}` (ver «Catálogos y borrado lógico»).
 
 ## `dcat:accessURL` de las distribuciones
 
@@ -86,6 +88,97 @@ Los tres datasets sintéticos son hoy `RESTRICTED` en todas sus versiones; ningu
 ### Ficheros sintéticos
 
 `semantic/data/sintetico/ficheros/{slug}/{version}/{dist}.{ext}`: un fichero mínimo y marcado como sintético por cada distribución `PUBLIC` o `RESTRICTED` de `semantic/data/sintetico/`, generado sin red por `semantic/scripts/ficheros_sinteticos.py` (ver `semantic/README.md`). Ninguno para las `NON_PUBLIC`.
+
+## Catálogos y borrado lógico (decisión 49)
+
+Decidido por el responsable (2026-11-21): varios `dcat:Catalog`, cada dataset en **un solo** catálogo, creados, editados y borrados desde la aplicación por el editor y el admin; borrado **lógico**, con 410 Gone y ficha mínima en la URI, y los ficheros eliminados. Las versiones publicadas siguen siendo inmutables (decisión 28). El responsable validó el mismo día las propuestas de `semantico` sobre el catálogo raíz fijo, el patrón `catalogo/{slug}`, las URIs de los datasets sin catálogo, el catálogo «sintetico» con su título y el 409 al borrar un catálogo con datasets, y después la lápida del borrado lógico (grafo `bajas`, solo para catálogo y serie, 410 por prefijo y slugs no reutilizables): van marcadas **Decidido (2026-11-21, decisión 49)**. Lo demás de esta sección sigue siendo **[PROPUESTA]** de `semantico`.
+
+### Patrón de URIs de los catálogos · Decidido (2026-11-21, decisión 49)
+
+| Recurso | URI | Grafo con nombre | Fichero en `semantic/` |
+|---|---|---|---|
+| Catálogo raíz | `{BASE_URI}catalogo` | `{BASE_URI}catalogo` | `data/catalogo.ttl` |
+| Catálogo | `{BASE_URI}catalogo/{slug}` | `{BASE_URI}catalogo/{slug}` | `data/catalogos/{slug}.ttl` **[PROPUESTA]** |
+| Lápidas de los recursos dados de baja | — | `{BASE_URI}bajas` | ninguno (los escribe el backend) |
+
+- **El catálogo actual no rompe su URI.** `{BASE_URI}catalogo` sigue existiendo, sigue siendo un `dcat:Catalog` con el mismo título, descripción e identificador, y se convierte en el **catálogo raíz**: el de todo el repositorio. Ya no lista series con `dcat:dataset`; agrupa los catálogos con `dcat:catalog` (DCAT 3 y DCAT-AP 3 lo prevén para catálogos dentro de un catálogo). Las series siguen siendo alcanzables desde él: raíz → `dcat:catalog` → `dcat:dataset`.
+- El raíz es **único y fijo**: no se crea, edita ni borra desde la aplicación; cambia solo con `data/catalogo.ttl` y `load-semantic`. Al crear un catálogo, el backend añade `<{BASE_URI}catalogo> dcat:catalog <{BASE_URI}catalogo/{slug}>` al grafo del raíz; al darlo de baja, lo quita.
+- **[PROPUESTA]** **Un solo nivel**: los catálogos `catalogo/{slug}` no agrupan otros catálogos (sin `dcat:catalog`) y el raíz no lista series.
+- `{slug}` sigue la regla general y lo fija quien crea el catálogo; una vez creado **no cambia**. Nada cuelga de `catalogo/{slug}/`.
+- **Las URIs de los datasets no llevan el catálogo.** `{BASE_URI}dataset/{slug}` no cambia, así que un dataset se puede mover de catálogo sin romper ninguna URI, y el slug de un dataset es único en todo el repositorio, no por catálogo.
+- Alternativas descartadas: (a) dejar `{BASE_URI}catalogo` como un catálogo más, sin slug, con los datasets actuales, y crear los nuevos en `catalogo/{slug}`: el backend tendría que tratar para siempre un catálogo sin slug, y si se borrara, `catalogo/{slug}` colgaría de una URI que responde 410; (b) `{BASE_URI}catalogo/{slug}` para todos, también el actual: rompe la URI persistente del catálogo de la fase 1; (c) meter el catálogo en la URI del dataset (`catalogo/{slug}/dataset/{slug}`): moverlo de catálogo rompería todas sus URIs.
+- **[PROPUESTA]** Un catálogo `{slug}` contiene: `dct:title`, `dct:description` y `dct:publisher` (obligatorios en DCAT-AP 3, forma `itsh:CatalogShape`) y un `dcat:dataset` por serie (forma `itsh:ItotCatalogShape`). Puede estar vacío: DCAT-AP 3 no exige `dcat:dataset`.
+
+### Pertenencia de un dataset a su catálogo **[PROPUESTA]**
+
+Que cada dataset pertenece a un solo catálogo es de la decisión 49; cómo se expresa en RDF y en la ingesta es **[PROPUESTA]**.
+
+- El dataset que pertenece al catálogo es la **serie** (`dcat:DatasetSeries`, la ficha). Sus versiones pertenecen a él por `dcat:inSeries` y no se listan en el catálogo.
+- Se expresa con `<{BASE_URI}catalogo/{slug}> dcat:dataset <{BASE_URI}dataset/{slug}>`. DCAT no define la relación inversa, así que **el grafo que se ingesta lleva ese triple** y la forma `itsh:DatasetSeries-catalog` exige exactamente uno por serie (`sh:inversePath dcat:dataset`, 1..1). El backend lo guarda en el grafo del catálogo, no en el de la serie; si la API recibe el catálogo como parámetro, puede añadir el triple antes de validar.
+- Que la serie no esté ya en **otro** catálogo del triplestore lo comprueba el backend: SHACL solo ve el grafo que valida.
+- **Mover un dataset de catálogo** es editar metadatos de la serie: se quita el triple del catálogo de origen y se añade al de destino. No cambia ninguna URI ni ninguna versión publicada.
+
+### Borrado lógico: la lápida · Decidido (2026-11-21, decisión 49)
+
+Al dar de baja un catálogo o un dataset, su descripción sale de los grafos publicados (el grafo de la serie o del catálogo se borra, y el triple que lo enlazaba desde su catálogo o desde el raíz se quita), sus ficheros se eliminan y queda una **lápida** en el grafo `{BASE_URI}bajas`. Ese grafo no está entre los publicados: no aparece en SPARQL (decisión 42) ni en los listados. Solo lo lee el backend para responder 410.
+
+```turtle
+<dataset/modbus-tcp-testbed>
+    a prov:Entity ;
+    dct:title "Tráfico Modbus/TCP del banco de pruebas OT"@es ;
+    adms:status <http://purl.org/adms/status/Withdrawn> ;
+    prov:invalidatedAtTime "…"^^xsd:dateTime .
+```
+
+| Triple | Vocabulario | Para qué |
+|---|---|---|
+| `prov:invalidatedAtTime` (1, `xsd:dateTime`) | PROV-O | Fecha de baja. Identifica la lápida (la forma `itsh:BajaShape` se aplica a todo sujeto que la tenga) |
+| `adms:status <http://purl.org/adms/status/Withdrawn>` (1) | Estados de ADMS, el mismo vocabulario de las ontologías y los esquemas | Estado «retirado» |
+| `dct:title` (1..n) | Dublin Core | Título que tenía, para la ficha mínima |
+| `rdf:type prov:Entity` (solo ese) | PROV-O | Dominio de `prov:invalidatedAtTime` |
+
+- La forma es **cerrada**: la lápida no lleva nada más. Ni descripción, ni distribuciones, ni quién la borró (eso va a la auditoría de PostgreSQL, no al RDF).
+- **Pierde su tipo DCAT** (`dcat:Catalog`, `dcat:DatasetSeries`): con él, las formas de DCAT-AP le exigirían descripción, catálogo, etc. Qué era se deduce de la URI: `catalogo/{slug}` es un catálogo y `dataset/{slug}`, un dataset.
+- Solo tienen lápida el catálogo y la serie, que son lo que se borra. Las URIs que cuelgan de una serie dada de baja (`dataset/{slug}/{version}`, `…/{dist}` y `…/{dist}/fichero`) responden también 410, con la ficha de la serie: el backend las resuelve por el prefijo.
+- Las versiones no se borran una a una: son inmutables (decisión 28).
+- **El slug de un recurso dado de baja no se reutiliza**: su URI responde 410 para siempre. Crear un catálogo o un dataset con ese slug da 409.
+- `Withdrawn` solo se admite en las lápidas: las ontologías y los esquemas siguen limitados a `Completed` y `UnderDevelopment` (ver «Estado»), un `dcat:Catalog`, una `dcat:DatasetSeries` o un `dcat:Dataset` vivo no puede llevarlo (formas `itsh:Catalog-status`, `itsh:DatasetSeries-status` e `itsh:Dataset-status`) y todo sujeto con `adms:status` `Withdrawn` necesita `prov:invalidatedAtTime` (forma `itsh:RetiradoShape`), así que no hay lápidas sin fecha.
+
+### Qué comprueban las formas y qué comprueba el backend
+
+Las formas SHACL no conocen `BASE_URI` (los patrones literales no se resuelven contra ella) ni ven más que el grafo que validan. Lo que cabe en SHACL está en las formas:
+
+| Regla | Forma |
+|---|---|
+| La URI de un catálogo termina en `/catalogo` o `/catalogo/{slug}` | `itsh:CatalogUriShape` |
+| La URI de una lápida termina en `/catalogo/{slug}` o `/dataset/{slug}` | `itsh:BajaUriShape` |
+| El título de una lápida no está vacío | `itsh:Baja-title` (`sh:minLength 1`) |
+| Cada serie, en exactamente un catálogo del grafo | `itsh:DatasetSeries-catalog` |
+| `Withdrawn` solo en lápidas, y siempre con fecha | `itsh:*-status`, `itsh:RetiradoShape` |
+
+**Reglas que el backend tiene que comprobar** en la ingesta y en el CRUD, porque no son SHACL (`semantic/scripts/validate.py` comprueba las que aplican sobre `semantic/data/`, pero no es contrato de ingesta):
+
+1. Las URIs de catálogos y lápidas **empiezan por `BASE_URI`**: `{BASE_URI}catalogo`, `{BASE_URI}catalogo/{slug}` o `{BASE_URI}dataset/{slug}`, con `{slug}` válido.
+2. El catálogo raíz es único y fijo: la API no lo crea, ni lo edita, ni lo borra, y **no lista series** (`dcat:dataset`).
+3. **[PROPUESTA]** **Un solo nivel**: solo el raíz lleva `dcat:catalog`, y solo hacia catálogos `catalogo/{slug}` existentes.
+4. `dcat:dataset` sale **solo de un catálogo `catalogo/{slug}` existente** y apunta a una serie existente.
+5. La serie no está ya en **otro** catálogo del triplestore (SHACL solo ve el grafo que valida).
+6. Al dar de baja, la lápida sustituye a la descripción: el backend escribe `prov:invalidatedAtTime` con la hora del servidor, que **no puede ser futura**, y `dct:title` con el título que tenía el recurso (no vacío).
+7. Una URI o un slug dados de baja no se reutilizan (409).
+8. Un catálogo con datasets no se da de baja (409).
+
+### Borrar un catálogo que tiene datasets · Decidido (2026-11-21, decisión 49)
+
+Se **rechaza con 409 Conflict** mientras el catálogo tenga algún `dcat:dataset`. Antes hay que mover sus datasets a otro catálogo o darlos de baja uno a uno. Solo se puede dar de baja un catálogo vacío.
+
+Alternativas descartadas:
+
+- **Baja en cascada** de todos sus datasets: borra ficheros de forma irreversible con una sola acción y sin ver qué datasets caen.
+- **Mover sus datasets a un catálogo por defecto**: obliga a mantener un catálogo especial que no se puede borrar y deja datasets en un sitio que nadie eligió.
+
+### Los datasets sintéticos · Decidido (2026-11-21, decisión 49)
+
+Los tres datasets sintéticos van al catálogo `{BASE_URI}catalogo/sintetico` («Datasets sintéticos de demostración», `data/catalogos/sintetico.ttl`), separado de los reales del piloto: así se distinguen en los listados y, cuando sobren, se retiran juntos (moviendo o dando de baja sus datasets y luego el catálogo). El slug y el título no salen del prototipo y los validó el responsable; la descripción sigue siendo **[PROPUESTA]**. Cada fichero de `data/sintetico/` lleva su triple de pertenencia.
 
 ## Consultas de referencia (fase 4)
 
@@ -173,7 +266,7 @@ Los esquemas auxiliares `vocab/dominio` y `vocab/tipo-dataset` no tienen dominio
 | Borrador | `adms:status <http://purl.org/adms/status/UnderDevelopment>` |
 | Referenciada | Sin `adms:status`: es el estado de toda ontología externa |
 
-Lo llevan las ontologías propias (cada versión) y todos los esquemas. Las formas SHACL no admiten otros valores (`Deprecated`, `Withdrawn`) hasta que la interfaz los contemple. En la ficha de ontología, «Actual» o «Sustituida» no es un estado: una versión está sustituida si otra la cita como `owl:priorVersion`.
+Lo llevan las ontologías propias (cada versión) y todos los esquemas. Las formas SHACL no admiten otros valores (`Deprecated`, `Withdrawn`) hasta que la interfaz los contemple. `Withdrawn` se usa solo en las lápidas de los recursos dados de baja (decisión 49, ver «Catálogos y borrado lógico»), que no son ontologías ni esquemas. En la ficha de ontología, «Actual» o «Sustituida» no es un estado: una versión está sustituida si otra la cita como `owl:priorVersion`.
 
 ### Versión de los esquemas SKOS **[PROPUESTA]**
 
@@ -199,7 +292,7 @@ Desde la fase 3, las ontologías propias (en la cabecera de cada versión) y los
 
 ## Datasets sintéticos (fase 2)
 
-En `semantic/data/sintetico/`, un fichero por dataset con la serie, todas sus versiones y sus distribuciones. Los slugs de las series 2 y 3 son **[PROPUESTA]** de `semantico`.
+En `semantic/data/sintetico/`, un fichero por dataset con la serie, todas sus versiones, sus distribuciones y su pertenencia al catálogo `{BASE_URI}catalogo/sintetico`: Decidido (2026-11-21, decisión 49). Los slugs de las series 2 y 3 son **[PROPUESTA]** de `semantico`.
 
 | Serie | Slug | Dominio | Versiones | Distribuciones |
 |---|---|---|---|---|
@@ -240,4 +333,5 @@ Con Apache Jena: `riot --base="$BASE_URI" fichero.ttl`. Las IRIs absolutas (voca
 - URIs de entidades PROV intermedias (p. ej. «Capturas PCAP en bruto») y de actividades sin URI en el prototipo («Captura en banco de pruebas»): nodos en blanco por ahora.
 - Si la versión de los esquemas SKOS debe ser semver, como la de las ontologías.
 - Si se admiten versiones preliminares de SemVer.
+- Decisión 49: lo que sigue marcado **[PROPUESTA]** en «Catálogos y borrado lógico» (pertenencia en el grafo de ingesta, un solo nivel de catálogos, fichero por catálogo y descripción del catálogo «sintetico»).
 - Qué devuelve cada URI al resolverla (negociación de contenido HTML / Turtle / JSON-LD) y cómo se sirve la descarga de una distribución restringida: lo implementa `backend` según el contrato de la fase 4 (decisiones 31 y 40).

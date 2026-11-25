@@ -40,7 +40,7 @@ def test_openapi_exposes_phase_2_catalog() -> None:
     schema = json.loads(OPENAPI_PATH.read_text(encoding="utf-8"))
     paths = schema["paths"]
     assert set(paths["/datasets"]) == {"get", "post"}
-    assert set(paths["/datasets/{slug}"]) == {"get"}
+    assert set(paths["/datasets/{slug}"]) == {"get", "patch", "delete"}  # decisión 49
     assert set(paths["/datasets/{slug}/rdf"]) == {"get"}
     assert set(paths["/dataset/{slug}"]) == {"get"}
     assert set(paths["/dataset/{slug}/{version}"]) == {"get"}
@@ -82,3 +82,51 @@ def test_openapi_exposes_phase_2_catalog() -> None:
     }
     assert "fair" in components["VersionDetail"]["properties"]
     assert "fair_total" in components["DatasetCard"]["properties"]
+
+
+def test_openapi_exposes_catalog_crud() -> None:
+    """Decisión 49: CRUD de catálogos y datasets, con 401/403/404/409/410/422."""
+    schema = json.loads(OPENAPI_PATH.read_text(encoding="utf-8"))
+    paths = schema["paths"]
+    assert set(paths["/catalogs"]) == {"get", "post"}
+    assert set(paths["/catalogs/{slug}"]) == {"get", "patch", "delete"}
+    assert set(paths["/catalogs/{slug}/datasets"]) == {"post"}
+    assert set(paths["/catalogo"]) == {"get"} and set(paths["/catalogo/{slug}"]) == {"get"}
+    expected = {
+        ("/catalogs", "post"): {"401", "403", "409", "422"},
+        ("/catalogs/{slug}", "patch"): {"401", "403", "404", "410", "422"},
+        ("/catalogs/{slug}", "delete"): {"401", "403", "404", "409", "410"},
+        ("/catalogs/{slug}/datasets", "post"): {"401", "403", "404", "409", "410", "422"},
+        ("/datasets/{slug}", "patch"): {"401", "403", "404", "410", "422"},
+        ("/datasets/{slug}", "delete"): {"401", "403", "404", "410"},
+        ("/datasets/{slug}", "get"): {"404", "410"},
+        ("/dataset/{slug}", "get"): {"303", "404", "410"},
+    }
+    for (path, method), codes in expected.items():
+        assert codes <= set(paths[path][method]["responses"]), (path, method)
+    components = schema["components"]["schemas"]
+    for name in ("CatalogCreate", "CatalogUpdate", "DatasetCreate", "DatasetUpdate"):
+        assert components[name].get("additionalProperties") is False, name
+    assert set(components["GoneResponse"]["properties"]) == {
+        "detail",
+        "uri",
+        "resource",
+        "title",
+        "withdrawn_at",
+    }
+    assert "catalog" in components["DatasetCard"]["properties"]
+    assert "publisher" in components["DatasetDetail"]["properties"]
+    assert components["ConflictResponse"]["properties"]["kind"]["enum"] == [
+        "slug_in_use",
+        "withdrawn",
+        "catalog_not_empty",
+    ]
+    for path, method in (
+        ("/catalogs", "post"),
+        ("/catalogs/{slug}", "delete"),
+        ("/catalogs/{slug}/datasets", "post"),
+    ):
+        conflict = paths[path][method]["responses"]["409"]["content"]["application/json"]
+        assert conflict["schema"]["$ref"].endswith("/ConflictResponse"), (path, method)
+    kinds = components["IngestErrorResponse"]["properties"]["kind"]["enum"]
+    assert {"catalog", "withdrawn", "catalog_conflict"} <= set(kinds)

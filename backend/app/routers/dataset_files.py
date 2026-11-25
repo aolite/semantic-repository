@@ -20,6 +20,7 @@ from app.config import Settings
 from app.deps import CurrentUser, DbDep, SettingsDep, StorageDep, StoreDep, UrisDep
 from app.models import DistributionFile
 from app.routers.datasets import EditorUser, SlugPath
+from app.routers.gone import GONE, raise_if_series_gone
 from app.security import create_download_token
 from app.storage import StorageError
 from app.uris import SLUG_PATTERN, VERSION_PATTERN
@@ -159,6 +160,7 @@ def _distribution(
     try:
         return distributions.lookup(store, uris, slug, version, dist)
     except distributions.DistributionNotFoundError as exc:
+        raise_if_series_gone(store, uris, slug)  # 410 por el prefijo de la serie
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="La distribución no existe"
         ) from exc
@@ -200,6 +202,7 @@ def _distribution(
         status.HTTP_401_UNAUTHORIZED: {"description": "No autenticado"},
         status.HTTP_403_FORBIDDEN: {"description": "Requiere rol editor o admin"},
         status.HTTP_404_NOT_FOUND: {"model": schemas.ErrorResponse},
+        status.HTTP_410_GONE: GONE,
         status.HTTP_409_CONFLICT: {
             "model": schemas.ErrorResponse,
             "description": "file_exists (otro contenido) o non_public (NON_PUBLIC)",
@@ -258,6 +261,7 @@ def upload_distribution_file(
     responses={
         status.HTTP_401_UNAUTHORIZED: {"description": "No autenticado"},
         status.HTTP_404_NOT_FOUND: {"model": schemas.ErrorResponse},
+        status.HTTP_410_GONE: GONE,
     },
 )
 def create_download_link(
@@ -293,6 +297,7 @@ def _version_uri(store: StoreDep, uris: UrisDep, slug: str, version: str) -> str
     try:
         view = catalog.load_series(store, uris, slug)
     except catalog.NotFoundError as exc:
+        raise_if_series_gone(store, uris, slug)
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No existe") from exc
     node = view.find_version(version)
     if node is None:
@@ -312,6 +317,7 @@ def _version_uri(store: StoreDep, uris: UrisDep, slug: str, version: str) -> str
             "content": {"application/json": {"schema": {"type": "object"}}},
         },
         status.HTTP_404_NOT_FOUND: {"model": schemas.ErrorResponse},
+        status.HTTP_410_GONE: GONE,
     },
 )
 def get_fair_report(
@@ -346,6 +352,7 @@ def get_fair_report(
         status.HTTP_401_UNAUTHORIZED: {"description": "No autenticado"},
         status.HTTP_403_FORBIDDEN: {"description": "Requiere rol editor o admin"},
         status.HTTP_404_NOT_FOUND: {"model": schemas.ErrorResponse},
+        status.HTTP_410_GONE: GONE,
     },
 )
 def reevaluate_fair(

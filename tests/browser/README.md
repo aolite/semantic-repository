@@ -8,6 +8,7 @@ Pruebas con Chromium sobre el Compose real (decisión 34). Comprueban lo que las
 | `tests/dataset-fair.spec.ts` | La sección FAIR repite la evaluación real de F-UJI y enlaza el informe; «Descargar» / «Iniciar sesión para descargar» / solo metadatos según `download`; descarga con enlace firmado tras iniciar sesión |
 | `tests/sparql.spec.ts` | Consulta de referencia sin sesión (Tabla, JSON, CSV), errores de validación, guardar una consulta personal con sesión y que otro miembro no la vea |
 | `tests/catalogo.spec.ts` | Paginación (20 por página) y filtros de dominio, tipo y búsqueda en la URL |
+| `tests/crud-catalogos.spec.ts` | CRUD de catálogos y datasets (decisión 49): botones por rol (anónimo, miembro, editor y admin), crear, editar y mover, «Nueva versión» (200, 201 y los 409 `version_immutable`, `catalog_conflict` y `withdrawn`), 409 al dar de baja un catálogo con datasets, 410 en la API y en la ficha, 409 por slug dado de baja, 303 de `/catalogo/{slug}`, filtro `/?catalogo=` y el diálogo de baja con teclado (Tab atrapado, Escape y vuelta del foco). La sesión vive en memoria: se navega con los enlaces de la app |
 
 ## Ejecución
 
@@ -28,7 +29,7 @@ BASE_URL=http://localhost:5173 API_URL=http://localhost:8000 npx playwright test
 | `BROWSER_COMPOSE_ARGS` | Opciones de `docker compose` para crear el admin con la CLI del backend, p. ej. `-p miproyecto` si el entorno no se llama `itot` |
 | `BROWSER_ADMIN_USER`, `BROWSER_ADMIN_PASSWORD` | Un admin que ya exista, en lugar de crearlo con la CLI |
 
-`support/global-setup.ts` crea sus propias cuentas (un admin con la CLI y un editor y dos miembros por la API, con contraseñas aleatorias que solo viven en memoria), publica 21 series pequeñas para la paginación y espera a que F-UJI termine la evaluación de los datasets sintéticos. No hay credenciales ni datos fijos.
+`support/global-setup.ts` crea sus propias cuentas (un admin con la CLI y un editor y dos miembros por la API, con contraseñas aleatorias que solo viven en memoria), crea el catálogo `browser-pruebas` (decisión 49: cada serie pertenece a uno), publica en él 21 series pequeñas para la paginación y espera a que F-UJI termine la evaluación de los datasets sintéticos. No hay credenciales ni datos fijos.
 
 Solo habla con `BASE_URL` y `API_URL`: úsalo contra el entorno local o de pruebas del proyecto.
 

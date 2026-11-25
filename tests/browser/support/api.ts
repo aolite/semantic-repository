@@ -81,8 +81,33 @@ export function seriesTurtle(slug: string, title: string, versions: Record<strin
   return out.join('\n') + '\n'
 }
 
-export async function publishSeries(token: string, turtle: string): Promise<number> {
-  const response = await api('/datasets', {
+/** Catálogo de las series que publican las pruebas (decisión 49: cada serie está en uno). */
+export const BROWSER_CATALOG = 'browser-pruebas'
+
+/** Crea el catálogo de las pruebas. Idempotente: si ya existe (409), no hace nada. */
+export async function ensureCatalog(token: string, slug: string = BROWSER_CATALOG): Promise<void> {
+  const response = await api('/catalogs', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      slug,
+      title: 'Catálogo de las pruebas de pantallas',
+      description: 'Catálogo ficticio creado por las pruebas de Playwright.',
+      publisher_name: 'Pruebas de QA',
+    }),
+    token,
+  })
+  if (![201, 409].includes(response.status)) {
+    throw new Error(`crear el catálogo falló: ${response.status} ${(await response.text()).slice(0, 300)}`)
+  }
+}
+
+export async function publishSeries(
+  token: string,
+  turtle: string,
+  catalog: string = BROWSER_CATALOG,
+): Promise<number> {
+  const response = await api(`/datasets?catalog=${encodeURIComponent(catalog)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'text/turtle' },
     body: turtle,
@@ -92,6 +117,58 @@ export async function publishSeries(token: string, turtle: string): Promise<numb
     throw new Error(`publicar falló: ${response.status} ${(await response.text()).slice(0, 300)}`)
   }
   return response.status
+}
+
+/** Un slug nuevo y único para los recursos que crea una prueba. */
+export function uniqueSlug(prefix: string): string {
+  return `${prefix}-${Math.random().toString(16).slice(2, 8)}`
+}
+
+async function jsonCall(method: string, path: string, token: string, body?: unknown): Promise<Response> {
+  return api(path, {
+    method,
+    headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+    token,
+  })
+}
+
+/** Crea un catálogo por la API (datos ficticios). Falla si no es 201. */
+export async function apiCreateCatalog(token: string, slug: string, title = `Catálogo ${slug}`): Promise<void> {
+  const response = await jsonCall('POST', '/catalogs', token, {
+    slug,
+    title,
+    description: 'Catálogo ficticio de las pruebas de pantallas.',
+    publisher_name: 'Pruebas de QA',
+  })
+  if (response.status !== 201) throw new Error(`crear catálogo ${slug}: ${response.status}`)
+}
+
+/** Crea un dataset (serie sin versiones) en un catálogo por la API. */
+export async function apiCreateDataset(
+  token: string,
+  catalog: string,
+  slug: string,
+  title = `Dataset ${slug}`,
+  publisherName?: string,
+): Promise<void> {
+  const response = await jsonCall('POST', `/catalogs/${catalog}/datasets`, token, {
+    slug,
+    title,
+    description: 'Dataset ficticio de las pruebas de pantallas.',
+    ...(publisherName ? { publisher_name: publisherName } : {}),
+  })
+  if (response.status !== 201) throw new Error(`crear dataset ${slug}: ${response.status}`)
+}
+
+export async function apiWithdraw(token: string, kind: 'catalogs' | 'datasets', slug: string): Promise<void> {
+  const response = await jsonCall('DELETE', `/${kind}/${slug}`, token)
+  if (response.status !== 204) throw new Error(`dar de baja ${slug}: ${response.status}`)
+}
+
+export async function apiMoveDataset(token: string, slug: string, catalog: string): Promise<void> {
+  const response = await jsonCall('PATCH', `/datasets/${slug}`, token, { catalog })
+  if (response.status !== 200) throw new Error(`mover ${slug}: ${response.status}`)
 }
 
 export async function uploadFile(

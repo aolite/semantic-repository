@@ -34,6 +34,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from rdflib import Graph
 from sqlalchemy import Engine, create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -91,10 +92,74 @@ def uris() -> Uris:
     return Uris(BASE_URI)
 
 
+# Catálogo de las pruebas (decisión 49): las series de prueba («prueba», «oculta»…) llevan
+# «<catalogo/pruebas> dcat:dataset <serie>», y el backend exige que el catálogo exista.
+TEST_CATALOG = "pruebas"
+TEST_CATALOG_URI = f"{BASE_URI}catalogo/{TEST_CATALOG}"
+MEMBERSHIP = f"<catalogo/{TEST_CATALOG}> <http://www.w3.org/ns/dcat#dataset> <dataset/{{slug}}> .\n"
+
+
+def membership(slug: str = "prueba") -> str:
+    """Triple de pertenencia de la serie ``slug`` al catálogo de pruebas (Turtle)."""
+    return MEMBERSHIP.format(slug=slug)
+
+
+# Catálogos que siembra la fixture ``store``: el de pruebas y ``sintetico`` (el de los datos
+# de semantic/, para publicar sus series en un triplestore vacío). ``load_fixture_data`` y
+# ``load-semantic`` sustituyen ``sintetico`` por el de data/catalogos/sintetico.ttl.
+SEEDED_CATALOGS = (TEST_CATALOG_URI, f"{BASE_URI}catalogo/sintetico")
+
+
+def seed_test_catalog(store: MemoryStore) -> None:
+    """Crea los catálogos de ``SEEDED_CATALOGS`` (sin enlazarlos desde el raíz)."""
+    for uri in SEEDED_CATALOGS:
+        graph = Graph()
+        graph.parse(
+            data=f"""
+@prefix dcat: <http://www.w3.org/ns/dcat#> .
+@prefix dct:  <http://purl.org/dc/terms/> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+<{uri}> a dcat:Catalog ; dct:title "Catálogo de pruebas"@es ;
+    dct:description "Catálogo de las pruebas del backend"@es ;
+    dct:publisher [ a foaf:Agent ; foaf:name "Pruebas" ] .
+""",
+            format="turtle",
+        )
+        store.put_graph(uri, graph)
+
+
+def user_graphs(store: MemoryStore) -> set[str]:
+    """Grafos del triplestore sin los catálogos que siembra la fixture ``store``."""
+    return store.graph_names() - set(SEEDED_CATALOGS)
+
+
+def fake_fuseki_read(request: object) -> str:
+    """N-Triples para un Fuseki simulado con ``httpx.MockTransport``: el catálogo de pruebas
+    existe (decisión 49: publicar exige que el catálogo exista); el resto, vacío."""
+    content = getattr(request, "content", b"").decode()
+    if "query=" in content and "catalogo%2Fpruebas%3E" in content and "GRAPH" in content:
+        return (
+            f"<{TEST_CATALOG_URI}> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> "
+            "<http://www.w3.org/ns/dcat#Catalog> .\n"
+        )
+    return ""
+
+
+def without_membership(graph: Graph) -> Graph:
+    """El grafo sin «<catálogo> dcat:dataset <serie>»: así queda guardada la serie."""
+    result = Graph()
+    for triple in graph:
+        if str(triple[1]) != "http://www.w3.org/ns/dcat#dataset":
+            result.add(triple)
+    return result
+
+
 @pytest.fixture
 def store() -> MemoryStore:
-    """Doble en memoria de Fuseki (rdflib ``Dataset``), vacío en cada prueba."""
-    return MemoryStore()
+    """Doble en memoria de Fuseki (rdflib ``Dataset``) con solo el catálogo de pruebas."""
+    memory = MemoryStore()
+    seed_test_catalog(memory)
+    return memory
 
 
 def load_schemes(store: MemoryStore, semantic_dir: Path, uris: Uris) -> None:
@@ -127,7 +192,12 @@ def load_fixture_data(store: MemoryStore, semantic_dir: Path, uris: Uris) -> Non
     data = semantic_dir / "data"
     load_schemes(store, semantic_dir, uris)
     catalog = ingest.parse_file(data / "catalogo.ttl", uris.base)
-    ingest.store_graph(store, uris.catalog, catalog)
+    ingest.store_graph(store, uris.root_catalog, catalog)
+    for path in sorted((data / "catalogos").glob("*.ttl")):
+        graph = ingest.parse_file(path, uris.base)
+        uri = uris.catalog(path.stem)
+        # Sin los dcat:dataset del fichero: la pertenencia la aporta cada serie.
+        ingest.store_graph(store, uri, ingest.merge_catalog(Graph(), graph, uri))
     for path in sorted((data / "sintetico").glob("*.ttl")):
         graph = ingest.parse_file(path, uris.base)
         ingest.publish(store, ingest.prepare_series(graph, uris, semantic_dir))

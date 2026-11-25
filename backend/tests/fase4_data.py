@@ -65,6 +65,7 @@ def series(*versions: str, last: str = "1.0.0", title: str = "Serie de prueba") 
 <dataset/prueba> a dcat:DatasetSeries ;
     dct:title "{title}"@es ; dct:description "Descripción"@es ;
     dcat:last <dataset/prueba/{last}> .
+<catalogo/pruebas> dcat:dataset <dataset/prueba> .
 """
         + "".join(versions)
     )

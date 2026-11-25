@@ -7,13 +7,26 @@ export class ApiError extends Error {
   readonly detail: string | null
   /** Segundos de la cabecera `Retry-After` (429), si la hay. */
   readonly retryAfter: number | null
+  /**
+   * Cuerpo JSON de la respuesta de error tal cual (`GoneResponse`,
+   * `ConflictResponse`, `IngestErrorResponse`, 422 de validación…);
+   * null si no era JSON.
+   */
+  readonly body: unknown
 
-  constructor(status: number, message: string, detail: string | null = null, retryAfter: number | null = null) {
+  constructor(
+    status: number,
+    message: string,
+    detail: string | null = null,
+    retryAfter: number | null = null,
+    body: unknown = null,
+  ) {
     super(message)
     this.name = 'ApiError'
     this.status = status
     this.detail = detail
     this.retryAfter = retryAfter
+    this.body = body
   }
 }
 
@@ -88,25 +101,31 @@ async function send(path: string, options: RequestOptions, accept: string): Prom
   }
 
   if (!response.ok) {
+    const body = await errorBody(response)
     throw new ApiError(
       response.status,
       `La API ha respondido ${response.status}.`,
-      await errorDetail(response),
+      errorDetail(body),
       retryAfterSeconds(response.headers.get('Retry-After')),
+      body,
     )
   }
   return response
 }
 
-/** `detail` de un `ErrorResponse` (solo si es texto; los 422 de validación traen una lista). */
-async function errorDetail(response: Response): Promise<string | null> {
+/** Cuerpo JSON de una respuesta de error; null si está vacío o no es JSON. */
+async function errorBody(response: Response): Promise<unknown> {
   try {
-    const body: unknown = await response.json()
-    if (body && typeof body === 'object' && 'detail' in body && typeof body.detail === 'string') {
-      return body.detail
-    }
+    return (await response.json()) as unknown
   } catch {
-    // Cuerpo vacío o no JSON.
+    return null
+  }
+}
+
+/** `detail` de un `ErrorResponse` (solo si es texto; los 422 de validación traen una lista). */
+function errorDetail(body: unknown): string | null {
+  if (body && typeof body === 'object' && 'detail' in body && typeof body.detail === 'string') {
+    return body.detail
   }
   return null
 }
@@ -135,4 +154,14 @@ export function apiRequestRaw(path: string, accept: string, options: RequestOpti
 export async function apiRequestText(path: string, accept: string, options: RequestOptions = {}): Promise<string> {
   const response = await send(path, options, accept)
   return response.text()
+}
+
+/** Llamada a la API sin cuerpo en la respuesta (p. ej. `DELETE` con 204). */
+export async function apiRequestVoid(path: string, options: RequestOptions = {}): Promise<void> {
+  await send(path, options, 'application/json')
+}
+
+/** Cuerpo JSON y cabecera `Content-Type` para `POST` y `PATCH` de formularios. */
+export function jsonBody(value: unknown): Pick<RequestOptions, 'body' | 'headers'> {
+  return { body: JSON.stringify(value), headers: { 'Content-Type': 'application/json' } }
 }

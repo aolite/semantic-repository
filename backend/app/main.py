@@ -14,8 +14,10 @@ from app.config import Settings, get_settings
 from app.db import get_sessionmaker
 from app.routers import (
     auth,
+    catalogs,
     dataset_files,
     datasets,
+    gone,
     health,
     linked_data,
     linked_data_vocab,
@@ -26,6 +28,7 @@ from app.routers import (
     vocabularies,
 )
 from app.triplestore import TriplestoreError
+from app.write_lock import CatalogLockTimeoutError
 
 API_TITLE = "Repositorio semántico IT&OT · API"
 API_DESCRIPTION = (
@@ -60,6 +63,15 @@ async def validation_exception_handler(
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         content={"detail": jsonable_encoder(errors)},
+    )
+
+
+async def catalog_lock_exception_handler(_request: Request, exc: Exception) -> JSONResponse:
+    """503 si el bloqueo de escritura del catálogo no llega a tiempo (QA-49-03)."""
+    return JSONResponse(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        content={"detail": str(exc)},
+        headers={"Retry-After": "5"},
     )
 
 
@@ -104,14 +116,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.add_exception_handler(RequestValidationError, validation_exception_handler)
     app.add_exception_handler(TriplestoreError, triplestore_exception_handler)
+    app.add_exception_handler(gone.GoneError, gone.gone_exception_handler)
+    app.add_exception_handler(CatalogLockTimeoutError, catalog_lock_exception_handler)
 
     app.include_router(health.router)
     app.include_router(auth.router)
     app.include_router(users.router)
+    app.include_router(catalogs.router)
     app.include_router(datasets.router)
     app.include_router(dataset_files.router)
     app.include_router(sparql.router)
     app.include_router(linked_data.router)
+    app.include_router(linked_data.catalog_router)
     app.include_router(vocabularies.router)
     app.include_router(ontologies.router)
     app.include_router(schemes.router)

@@ -1,9 +1,9 @@
-import { render } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router'
 import { vi } from 'vitest'
-import type { CurrentUser, TokenResponse } from '../api'
+import type { CurrentUser, Role, TokenResponse } from '../api'
 import { AppRoutes } from '../App'
 import { AuthProvider } from '../auth/AuthProvider'
 
@@ -64,4 +64,48 @@ export function mockFetch(routes: Record<string, Handler>) {
   })
   vi.stubGlobal('fetch', fetchMock)
   return fetchMock
+}
+
+/** Respuestas de `POST /auth/token` y `GET /auth/me` para iniciar sesión con un rol. */
+export function authRoutes(role: Role): Record<string, Handler> {
+  return {
+    '/auth/token': () => jsonResponse(tokenFixture({ role })),
+    '/auth/me': () => jsonResponse(userFixture({ role })),
+  }
+}
+
+/**
+ * Renderiza la aplicación, inicia sesión desde el formulario (la sesión vive
+ * en memoria) y vuelve a `route`, como hace el login con `state.from`. El
+ * `fetch` tiene que incluir `authRoutes(role)`.
+ */
+export async function renderLoggedIn(route: string) {
+  const user = userEvent.setup()
+  const result = render(
+    <AuthProvider>
+      <MemoryRouter initialEntries={[{ pathname: '/login', state: { from: route } }]}>
+        <AppRoutes />
+      </MemoryRouter>
+    </AuthProvider>,
+  )
+  await user.type(screen.getByLabelText('Usuario'), 'usuario-prueba')
+  await user.type(screen.getByLabelText('Contraseña'), 'contrasena-prueba')
+  await user.click(screen.getByRole('button', { name: 'Iniciar sesión' }))
+  await screen.findByRole('button', { name: 'Cerrar sesión' })
+  return { user, ...result }
+}
+
+/** Cuerpo JSON de la última llamada a `fetch` con ese método y ruta. */
+export function lastBody(fetchMock: ReturnType<typeof mockFetch>, method: string, path: string): unknown {
+  const call = fetchMock.mock.calls.filter(
+    ([url, init]) => new URL(String(url)).pathname === path && (init?.method ?? 'GET') === method,
+  ).at(-1)
+  return call ? JSON.parse(String(call[1]?.body)) : undefined
+}
+
+/** Llamadas a `fetch` con ese método y ruta. */
+export function callsTo(fetchMock: ReturnType<typeof mockFetch>, method: string, path: string) {
+  return fetchMock.mock.calls.filter(
+    ([url, init]) => new URL(String(url)).pathname === path && (init?.method ?? 'GET') === method,
+  )
 }

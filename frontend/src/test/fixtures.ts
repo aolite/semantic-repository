@@ -4,12 +4,15 @@
  * tipadas, el build falla si se desalinean de `src/api/types.ts`.
  */
 import type {
+  CatalogDetail,
+  CatalogSummary,
   DatasetCard,
   DatasetDetail,
   DatasetPage,
   DcatMetadata,
   DistributionRead,
   FairSummary,
+  GoneResponse,
   VersionDetail,
   VersionSummary,
 } from '../api'
@@ -165,4 +168,42 @@ export function detailFixture(overrides: Partial<DatasetDetail> = {}): DatasetDe
 
 export function textResponse(body: string, contentType: string, status = 200): Response {
   return new Response(body, { status, headers: { 'Content-Type': contentType } })
+}
+
+/* Catálogos y bajas (decisión 49). */
+
+export function catalogSummaryFixture(overrides: Partial<CatalogSummary> = {}): CatalogSummary {
+  return {
+    slug: 'catalogo-prueba',
+    uri: `${BASE}catalogo/catalogo-prueba`,
+    title: 'Catálogo de prueba',
+    description: 'Descripción del catálogo de prueba.',
+    publisher: { uri: null, label: 'Publicador de prueba' },
+    dataset_count: 1,
+    ...overrides,
+  }
+}
+
+export function catalogDetailFixture(overrides: Partial<CatalogDetail> = {}): CatalogDetail {
+  return {
+    slug: 'catalogo-prueba',
+    uri: `${BASE}catalogo/catalogo-prueba`,
+    title: 'Catálogo de prueba',
+    description: 'Descripción del catálogo de prueba.',
+    publisher: { uri: null, label: 'Publicador de prueba' },
+    dataset_count: 1,
+    datasets: [{ slug: 'dataset-prueba', uri: `${BASE}dataset/dataset-prueba`, title: 'Dataset de prueba' }],
+    ...overrides,
+  }
+}
+
+export function goneFixture(overrides: Partial<GoneResponse> = {}): GoneResponse {
+  return {
+    detail: 'Recurso dado de baja',
+    uri: `${BASE}dataset/dataset-baja`,
+    resource: 'dataset',
+    title: 'Dataset dado de baja de prueba',
+    withdrawn_at: '2000-01-02T03:04:05Z',
+    ...overrides,
+  }
 }

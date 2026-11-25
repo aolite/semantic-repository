@@ -4,7 +4,8 @@
  *
  * Parámetros (en castellano, como `?version=` y `?concepto=`):
  * `q`, `dominio` (`it`, `ot`, `pqc`, `ia`), `tipo` (`datasets` o
- * `vocabularios`) y `pagina` (desde 1). Los valores por defecto no se
+ * `vocabularios`), `catalogo` (slug de un catálogo, decisión 49) y `pagina`
+ * (desde 1). Los valores por defecto no se
  * escriben y los desconocidos se ignoran.
  */
 import type { DomainSlug } from '../api'
@@ -17,10 +18,18 @@ export interface CatalogUrlState {
   q: string
   domain: DomainFilter
   type: TypeFilter
+  /** Slug del catálogo; null para todos. */
+  catalog: string | null
   page: number
 }
 
-export const CATALOG_PARAM = { q: 'q', domain: 'dominio', type: 'tipo', page: 'pagina' } as const
+export const CATALOG_PARAM = { q: 'q', domain: 'dominio', type: 'tipo', catalog: 'catalogo', page: 'pagina' } as const
+
+const SLUG = /^[a-z0-9]+(-[a-z0-9]+)*$/
+
+function catalogFromUrl(value: string | null): string | null {
+  return value && value.length <= 200 && SLUG.test(value) ? value : null
+}
 
 const TYPE_TO_URL: Record<Exclude<TypeFilter, 'all'>, string> = { dataset: 'datasets', vocab: 'vocabularios' }
 
@@ -43,13 +52,14 @@ export function readCatalogParams(params: URLSearchParams): CatalogUrlState {
     q: (params.get(CATALOG_PARAM.q) ?? '').trim(),
     domain: isDomainSlug(domain) ? domain : 'all',
     type: typeFromUrl(params.get(CATALOG_PARAM.type)),
+    catalog: catalogFromUrl(params.get(CATALOG_PARAM.catalog)),
     page: pageFromUrl(params.get(CATALOG_PARAM.page)),
   }
 }
 
 /**
  * Devuelve los parámetros con `changes` aplicados. Cambiar la búsqueda, el
- * dominio o el tipo vuelve a la primera página (salvo que se indique `page`).
+ * dominio, el tipo o el catálogo vuelve a la primera página (salvo que se indique `page`).
  * Conserva los parámetros ajenos al Catálogo.
  */
 export function writeCatalogParams(params: URLSearchParams, changes: Partial<CatalogUrlState>): URLSearchParams {
@@ -59,13 +69,15 @@ export function writeCatalogParams(params: URLSearchParams, changes: Partial<Cat
   const filtersChanged =
     (changes.q !== undefined && changes.q.trim() !== current.q) ||
     (changes.domain !== undefined && changes.domain !== current.domain) ||
-    (changes.type !== undefined && changes.type !== current.type)
+    (changes.type !== undefined && changes.type !== current.type) ||
+    (changes.catalog !== undefined && changes.catalog !== current.catalog)
   if (filtersChanged && changes.page === undefined) state.page = 1
 
   const set = (key: string, value: string | null) => (value ? next.set(key, value) : next.delete(key))
   set(CATALOG_PARAM.q, state.q.trim() || null)
   set(CATALOG_PARAM.domain, state.domain === 'all' ? null : state.domain)
   set(CATALOG_PARAM.type, state.type === 'all' ? null : TYPE_TO_URL[state.type])
+  set(CATALOG_PARAM.catalog, state.catalog)
   set(CATALOG_PARAM.page, state.page > 1 ? String(state.page) : null)
   return next
 }

@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from rdflib import URIRef
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 from typer.testing import CliRunner
@@ -22,7 +23,8 @@ from app.config import get_settings
 from app.models import AuditAction, AuditEvent, OntologyMetricsRecord
 from app.storage import DiskStorage
 from app.triplestore import MemoryStore
-from tests.conftest import BASE_URI, FIXTURE_DATA_DIR
+from app.uris import DCAT, DCT
+from tests.conftest import BASE_URI, FIXTURE_DATA_DIR, user_graphs
 
 runner = CliRunner()
 
@@ -106,8 +108,18 @@ def test_load_semantic_loads_everything(
 ) -> None:
     result = runner.invoke(cli_module.cli, ["load-semantic"])
     assert result.exit_code == 0, result.output
-    assert store.graph_names() == EXPECTED_GRAPHS
-    assert f"{BASE_URI}vocab/" not in store.graph_names()  # cada esquema en su grafo
+    assert user_graphs(store) == EXPECTED_GRAPHS
+    assert f"{BASE_URI}vocab/" not in user_graphs(store)  # cada esquema en su grafo
+    # Decisión 49: el catálogo «sintetico» sale de data/catalogos/sintetico.ttl, con sus
+    # tres series, y el raíz lo agrupa sin listar series.
+    sintetico = f"{BASE_URI}catalogo/sintetico"
+    catalog = store.get_graph(sintetico)
+    titles = {str(t) for t in catalog.objects(URIRef(sintetico), DCT.title)}
+    assert titles == {"Datasets sintéticos de demostración"}
+    assert len(set(catalog.objects(URIRef(sintetico), DCAT.dataset))) == 3
+    root = store.get_graph(f"{BASE_URI}catalogo")
+    assert set(root.objects(URIRef(f"{BASE_URI}catalogo"), DCAT.catalog)) == {URIRef(sintetico)}
+    assert not list(root.objects(URIRef(f"{BASE_URI}catalogo"), DCAT.dataset))
     assert "modbus-tcp-testbed.ttl" in result.output
     assert "versiones 1.0.0, 2.0.0, 2.1.0" in result.output
     assert "data/vocab-minimo.ttl (dominio)" in result.output
@@ -130,14 +142,16 @@ def test_load_semantic_loads_everything(
 
 def test_load_semantic_is_idempotent(store: MemoryStore, metric_calls: list[str]) -> None:
     runner.invoke(cli_module.cli, ["load-semantic"])
-    snapshot = {name: len(store.get_graph(name)) for name in store.graph_names()}
+    snapshot = {name: len(store.get_graph(name)) for name in user_graphs(store)}
     metric_calls.clear()
     result = runner.invoke(cli_module.cli, ["load-semantic"])
     assert result.exit_code == 0, result.output
-    assert result.output.count("sin cambios") == len(EXPECTED_GRAPHS) + len(SYNTHETIC_FILES)
+    # + 1: el catálogo «sintetico» (decisión 49), que user_graphs no cuenta porque la
+    # fixture ``store`` lo siembra.
+    assert result.output.count("sin cambios") == len(EXPECTED_GRAPHS) + 1 + len(SYNTHETIC_FILES)
     assert result.output.count("métricas al día") == len(ONTOLOGY_VERSIONS)
     assert metric_calls == []  # el contenido no ha cambiado: no se recalcula
-    assert {name: len(store.get_graph(name)) for name in store.graph_names()} == snapshot
+    assert {name: len(store.get_graph(name)) for name in user_graphs(store)} == snapshot
 
 
 @pytest.mark.skipif(not owl_metrics.java_available(), reason="Pellet necesita Java")
@@ -192,7 +206,7 @@ def test_file_path_must_match_uri(
     result = runner.invoke(cli_module.cli, ["load-semantic"])
     assert result.exit_code == 1
     assert target in result.output
-    assert store.graph_names() == set()
+    assert user_graphs(store) == set()
 
 
 def test_duplicate_scheme_aborts(
@@ -206,7 +220,7 @@ def test_duplicate_scheme_aborts(
     _use_semantic_dir(monkeypatch, broken)
     result = runner.invoke(cli_module.cli, ["load-semantic"])
     assert result.exit_code == 1
-    assert store.graph_names() == set()
+    assert user_graphs(store) == set()
 
 
 def test_invalid_file_aborts_without_loading(
@@ -227,7 +241,7 @@ def test_invalid_file_aborts_without_loading(
     assert result.exit_code == 1
     assert "zz-roto.ttl" in result.output
     assert "no se ha cargado nada" in result.output
-    assert store.graph_names() == set()
+    assert user_graphs(store) == set()
 
 
 def test_missing_data_dir_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
