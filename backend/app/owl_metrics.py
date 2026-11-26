@@ -360,11 +360,17 @@ def _profile(graph: Graph) -> tuple[str, list[str]]:
     return "OWL 2 DL", compatible
 
 
-def compute_metrics(graph: Graph, ontology_iri: str) -> OntologyMetrics:
-    """Métricas de la versión. El grafo es el de la versión, con sus ``owl:imports``."""
+def compute_metrics(
+    graph: Graph, ontology_iri: str, namespace: str | None = None
+) -> OntologyMetrics:
+    """Métricas de la versión. El grafo es el de la versión, con sus ``owl:imports``.
+
+    ``namespace``: espacio de nombres de las entidades que cuentan como propias; por
+    defecto ``{ontología}#`` (ontologías propias). En las externas (decisión 51) es el
+    ``vann:preferredNamespaceUri`` de su registro de referencia."""
     imports = declared_imports(graph)
     plain = without_imports(graph)
-    own = f"{ontology_iri}#"
+    own = namespace or f"{ontology_iri}#"
     with _LOCK:
         _world, onto = _load_world(graph, ontology_iri)
         try:

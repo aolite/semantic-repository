@@ -331,6 +331,7 @@ class IngestErrorResponse(BaseModel):
         "replacement",
         "deprecated_theme",
         "unknown_theme",
+        "version_exists",
     ] = Field(
         description="limit: se ha superado un límite de la ingesta (tripletas, tamaño "
         "expandido, IRI, profundidad o tiempo o memoria de la validación SHACL). "
@@ -353,7 +354,13 @@ class IngestErrorResponse(BaseModel):
         "unknown_theme (422): una versión nueva de dataset usa como tema una IRI de "
         "{BASE_URI}vocab/ que no es un concepto de un esquema vivo, porque no existe o "
         "porque su esquema se dio de baja (en issues, value); los temas externos no se "
-        "comprueban"
+        "comprueban. "
+        "Decisión 51 (sustitución de una ontología externa): structure (422) también si un "
+        "campo del formulario no es válido (en issues, path = nombre del campo) o si el "
+        "fichero no declara «<IRI oficial> a owl:Ontology»; uri (422) si el fichero describe "
+        "recursos bajo BASE_URI; version_exists (409): el grafo de la versión "
+        "{BASE_URI}onto/externas/{slug}/{n} ya existe y la referencia ya lo cuenta (otra "
+        "sustitución se ha adelantado); no se escribe nada"
     )
     issues: list[IngestIssue]
     report: str | None = Field(description="Informe SHACL en texto (solo kind=shacl)")
@@ -370,7 +377,9 @@ class ForbiddenResponse(BaseModel):
     """403 de las escrituras. Sin ``kind``: el rol no basta (hace falta editor o admin).
     Con ``kind=not_managed`` (decisión 50, regla 12): el recurso es una ontología externa
     o un esquema auxiliar (``vocab/dominio``, ``vocab/tipo-dataset``), que no se gestionan
-    desde la aplicación con ningún rol: solo cambian con sus ficheros y ``load-semantic``."""
+    desde la aplicación con ningún rol. Única excepción (decisión 51): una ontología externa
+    se puede **sustituir entera** (``POST /ontologies/externas/{slug}/versions``); crearla,
+    editarla campo a campo, darla de baja o catalogarla sigue dando ``not_managed``."""
 
     detail: str
     kind: ForbiddenKind | None = None
@@ -455,7 +464,9 @@ class MetricsSummary(BaseModel):
 class VocabularyCard(BaseModel):
     kind: VocabularyKind
     slug: str | None = Field(
-        description="Slug de la ontología o del esquema (sin 'corp/'); null en las externas"
+        description="Slug de la ontología o del esquema (sin 'corp/'). En las externas "
+        "(decisión 51), el de sus versiones {BASE_URI}onto/externas/{slug}/{n}: su prefijo VANN "
+        "(el de la primera sustitución, si ya tiene versiones); null si no tiene prefijo"
     )
     uri: str
     rdf_type: Literal["owl:Ontology", "skos:ConceptScheme"]
@@ -468,7 +479,8 @@ class VocabularyCard(BaseModel):
     status: VocabularyStatus
     version: str | None
     metrics: MetricsSummary | None = Field(
-        description="Ontologías propias con métricas calculadas; null en el resto"
+        description="Ontologías propias con métricas calculadas y externas con versión "
+        "actual (las de esa versión, decisión 51); null en el resto"
     )
     concepts: int | None = Field(description="Número de conceptos (solo esquemas)")
     catalog: CatalogRef | None = Field(
@@ -784,6 +796,68 @@ class OntologyIngestResult(BaseModel):
     consistency: ConsistencyRead
     documentation: DocumentationCoverageRead
     catalog: str | None = Field(default=None, description="URI del catálogo (decisión 50)")
+
+
+# --- Decisión 51: versiones de las ontologías externas ------------------------------------
+
+
+class ExternalVersionRead(BaseModel):
+    """Una versión ``{BASE_URI}onto/externas/{slug}/{n}`` de una ontología externa."""
+
+    number: int = Field(description="n: número de sustitución (1, 2, 3…)")
+    version: str = Field(description="dcat:version: n como texto")
+    uri: str = Field(description="{BASE_URI}onto/externas/{slug}/{n}; también su grafo")
+    version_info: str | None = Field(description="owl:versionInfo: la versión del publicador")
+    generated_at: str | None = Field(description="prov:generatedAtTime (hora del servidor)")
+    previous_version: str | None = Field(description="dcat:previousVersion (la n-1)")
+    notes: str | None = Field(description="adms:versionNotes (es)")
+    current: bool = Field(description="Es la de dcat:hasCurrentVersion (la última)")
+    metrics: OntologyMetricsRead | None = Field(description="null si no se han calculado")
+    profile: OwlProfile | None
+    consistency: ConsistencyRead | None
+    documentation: DocumentationCoverageRead | None
+    metrics_computed_at: datetime | None
+    metrics_tool: str | None
+
+
+class ExternalOntologyDetail(BaseModel):
+    """Ficha de una ontología externa: su registro de referencia y sus versiones."""
+
+    slug: str = Field(description="Slug de sus versiones (su prefijo VANN en la primera)")
+    uri: str = Field(description="IRI oficial de la ontología")
+    kind: Literal["external"]
+    status: Literal["referenced"]
+    title: str | None
+    description: str | None
+    prefix: str | None = Field(description="vann:preferredNamespacePrefix actual")
+    namespace: str | None = Field(description="vann:preferredNamespaceUri")
+    version: str | None = Field(description="owl:versionInfo de la referencia (la actual)")
+    publisher: str | None = Field(description="foaf:name del dct:publisher")
+    current_version: ExternalVersionRead | None = Field(
+        description="La versión actual (dcat:hasCurrentVersion); null si aún no se ha "
+        "sustituido nunca (solo referencia, sin métricas)"
+    )
+    versions: list[ExternalVersionRead] = Field(
+        description="Todas sus versiones, de la más reciente a la más antigua"
+    )
+
+
+class ExternalReplaceResult(BaseModel):
+    """Resultado de una sustitución (decisión 51)."""
+
+    slug: str
+    uri: str = Field(description="IRI oficial de la ontología")
+    number: int = Field(description="n de la versión nueva")
+    version: str = Field(description="n como texto (dcat:version)")
+    version_uri: str = Field(description="{BASE_URI}onto/externas/{slug}/{n}")
+    graph: str = Field(description="Grafo con nombre de la versión (su URI)")
+    previous_version: str | None
+    generated_at: str = Field(description="prov:generatedAtTime (hora del servidor)")
+    triples: int = Field(description="Triples del grafo de la versión (fichero y registro)")
+    metrics: OntologyMetricsRead
+    profile: OwlProfile
+    consistency: ConsistencyRead
+    documentation: DocumentationCoverageRead
 
 
 class SchemeIngestResult(BaseModel):

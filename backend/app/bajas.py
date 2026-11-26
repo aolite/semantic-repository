@@ -31,7 +31,7 @@ import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from rdflib import Graph, Literal, URIRef
+from rdflib import BNode, Graph, Literal, URIRef
 from rdflib.namespace import RDF, XSD
 
 from app.sparql import SparqlTerm, iri, literal, render
@@ -293,3 +293,66 @@ def set_resource_membership(
     """Deja el esquema o la ontología solo en ``catalog_uri`` (una petición de Update).
     Devuelve los catálogos de los que se quitó."""
     return _set_member(store, uris, DCAT.resource, resource_uri, catalog_uri)
+
+
+# --- Reescribir un sujeto de un grafo compartido (decisión 51) ------------------------
+
+_DELETE_SUBJECT = """DELETE { GRAPH $graph { ?b ?bp ?bo } }
+WHERE { GRAPH $graph { $s ?p ?b . FILTER(isBlank(?b)) ?b ?bp ?bo } } ;
+DELETE WHERE { GRAPH $graph { $s ?p ?o } }"""
+_INSERT_SUBJECT = "INSERT { GRAPH $graph { $patterns } } WHERE { $binds }"
+
+
+def subject_description(graph: Graph, subject: URIRef) -> Graph:
+    """Los triples de ``subject`` y de los nodos en blanco que cuelgan de él."""
+    result = Graph()
+    pending: list = [subject]
+    seen: set = set()
+    while pending:
+        node = pending.pop()
+        if node in seen:
+            continue
+        seen.add(node)
+        for triple in graph.triples((node, None, None)):
+            result.add(triple)
+            if isinstance(triple[2], BNode):
+                pending.append(triple[2])
+    return result
+
+
+def replace_subject_update(graph_uri: str, subject: str, description: Graph) -> str:
+    """**Una** petición de SPARQL Update que sustituye, dentro de ``graph_uri``, lo que se
+    dice de ``subject`` (y de los nodos en blanco que cuelgan directamente de él, como el
+    publicador) por ``description``, sin tocar el resto del grafo. Fuseki la aplica en una
+    transacción: nunca queda el sujeto a medias.
+
+    Los literales van con ``BIND`` de expresiones seguras (``_literal_expression``), como
+    en ``withdraw_resource_update``; los nodos en blanco, como ``_:bN`` de la plantilla
+    (uno nuevo en cada petición)."""
+    labels: dict[BNode, str] = {}
+    patterns: list[str] = []
+    binds: list[str] = []
+
+    def term(node: object, index: int, position: str) -> str:
+        if isinstance(node, URIRef):
+            return iri(str(node)).text
+        if isinstance(node, BNode) and position != "p":
+            return labels.setdefault(node, f"_:b{len(labels)}")
+        if isinstance(node, Literal) and position == "o":
+            name = f"?o{index}"
+            binds.append(f"BIND({_literal_expression(node)} AS {name})")
+            return name
+        raise ValueError("Término no admitido en la descripción del sujeto")
+
+    for index, (s, p, o) in enumerate(sorted(description)):
+        patterns.append(f"{term(s, index, 's')} {term(p, index, 'p')} {term(o, index, 'o')} .")
+    delete = render(_DELETE_SUBJECT, graph=iri(graph_uri), s=iri(subject))
+    if not patterns:
+        return delete
+    insert = render(
+        _INSERT_SUBJECT,
+        graph=iri(graph_uri),
+        patterns=SparqlTerm(" ".join(patterns)),
+        binds=SparqlTerm(" ".join(binds)),
+    )
+    return f"{delete} ;\n{insert}"

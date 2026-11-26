@@ -4,7 +4,9 @@ lectura pública.
 Decisión 50: cada ontología propia está en un catálogo (``?catalog={slug}`` al publicar
 una versión), se mueve de catálogo (``PATCH``; sus metadatos están en cada versión, que es
 inmutable) y se da de baja con lápida y 410 (también sus versiones, por el prefijo). Las
-externas no se gestionan desde la aplicación: 403 ``not_managed``.
+externas no se crean, ni se editan, ni se dan de baja, ni se catalogan: 403
+``not_managed``. Su única escritura es la sustitución entera (decisión 51,
+``app.routers.externals``).
 """
 
 from typing import Annotated
@@ -49,8 +51,9 @@ VersionQuery = Annotated[
 NOT_FOUND = {"model": schemas.ErrorResponse, "description": "La ontología o la versión no existe"}
 FORBIDDEN = {
     "model": schemas.ForbiddenResponse,
-    "description": "Requiere rol editor o admin; o kind=not_managed: las ontologías externas "
-    "no se gestionan desde la aplicación",
+    "description": "Requiere rol editor o admin; o kind=not_managed: una ontología externa "
+    "no se crea, ni se edita campo a campo, ni se da de baja, ni se cataloga; solo se "
+    "sustituye entera (POST /ontologies/externas/{slug}/versions, decisión 51)",
 }
 UNAVAILABLE = {
     "model": schemas.ErrorResponse,

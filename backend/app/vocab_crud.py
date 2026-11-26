@@ -125,12 +125,17 @@ _TERM_USES = (
 
 
 def _not_managed(what: str) -> CrudError:
-    return CrudError(
-        403,
-        f"{what} no se gestiona desde la aplicación: solo cambia con su fichero de "
-        "semantic/ y load-semantic",
-        kind="not_managed",
-    )
+    if what == "Una ontología externa":  # decisión 51: la única escritura es sustituirla
+        detail = (
+            f"{what} no se edita campo a campo, ni se da de baja, ni se cataloga: solo se "
+            "sustituye entera (POST /ontologies/externas/{slug}/versions)"
+        )
+    else:
+        detail = (
+            f"{what} no se gestiona desde la aplicación: solo cambia con su fichero de "
+            "semantic/ y load-semantic"
+        )
+    return CrudError(403, detail, kind="not_managed")
 
 
 # --- Usos (regla 8) ---------------------------------------------------------------------

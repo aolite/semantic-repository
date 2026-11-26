@@ -17,6 +17,7 @@ from app.routers import (
     catalogs,
     dataset_files,
     datasets,
+    externals,
     gone,
     health,
     linked_data,
@@ -129,6 +130,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(linked_data.router)
     app.include_router(linked_data.catalog_router)
     app.include_router(vocabularies.router)
+    app.include_router(externals.router)  # antes que /ontologies/{slug}/rdf
     app.include_router(ontologies.router)
     app.include_router(schemes.router)
     app.include_router(linked_data_vocab.onto_router)

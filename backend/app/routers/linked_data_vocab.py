@@ -4,6 +4,9 @@
   (``{BASE_URI}onto/{slug}#Clase``) se resuelven con ella: el fragmento no llega al
   servidor.
 - ``{BASE_URI}onto/{slug}/{version}``: esa versión.
+- ``{BASE_URI}onto/externas/{slug}/{n}`` (decisión 51): la versión ``n`` de una ontología
+  externa (fichero oficial y registro). ``{BASE_URI}onto/externas/{slug}``: 303 a la ficha
+  (HTML) o a la versión actual (RDF).
 - ``{BASE_URI}vocab/{slug}`` y ``{BASE_URI}vocab/corp/{slug}``: el esquema completo.
 - ``{BASE_URI}vocab/{slug}/{concepto}`` y ``…/corp/{slug}/{concepto}``: el concepto.
 
@@ -30,14 +33,20 @@ from fastapi import APIRouter, HTTPException, Path, Request, Response, status
 from fastapi.responses import RedirectResponse
 from rdflib import Graph
 
-from app import bajas, catalog, schemas, vocabularies
+from app import bajas, catalog, external_versions, schemas, vocabularies
 from app.deps import SettingsDep, StoreDep, UrisDep
 from app.negotiation import HTML, JSONLD, RDFXML, TURTLE, negotiate
 from app.routers.datasets import RDF_BODY_SCHEMA
 from app.routers.linked_data import RESPONSES as DATASET_RESPONSES
 from app.routers.linked_data import gone
 from app.routers.rdf_formats import graph_response
-from app.uris import SLUG_PATTERN, VERSION_PATTERN, Uris
+from app.uris import (
+    EXTERNAL_ONTOLOGIES_SLUG,
+    EXTERNAL_VERSION_PATTERN,
+    SLUG_PATTERN,
+    VERSION_PATTERN,
+    Uris,
+)
 
 onto_router = APIRouter(prefix="/onto", tags=["linked-data"])
 vocab_router = APIRouter(prefix="/vocab", tags=["linked-data"])
@@ -47,6 +56,7 @@ OFFERED = [HTML, TURTLE, JSONLD, RDFXML]
 
 SlugPath = Annotated[str, Path(pattern=SLUG_PATTERN, max_length=200)]
 VersionPath = Annotated[str, Path(pattern=VERSION_PATTERN, max_length=50)]
+ExternalNumberPath = Annotated[str, Path(pattern=EXTERNAL_VERSION_PATTERN, max_length=9)]
 
 RESPONSES = {
     status.HTTP_200_OK: {
@@ -93,6 +103,81 @@ def _gone_or_404(request: Request, store: StoreDep, uris: Uris, uri: str) -> Res
 
 
 # --- Ontologías ---------------------------------------------------------------------------
+
+
+# Decisión 51: las versiones de las ontologías externas. Van antes que /{slug}/{version}
+# («externas» es un slug reservado de las propias).
+
+
+def _external_url(settings: SettingsDep, slug: str, number: int | None = None) -> str:
+    url = f"{settings.frontend_base_url}/ontologias/externas/{quote(slug)}"
+    return f"{url}?version={number}" if number is not None else url
+
+
+@onto_router.get(
+    f"/{EXTERNAL_ONTOLOGIES_SLUG}/{{slug}}",
+    summary="Serie de versiones de una ontología externa: 303 a la ficha o a la actual",
+    description="Decisión 51. `{BASE_URI}onto/externas/{slug}` no es un recurso RDF: solo "
+    "agrupa las versiones. Sin `Accept`, con `*/*` o con `text/html`: 303 a la ficha de la "
+    "externa en el frontend (`/ontologias/externas/{slug}`). Con un `Accept` de RDF: 303 a "
+    "la versión actual `{BASE_URI}onto/externas/{slug}/{n}`, o 404 si aún no tiene "
+    "versiones. 404 si la externa no existe.",
+    response_class=Response,
+    responses={
+        status.HTTP_303_SEE_OTHER: RESPONSES[status.HTTP_303_SEE_OTHER],
+        status.HTTP_404_NOT_FOUND: RESPONSES[status.HTTP_404_NOT_FOUND],
+        status.HTTP_406_NOT_ACCEPTABLE: RESPONSES[status.HTTP_406_NOT_ACCEPTABLE],
+        status.HTTP_503_SERVICE_UNAVAILABLE: RESPONSES[status.HTTP_503_SERVICE_UNAVAILABLE],
+    },
+)
+def resolve_external_series(
+    request: Request, slug: SlugPath, store: StoreDep, uris: UrisDep, settings: SettingsDep
+) -> Response:
+    media = _choose(request)
+    try:
+        info = external_versions.find_external(
+            external_versions.reference_graph(store, uris), uris, slug
+        )
+    except external_versions.ExternalNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No existe") from exc
+    if media == HTML:
+        target = _external_url(settings, slug)
+    elif info.versions:
+        target = uris.external_version(slug, info.last)
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="La ontología externa aún no tiene versiones: solo hay su referencia",
+        )
+    return RedirectResponse(
+        target, status_code=status.HTTP_303_SEE_OTHER, headers={"Vary": "Accept"}
+    )
+
+
+@onto_router.get(
+    f"/{EXTERNAL_ONTOLOGIES_SLUG}/{{slug}}/{{number}}",
+    summary="URI persistente de una versión de ontología externa",
+    description="Decisión 51. Con un `Accept` de RDF, el grafo de la versión (fichero "
+    "oficial y registro de la versión). Sin `Accept`, con `*/*` o con `text/html`: 303 a la "
+    "ficha de la externa (`/ontologias/externas/{slug}?version={n}`). 404 si la externa no "
+    "lista esa versión.",
+    response_class=Response,
+    responses=RESPONSES,
+)
+def resolve_external_version(
+    request: Request,
+    slug: SlugPath,
+    number: ExternalNumberPath,
+    store: StoreDep,
+    uris: UrisDep,
+    settings: SettingsDep,
+) -> Response:
+    media = _choose(request)
+    try:
+        graph = external_versions.version_rdf(store, uris, slug, int(number))
+    except external_versions.ExternalNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No existe") from exc
+    return _respond(media, graph, uris, _external_url(settings, slug, int(number)))
 
 
 @onto_router.get(

@@ -90,6 +90,8 @@ IngestErrorKind = Literal[
     "deprecated_theme",
     "unknown_theme",
     "not_managed",
+    # Decisión 51.
+    "version_exists",
 ]
 # Errores de ingesta que son un conflicto con lo publicado (409) y no un RDF inválido (422).
 CONFLICT_KINDS = frozenset(
@@ -102,6 +104,7 @@ CONFLICT_KINDS = frozenset(
         "prefix_in_use",
         "concepts_removed",
         "concept_reactivated",
+        "version_exists",
     }
 )
 # Recursos que no se gestionan desde la aplicación (decisión 50, regla 12): 403.

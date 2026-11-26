@@ -341,15 +341,30 @@ def list_vocabularies(
             )
         )
 
-    # Ontologías externas (solo referencia).
+    # Ontologías externas: la referencia y, si ya se han sustituido (decisión 51), el slug
+    # de sus versiones y las métricas de la actual.
+    from app import external_versions  # evita la importación circular
+
     external = _external_graph(store, uris)
+    infos = {info.uri: info for info in external_versions.externals(external, uris)}
+    current_records = metrics_records(
+        session, [i.current for i in infos.values() if i.current is not None]
+    )
     for node in sorted_nodes(external.subjects(RDF.type, OWL.Ontology)):
         if not isinstance(node, URIRef):
             continue
+        info = infos[str(node)]
+        record = current_records.get(info.current) if info.current else None
+        external_summary = None
+        if record is not None:
+            m = record.metrics
+            external_summary = schemas.MetricsSummary(
+                classes=m["classes"], properties=m["object_properties"] + m["data_properties"]
+            )
         cards.append(
             schemas.VocabularyCard(
                 kind="external",
-                slug=None,
+                slug=info.slug,
                 uri=str(node),
                 rdf_type="owl:Ontology",
                 title=_title(external, node),
@@ -358,7 +373,7 @@ def list_vocabularies(
                 description=_description(external, node),
                 status="referenced",
                 version=pick_literal(external.objects(node, OWL.versionInfo)),
-                metrics=None,
+                metrics=external_summary,
                 concepts=None,
                 domain=None,
                 synthetic=_synthetic(external, node, uris),
