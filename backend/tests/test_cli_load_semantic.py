@@ -157,6 +157,9 @@ def test_load_semantic_loads_everything(
     assert records[f"{BASE_URI}onto/itot/1.2.0"].metrics["classes"] > 0
 
 
+EXTERNALS = 3  # ontologías externas de ontologias/externas.ttl
+
+
 def test_load_semantic_is_idempotent(store: MemoryStore, metric_calls: list[str]) -> None:
     runner.invoke(cli_module.cli, ["load-semantic"])
     snapshot = {name: len(store.get_graph(name)) for name in user_graphs(store)}
@@ -164,8 +167,10 @@ def test_load_semantic_is_idempotent(store: MemoryStore, metric_calls: list[str]
     result = runner.invoke(cli_module.cli, ["load-semantic"])
     assert result.exit_code == 0, result.output
     # + 1: el catálogo «sintetico» (decisión 49), que user_graphs no cuenta porque la
-    # fixture ``store`` lo siembra.
-    assert result.output.count("sin cambios") == len(EXPECTED_GRAPHS) + 1 + len(SYNTHETIC_FILES)
+    # fixture ``store`` lo siembra. Decisión 51: externas.ttl se escribe sujeto a sujeto,
+    # con una línea por externa (3) en lugar de una por el grafo.
+    expected = len(EXPECTED_GRAPHS) + 1 + len(SYNTHETIC_FILES) + EXTERNALS - 1
+    assert result.output.count("sin cambios") == expected
     assert result.output.count("métricas al día") == len(ONTOLOGY_VERSIONS)
     assert metric_calls == []  # el contenido no ha cambiado: no se recalcula
     assert {name: len(store.get_graph(name)) for name in user_graphs(store)} == snapshot
