@@ -240,11 +240,24 @@ def _client_calls() -> dict[str, set[str]]:
     return calls
 
 
+# Llamadas del contrato que el frontend de esta rama todavía no hace (el backend va antes
+# que el frontend). Mientras estén aquí, la prueba admite que falten; si el frontend las
+# hace, tienen que llevar los parámetros de ``expected``. Se borran cuando el frontend
+# de la decisión 50 (publicar desde el catálogo) llegue a ``main``.
+PENDING_FRONTEND_CALLS: set[str] = {"/schemes", "/ontologies"}
+
+
 def test_frontend_calls_only_paths_and_parameters_of_the_contract() -> None:
+    # Parámetros de todas las operaciones de cada ruta: desde la decisión 50 el cliente
+    # también llama con `withQuery` a `POST /schemes?catalog=` y `POST /ontologies?catalog=`.
     contract = {
-        re.sub(r"\{[^}]*\}", "{}", path): {p["name"] for p in ops["get"].get("parameters", [])}
+        re.sub(r"\{[^}]*\}", "{}", path): {
+            p["name"]
+            for op in ops.values()
+            if isinstance(op, dict)
+            for p in op.get("parameters", [])
+        }
         for path, ops in _contract()["paths"].items()
-        if "get" in ops
     }
     calls = _client_calls()
     expected = {
@@ -257,8 +270,13 @@ def test_frontend_calls_only_paths_and_parameters_of_the_contract() -> None:
         "/schemes/corp/{}/rdf": {"format", "download"},
         "/schemes/{}/concepts/{}": set(),
         "/schemes/corp/{}/concepts/{}": set(),
+        # QA-50-08: publicar un esquema o una ontología siempre lleva `?catalog=`.
+        "/schemes": {"catalog"},
+        "/ontologies": {"catalog"},
     }
     for path, params in expected.items():
+        if path in PENDING_FRONTEND_CALLS and path not in calls:
+            continue
         assert path in calls, f"el frontend no llama a {path}"
         assert calls[path] == params, path
     for path, params in calls.items():
