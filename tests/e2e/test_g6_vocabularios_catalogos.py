@@ -1540,22 +1540,42 @@ def test_el_prefijo_de_un_recurso_sintetico_tampoco_se_puede_usar(
     assert _issue_values(response) == [f"{base}vocab/ot"]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="QA-50-06 (backend, propuesta): live_prefix_owners mira todas las versiones de una "
-    "ontología, así que el prefijo que una versión nueva dejó de usar sigue ocupado (prefix_in_use)",
-)
-def test_qa_50_06_el_prefijo_antiguo_de_una_version_de_ontologia_no_bloquea_a_otros(
+def test_qa_50_06_el_prefijo_que_una_version_nueva_deja_sigue_reservado_para_su_ontologia(
     stack: Stack, editor: Account, cat_a: str
 ) -> None:
-    """Una ontología cambia de prefijo en su versión 1.1.0: el prefijo que dejó queda libre."""
+    """Decidido el 2026-11-26: el prefijo que una versión posterior deja de usar sigue siendo de la ontología."""
+    base = _base(stack)
     old, new = _slug("pa"), _slug("pb")
     slug, created = publish_ontology(stack, editor.token, cat_a, prefix=old)
     assert created.status == 201
     v2 = ontology_ttl(slug, new, "1.1.0", prior="1.0.0")
     assert _post(stack, f"/ontologies?catalog={cat_a}", v2, editor.token).status == 201
-    taker = _post(stack, f"/schemes?catalog={cat_a}", scheme_ttl(_slug("s"), old), editor.token)
-    assert taker.status == 201, taker.text
+    # Otro recurso (esquema u ontología) no puede tomar el prefijo antiguo: 409 prefix_in_use con la ontología dueña.
+    for response in (
+        _post(stack, f"/schemes?catalog={cat_a}", scheme_ttl(_slug("s"), old), editor.token),
+        _post(stack, f"/ontologies?catalog={cat_a}", ontology_ttl(_slug("o"), old), editor.token),
+    ):
+        assert response.status == 409, response.text
+        assert _json(response)["kind"] == "prefix_in_use"
+        assert _issue_values(response) == [f"{base}onto/{slug}"]
+    # La propia ontología puede recuperarlo en una versión posterior.
+    v3 = ontology_ttl(slug, old, "1.2.0", prior="1.1.0")
+    assert _post(stack, f"/ontologies?catalog={cat_a}", v3, editor.token).status == 201
+
+
+def test_el_prefijo_vann_de_una_ontologia_externa_esta_ocupado(
+    stack: Stack, editor: Account, admin: Account, cat_a: str
+) -> None:
+    """Decidido el 2026-11-26: los prefijos de las externas cuentan como ocupados (regla 14)."""
+    for token in (editor.token, admin.token):
+        for path, body in (
+            (f"/schemes?catalog={cat_a}", scheme_ttl(_slug("s"), "saref")),
+            (f"/ontologies?catalog={cat_a}", ontology_ttl(_slug("o"), "sosa")),
+        ):
+            response = _post(stack, path, body, token)
+            assert response.status == 409, response.text
+            assert _json(response)["kind"] == "prefix_in_use"
+            assert _issue_values(response), response.text
 
 
 def test_qa_50_02_dar_de_baja_un_sustituto_da_409_in_use_por_dct_isreplacedby(

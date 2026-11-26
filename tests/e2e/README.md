@@ -89,9 +89,14 @@ Con la validación del 2026-11-26 las pruebas ya no llevan `xfail` por QA-50-01 
 4. `in_use` por `dct:subject` hacia el esquema mismo y por `dct:conformsTo` de una versión de dataset (a la ontología o a una de sus versiones); `onto/itot` no se puede dar de baja con los datos sintéticos.
 5. **Baja robusta (QA-50-04) con un fallo real a mitad:** una sesión de PostgreSQL retiene una fila con el mismo prefijo para que el `INSERT` del backend espere, se para Fuseki, se suelta la fila y la baja falla en el Update (503). Después se comprueba que el recurso sigue vivo y completo, que su dueño puede republicarlo, que nadie más usa el prefijo y que reintentar completa la baja una sola vez (una lápida, un prefijo, un evento de auditoría). Los títulos con `\u`, `$`, comillas y texto no latino llegan íntegros a la lápida.
 
+### Tercera ronda de la decisión 50
+
+1. **QA-50-06 (decidido el 2026-11-26):** el prefijo que una versión posterior de una ontología deja de usar sigue reservado para ella: otro esquema u ontología recibe 409 `prefix_in_use` (con la ontología en `issues[].value`) y la propia ontología puede recuperarlo. Ya no hay `xfail`. QA-50-07 queda cerrado como no aplicable.
+2. **Prefijos de las externas:** un esquema o una ontología propia con el prefijo `saref` o `sosa` da 409 `prefix_in_use`, con editor y con admin.
+
 ### Defectos abiertos de la decisión 50
 
-Con `xfail(strict=True)`: **QA-50-06** (el prefijo que una versión nueva de una ontología dejó de usar sigue ocupado por sus versiones antiguas: `prefix_in_use`).
+Ninguno: no queda ningún `xfail` de la decisión 50.
 
 ## Puerta G3 · vocabularios cargados
 

@@ -4,6 +4,7 @@ import {
   API_URL,
   api,
   apiCreateCatalog,
+  apiCreateDataset,
   apiDelete,
   apiPublishOntology,
   apiPublishScheme,
@@ -640,4 +641,201 @@ test('403 not_managed contra la API: esquemas auxiliares y ontologías externas,
   })
   expect(member.status).toBe(403)
   expect(await member.json()).not.toHaveProperty('kind')
+})
+
+// --- Publicar desde la ficha de un catálogo, con el catálogo fijado (tercera ronda) ------
+
+async function openCatalogCard(page: Page, slug: string, title: string): Promise<void> {
+  await spaGo(page, `/catalogos/${slug}`)
+  await expect(page.getByRole('heading', { level: 1, name: title })).toBeVisible()
+}
+
+for (const role of [undefined, 'member', 'editor', 'admin'] as const) {
+  test(`ficha de catálogo (${role ?? 'anónimo'}): el grupo «Publicar» ${role === 'editor' || role === 'admin' ? 'se ve' : 'no se ve'}`, async ({ page }) => {
+    const cat = await newCatalog(`pw50-fp-${role ?? 'anon'}`)
+    const check = watchConsole(page)
+    if (role) {
+      await signIn(page, accounts()[role])
+    } else {
+      await page.goto('/')
+    }
+    await openCatalogCard(page, cat.slug, cat.title)
+    const expected = role === 'editor' || role === 'admin' ? 1 : 0
+    await expect(page.getByRole('group', { name: 'Publicar' })).toHaveCount(expected)
+    await expect(page.getByRole('button', { name: 'Importar SKOS' })).toHaveCount(expected)
+    await expect(page.getByRole('button', { name: 'Publicar recurso' })).toHaveCount(expected)
+    if (expected) {
+      const buttons = page.getByRole('group', { name: 'Publicar' }).getByRole('button')
+      await expect(buttons).toHaveText(['Importar SKOS', 'Publicar recurso'])
+      const menu = page.getByRole('button', { name: 'Publicar recurso' })
+      await expect(menu).toHaveAttribute('aria-haspopup', 'menu')
+      await expect(menu).toHaveAttribute('aria-expanded', 'false')
+    }
+    check()
+  })
+}
+
+test('ficha de catálogo: el menú solo ofrece tres opciones (sin «Nuevo catálogo») y se maneja con el teclado', async ({ page }) => {
+  const cat = await newCatalog('pw50-fm')
+  const check = watchConsole(page)
+  await signIn(page, accounts().editor)
+  await openCatalogCard(page, cat.slug, cat.title)
+  const button = page.getByRole('button', { name: 'Publicar recurso' })
+  await button.focus()
+  await page.keyboard.press('Enter')
+  const items = page.getByRole('menu').getByRole('menuitem')
+  await expect(items).toHaveText(['Nuevo dataset', 'Nuevo vocabulario', 'Nueva ontología'])
+  await expect(items.first()).toBeFocused()
+  await expect(button).toHaveAttribute('aria-expanded', 'true')
+  await page.keyboard.press('End')
+  await expect(items.last()).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('menu')).toHaveCount(0)
+  await expect(button).toBeFocused()
+  await expect(button).toHaveAttribute('aria-expanded', 'false')
+  // Cada opción abre un formulario con su título y el catálogo fijado, sin selector; Cancelar devuelve el foco.
+  for (const [item, heading] of [
+    ['Nuevo dataset', 'Nuevo dataset en este catálogo'],
+    ['Nuevo vocabulario', 'Nuevo vocabulario en este catálogo'],
+    ['Nueva ontología', 'Nueva ontología en este catálogo'],
+  ] as const) {
+    await (await openMenu(page)).getByRole('menuitem', { name: item }).click()
+    const form = page.getByRole('region', { name: heading })
+    await expect(form).toBeVisible()
+    await expect(form).toContainText(cat.title)
+    await expect(form.getByLabel('Catálogo', { exact: true })).toHaveCount(0)
+    await form.getByRole('button', { name: 'Cancelar' }).click()
+    await expect(form).toHaveCount(0)
+    await expect(button).toBeFocused()
+  }
+  check()
+})
+
+test('ficha de catálogo: publicar un vocabulario con el catálogo fijado (POST con ?catalog=)', async ({ page }) => {
+  const cat = await newCatalog('pw50-fv')
+  const other = await newCatalog('pw50-fv2')
+  const scheme = uniqueSlug('pw50-fv-s')
+  const check = watchConsole(page)
+  await signIn(page, accounts().editor)
+  await openCatalogCard(page, cat.slug, cat.title)
+  await (await openMenu(page)).getByRole('menuitem', { name: 'Nuevo vocabulario' }).click()
+  const form = page.getByRole('region', { name: 'Nuevo vocabulario en este catálogo' })
+  // Sin fichero: error de validación, sin petición.
+  await form.getByRole('button', { name: 'Publicar esquema' }).click()
+  await expect(form.getByRole('alert')).toBeVisible()
+  await form.getByLabel(FILE).setInputFiles(ttl(scheme, schemeTurtle(scheme)))
+  const request = page.waitForRequest((r) => r.method() === 'POST' && new URL(r.url()).pathname === '/schemes')
+  await form.getByRole('button', { name: 'Publicar esquema' }).click()
+  expect(new URL((await request).url()).searchParams.get('catalog')).toBe(cat.slug)
+  await expect(page.getByRole('heading', { level: 1, name: `Esquema ${scheme}` })).toBeVisible()
+  await expect(page.getByRole('status').filter({ hasText: 'Esquema publicado con 2 conceptos.' })).toBeVisible()
+  const detail = (await (await api(`/schemes/${scheme}`)).json()) as { catalog: { slug: string } }
+  expect(detail.catalog.slug).toBe(cat.slug)
+  // Y aparece en la ficha de ese catálogo y no en la del otro.
+  await openCatalogCard(page, cat.slug, cat.title)
+  await expect(page.getByRole('list', { name: 'Vocabularios SKOS del catálogo' }).getByRole('link', { name: `Esquema ${scheme}` })).toBeVisible()
+  await openCatalogCard(page, other.slug, other.title)
+  await expect(page.getByRole('link', { name: `Esquema ${scheme}` })).toHaveCount(0)
+  check()
+})
+
+test('ficha de catálogo: publicar una ontología con el catálogo fijado (POST con ?catalog=)', async ({ page }) => {
+  const cat = await newCatalog('pw50-fo')
+  const onto = uniqueSlug('pw50-fo-o')
+  const check = watchConsole(page)
+  await signIn(page, accounts().editor)
+  await openCatalogCard(page, cat.slug, cat.title)
+  await (await openMenu(page)).getByRole('menuitem', { name: 'Nueva ontología' }).click()
+  const form = page.getByRole('region', { name: 'Nueva ontología en este catálogo' })
+  await form.getByLabel(FILE).setInputFiles(ttl(onto, ontologyTurtle(onto)))
+  const request = page.waitForRequest((r) => r.method() === 'POST' && new URL(r.url()).pathname === '/ontologies')
+  await form.getByRole('button', { name: 'Publicar ontología' }).click()
+  expect(new URL((await request).url()).searchParams.get('catalog')).toBe(cat.slug)
+  await expect(page.getByRole('heading', { level: 1, name: `Ontología ${onto}` })).toBeVisible()
+  await expect(page.getByRole('status').filter({ hasText: 'Versión 1.0.0 de la ontología publicada.' })).toBeVisible()
+  const detail = (await (await api(`/ontologies/${onto}`)).json()) as { catalog: { slug: string } }
+  expect(detail.catalog.slug).toBe(cat.slug)
+  await openCatalogCard(page, cat.slug, cat.title)
+  await expect(page.getByRole('list', { name: 'Ontologías del catálogo' }).getByRole('link', { name: `Ontología ${onto}` })).toBeVisible()
+  check()
+})
+
+test('ficha de catálogo: «Importar SKOS» publica en el catálogo fijado y un prefijo ocupado da 409 en el formulario', async ({ page }) => {
+  const cat = await newCatalog('pw50-fi')
+  const owner = await token(accounts().editor)
+  const taken = uniqueSlug('pw50-fi-t')
+  const takenPrefix = uniquePrefix('pw50fit')
+  await apiPublishScheme(owner, cat.slug, taken, { prefix: takenPrefix })
+  const scheme = uniqueSlug('pw50-fi-s')
+  const check = watchConsole(page, [409])
+  await signIn(page, accounts().editor)
+  await openCatalogCard(page, cat.slug, cat.title)
+  const importButton = page.getByRole('button', { name: 'Importar SKOS' })
+  await importButton.click()
+  await expect(importButton).toHaveAttribute('aria-expanded', 'true')
+  const form = page.getByRole('region', { name: 'Importar SKOS en este catálogo' })
+  await expect(form).toContainText(cat.title)
+  await expect(form.getByLabel('Catálogo', { exact: true })).toHaveCount(0)
+  // Un prefijo VANN que ya usa otro recurso vivo: 409 prefix_in_use, sin crear nada.
+  const clash = uniqueSlug('pw50-fi-c')
+  await form.getByLabel(FILE).setInputFiles(ttl(clash, schemeTurtle(clash, { prefix: takenPrefix })))
+  await form.getByRole('button', { name: 'Publicar esquema' }).click()
+  await expect(form.getByRole('alert')).toBeVisible()
+  expect((await api(`/schemes/${clash}`)).status).toBe(404)
+  // Con un prefijo libre, se publica en el catálogo de la ficha.
+  await form.getByLabel(FILE).setInputFiles(ttl(scheme, schemeTurtle(scheme)))
+  const request = page.waitForRequest((r) => r.method() === 'POST' && new URL(r.url()).pathname === '/schemes')
+  await form.getByRole('button', { name: 'Publicar esquema' }).click()
+  expect(new URL((await request).url()).searchParams.get('catalog')).toBe(cat.slug)
+  await expect(page.getByRole('heading', { level: 1, name: `Esquema ${scheme}` })).toBeVisible()
+  const detail = (await (await api(`/schemes/${scheme}`)).json()) as { catalog: { slug: string } }
+  expect(detail.catalog.slug).toBe(cat.slug)
+  check()
+})
+
+test('ficha de catálogo: «Nuevo dataset» desde el menú crea el dataset en ese catálogo', async ({ page }) => {
+  const cat = await newCatalog('pw50-fd')
+  const ds = uniqueSlug('pw50-fd-d')
+  const check = watchConsole(page)
+  await signIn(page, accounts().editor)
+  await openCatalogCard(page, cat.slug, cat.title)
+  // Ya no hay un botón suelto «Nuevo dataset».
+  await expect(page.getByRole('button', { name: 'Nuevo dataset' })).toHaveCount(0)
+  await (await openMenu(page)).getByRole('menuitem', { name: 'Nuevo dataset' }).click()
+  const form = page.getByRole('region', { name: 'Nuevo dataset en este catálogo' })
+  await form.getByLabel('Slug').fill(ds)
+  await form.getByLabel('Título (en español)').fill(`Dataset ${ds}`)
+  await form.getByLabel('Descripción (en español)').fill('Descripción ficticia.')
+  await form.getByRole('button', { name: 'Crear dataset' }).click()
+  await expect(page.getByRole('heading', { level: 1, name: `Dataset ${ds}` })).toBeVisible()
+  const detail = (await (await api(`/datasets/${ds}`)).json()) as { catalog?: { slug: string } }
+  expect(detail.catalog?.slug).toBe(cat.slug)
+  check()
+})
+
+test('ficha de catálogo dado de baja: ningún botón de publicar (410)', async ({ page }) => {
+  const cat = await newCatalog('pw50-fg')
+  await apiDelete(await token(accounts().editor), `/catalogs/${cat.slug}`)
+  const check = watchConsole(page, [410])
+  await signIn(page, accounts().editor)
+  await spaGo(page, `/catalogos/${cat.slug}`)
+  await expect(page.getByRole('heading', { level: 1, name: cat.title })).toBeVisible()
+  await expect(page.getByRole('group', { name: 'Publicar' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Importar SKOS' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Publicar recurso' })).toHaveCount(0)
+  await expect(page.getByRole('group', { name: 'Acciones del catálogo' })).toHaveCount(0)
+  check()
+})
+
+test('las tarjetas de dataset de la ficha del catálogo no dicen «Catálogo: …»', async ({ page }) => {
+  const cat = await newCatalog('pw50-ft')
+  const ds = uniqueSlug('pw50-ft-d')
+  await apiCreateDataset(await token(accounts().editor), cat.slug, ds, `Dataset ${ds}`)
+  const check = watchConsole(page)
+  await page.goto('/')
+  await openCatalogCard(page, cat.slug, cat.title)
+  const list = page.getByRole('list', { name: 'Datasets del catálogo' })
+  await expect(list.getByRole('link', { name: `Dataset ${ds}` })).toBeVisible()
+  await expect(list.getByText(/Catálogo:/)).toHaveCount(0)
+  check()
 })

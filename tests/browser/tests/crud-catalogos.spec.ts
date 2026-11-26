@@ -45,6 +45,12 @@ async function openDatasetFromCatalog(page: Page, title: string): Promise<void> 
   await expect(page.getByRole('heading', { level: 1, name: title })).toBeVisible()
 }
 
+/** Ficha de catálogo: «Publicar recurso» y después «Nuevo dataset» (ya no es un botón suelto). */
+async function newDatasetFromMenu(page: Page): Promise<void> {
+  await page.getByRole('button', { name: 'Publicar recurso' }).click()
+  await page.getByRole('menuitem', { name: 'Nuevo dataset' }).click()
+}
+
 function ttlFile(slug: string, title: string) {
   return {
     name: `${slug}.ttl`,
@@ -71,7 +77,7 @@ test('el anónimo ve los catálogos y los datasets pero ningún botón de edici�
   await page.getByRole('list', { name: 'Catálogos' }).getByRole('link', { name: `Catálogo ${cat}` }).click()
   await expect(page.getByRole('heading', { level: 1, name: `Catálogo ${cat}` })).toBeVisible()
   await expect(page.getByRole('group', { name: 'Acciones del catálogo' })).toHaveCount(0)
-  for (const name of ['Editar catálogo', 'Nuevo dataset', 'Dar de baja']) {
+  for (const name of ['Editar catálogo', 'Dar de baja', 'Importar SKOS', 'Publicar recurso']) {
     await expect(page.getByRole('button', { name })).toHaveCount(0)
   }
   await openDatasetFromCatalog(page, `Dataset ${ds}`)
@@ -99,7 +105,7 @@ for (const role of ['member', 'editor', 'admin'] as const) {
     await page.getByRole('list', { name: 'Catálogos' }).getByRole('link', { name: `Catálogo ${cat}` }).click()
     await expect(page.getByRole('heading', { level: 1, name: `Catálogo ${cat}` })).toBeVisible()
     await expect(page.getByRole('group', { name: 'Acciones del catálogo' })).toHaveCount(expected)
-    for (const name of ['Editar catálogo', 'Nuevo dataset', 'Dar de baja']) {
+    for (const name of ['Editar catálogo', 'Dar de baja', 'Importar SKOS', 'Publicar recurso']) {
       await expect(page.getByRole('button', { name })).toHaveCount(expected)
     }
     await openDatasetFromCatalog(page, `Dataset ${ds}`)
@@ -142,7 +148,7 @@ test('el editor crea un catálogo y un dataset, los edita y publica una versión
   await expect(page.getByRole('heading', { level: 1, name: `Catálogo ${cat} editado` })).toBeVisible()
 
   // Nuevo dataset en el catálogo.
-  await page.getByRole('button', { name: 'Nuevo dataset' }).click()
+  await newDatasetFromMenu(page)
   const newDataset = page.getByRole('region', { name: 'Nuevo dataset en este catálogo' })
   await newDataset.getByLabel('Slug').fill(ds)
   await newDataset.getByLabel('Título (en español)').fill(`Dataset ${ds}`)
@@ -324,7 +330,7 @@ test('el slug de un recurso dado de baja no se puede reutilizar desde los formul
 
   await newCatalog.getByRole('button', { name: 'Cancelar' }).click()
   await page.getByRole('list', { name: 'Catálogos' }).getByRole('link', { name: `Catálogo ${cat}` }).click()
-  await page.getByRole('button', { name: 'Nuevo dataset' }).click()
+  await newDatasetFromMenu(page)
   const newDataset = page.getByRole('region', { name: 'Nuevo dataset en este catálogo' })
   await newDataset.getByLabel('Slug').fill(goneDs)
   await newDataset.getByLabel('Título (en español)').fill('Otro dataset')
