@@ -18,10 +18,6 @@ import { MODBUS, MODBUS_TITLE, loginUi, spaGo } from '../support/ui'
  * formularios de CRUD que ya existían. Falla con violaciones `serious` y `critical`; las demás se
  * adjuntan al informe. No hay exclusiones: lo que salga en una pantalla anterior es un hallazgo.
  *
- * Las pruebas de los hallazgos abiertos (QA-51-01 a QA-51-03) llevan `test.fail(true, …)`: siguen
- * ejecutándose y analizando la pantalla, y se ponen en rojo cuando se corrige el defecto (hay que
- * quitar entonces la marca). No es una exclusión de reglas: ninguna regla de axe está desactivada.
- *
  * Las fichas de las externas (sin versiones, con versiones y con el diálogo abierto) se analizan en
  * `externas-versiones.spec.ts`, junto a la interacción que las deja en cada estado.
  */
@@ -76,7 +72,6 @@ test.describe('pantallas principales', () => {
   })
 
   test('Ficha de ontología propia con el cursor sobre «Descargar Turtle» (estado :hover)', async ({ page }, testInfo) => {
-    test.fail(true, 'QA-51-03 (frontend, abierto): contraste 1.83 de .button--primary en :hover (enlace «Descargar Turtle»)')
     await page.goto('/ontologias/itot')
     await expect(page.getByRole('heading', { level: 1, name: 'Ontología de activos y amenazas IT/OT' })).toBeVisible()
     await page.getByRole('link', { name: 'Descargar Turtle' }).hover()
@@ -84,24 +79,21 @@ test.describe('pantallas principales', () => {
   })
 
   test('Ficha de ontología externa con versiones (anónimo)', async ({ page }, testInfo) => {
-    test.fail(true, 'QA-51-01 (frontend, abierto): label-content-name-mismatch en el historial de versiones de la ficha de la externa (aria-label sin el texto visible)')
     await ensureExternalVersion(await login(accounts().editor), 'saref')
     await page.goto('/ontologias/externas/saref')
-    await expect(page.getByRole('region', { name: 'Versionado' }).getByRole('link', { name: /^Versión \d+$/ }).first()).toBeVisible()
+    await expect(page.getByRole('region', { name: 'Versionado' }).getByRole('link', { name: /^Versión \d+( ·|$)/ }).first()).toBeVisible()
     await expectNoSeriousA11yViolations(page, testInfo, 'ficha-externa-versiones-anonimo')
   })
 
   test('Ficha de ontología externa: versión anterior (?version=)', async ({ page }, testInfo) => {
-    test.fail(true, 'QA-51-01 (frontend, abierto): label-content-name-mismatch en el historial de versiones de la ficha de la externa (aria-label sin el texto visible)')
     const detail = await ensureExternalVersion(await login(accounts().editor), 'saref')
     const old = detail.versions[detail.versions.length - 1].number
     await page.goto(`/ontologias/externas/saref?version=${old}`)
-    await expect(page.getByRole('region', { name: 'Versionado' }).getByRole('link', { name: `Versión ${old}`, exact: true })).toHaveAttribute('aria-current', 'page')
+    await expect(page.getByRole('region', { name: 'Versionado' }).getByRole('link', { name: new RegExp(`^Versión ${old}( ·|$)`) })).toHaveAttribute('aria-current', 'page')
     await expectNoSeriousA11yViolations(page, testInfo, 'ficha-externa-version-anterior')
   })
 
   test('Ficha de ontología externa con versiones (editor)', async ({ page }, testInfo) => {
-    test.fail(true, 'QA-51-01 (frontend, abierto): label-content-name-mismatch en el historial de versiones de la ficha de la externa (aria-label sin el texto visible)')
     await ensureExternalVersion(await login(accounts().editor), 'saref')
     await signIn(page, accounts().editor, '/ontologias/externas/saref')
     await expect(page.getByRole('group', { name: 'Acciones de la ontología externa' })).toBeVisible()
@@ -110,7 +102,6 @@ test.describe('pantallas principales', () => {
   })
 
   test('Navegador SKOS', async ({ page }, testInfo) => {
-    test.fail(true, 'QA-51-02 (frontend, abierto): label-content-name-mismatch en los treeitem del Navegador SKOS (aria-label sin el texto visible)')
     await page.goto('/vocabularios/ot')
     await expect(page.getByRole('heading', { level: 1, name: 'Protocolos y arquitectura OT' })).toBeVisible()
     await expectNoSeriousA11yViolations(page, testInfo, 'navegador-skos')
@@ -197,8 +188,6 @@ test.describe('diálogos y formularios de CRUD', () => {
   }
   for (const kind of ['catalogo', 'dataset', 'esquema', 'ontologia'] as const) {
     test(`diálogo de baja: ${kind}`, async ({ page }, testInfo) => {
-      // La página de fondo del esquema es el Navegador SKOS.
-      test.fail(kind === 'esquema', 'QA-51-02 (frontend, abierto): treeitem del Navegador SKOS')
       const dialog = await baja(page, kind)
       await expectNoSeriousA11yViolations(page, testInfo, `dialogo-baja-${kind}`)
       await dialog.getByRole('button', { name: 'Cancelar' }).click()

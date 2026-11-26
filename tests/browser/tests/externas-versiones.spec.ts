@@ -76,7 +76,7 @@ test('ficha de una externa sin versiones: solo referencia, sin métricas y sin a
   await expect(page.getByRole('heading', { level: 1, name: detail.title ?? '' })).toBeVisible()
   const versioning = page.getByRole('region', { name: 'Versionado' })
   await expect(versioning).toContainText('Todavía no tiene versiones')
-  await expect(versioning.getByRole('link', { name: /^Versión \d+$/ })).toHaveCount(0)
+  await expect(versioning.getByRole('link', { name: /^Versión \d+( ·|$)/ })).toHaveCount(0)
   const metrics = page.getByRole('region', { name: 'Métricas' })
   await expect(metrics).toContainText('todavía no se ha sustituido nunca')
   await expect(metrics.getByRole('list', { name: 'Métricas OWL' })).toHaveCount(0)
@@ -311,24 +311,24 @@ test('sustitución completa: aviso, versión nueva actual, métricas, historial 
   // Historial: cada versión, la mostrada con aria-current, y el RDF descargable de cada una.
   const versioning = page.getByRole('region', { name: 'Versionado' })
   for (const k of [n, n - 1]) {
-    await expect(versioning.getByRole('link', { name: `Versión ${k}`, exact: true })).toBeVisible()
-    await expect(versioning.getByRole('link', { name: `Descargar el RDF de la versión ${k} (Turtle)` })).toBeVisible()
+    await expect(versioning.getByRole('link', { name: new RegExp(`^Versión ${k}( ·|$)`) })).toBeVisible()
+    await expect(versioning.getByRole('link', { name: `Descargar RDF de la versión ${k} (Turtle)` })).toBeVisible()
   }
-  await expect(versioning.getByRole('link', { name: `Versión ${n}`, exact: true })).toHaveAttribute('aria-current', 'page')
-  await expect(versioning.getByRole('link', { name: `Versión ${n - 1}`, exact: true })).not.toHaveAttribute('aria-current', 'page')
+  await expect(versioning.getByRole('link', { name: new RegExp(`^Versión ${n}( ·|$)`) })).toHaveAttribute('aria-current', 'page')
+  await expect(versioning.getByRole('link', { name: new RegExp(`^Versión ${n - 1}( ·|$)`) })).not.toHaveAttribute('aria-current', 'page')
   await expect(page.locator('header').first()).toContainText('actual')
 
   // La versión anterior: ?version=, aria-current, su cabecera sin «actual» y sus propias métricas.
-  await versioning.getByRole('link', { name: `Versión ${n - 1}`, exact: true }).click()
+  await versioning.getByRole('link', { name: new RegExp(`^Versión ${n - 1}( ·|$)`) }).click()
   await expect(page).toHaveURL(new RegExp(`/ontologias/externas/${SAREF.slug}\\?version=${n - 1}$`))
-  await expect(versioning.getByRole('link', { name: `Versión ${n - 1}`, exact: true })).toHaveAttribute('aria-current', 'page')
-  await expect(versioning.getByRole('link', { name: `Versión ${n}`, exact: true })).not.toHaveAttribute('aria-current', 'page')
+  await expect(versioning.getByRole('link', { name: new RegExp(`^Versión ${n - 1}( ·|$)`) })).toHaveAttribute('aria-current', 'page')
+  await expect(versioning.getByRole('link', { name: new RegExp(`^Versión ${n}( ·|$)`) })).not.toHaveAttribute('aria-current', 'page')
   await expect(metrics).toContainText(`versión ${n - 1}`)
   await expect(page.locator('header').first()).not.toContainText('actual')
 
   // Los enlaces de descarga apuntan al RDF de cada versión (la actual sin ?version=) y contienen su fichero.
-  const oldHref = await versioning.getByRole('link', { name: `Descargar el RDF de la versión ${n - 1} (Turtle)` }).getAttribute('href')
-  const newHref = await versioning.getByRole('link', { name: `Descargar el RDF de la versión ${n} (Turtle)` }).getAttribute('href')
+  const oldHref = await versioning.getByRole('link', { name: `Descargar RDF de la versión ${n - 1} (Turtle)` }).getAttribute('href')
+  const newHref = await versioning.getByRole('link', { name: `Descargar RDF de la versión ${n} (Turtle)` }).getAttribute('href')
   expect(oldHref).toContain(`version=${n - 1}`)
   expect(newHref).not.toContain('version=')
   const oldRdf = await (await page.request.get(oldHref ?? '')).text()
@@ -338,9 +338,9 @@ test('sustitución completa: aviso, versión nueva actual, métricas, historial 
   expect(newRdf).not.toContain(`Marcador${tag}>`)
 
   // Volver a la actual quita ?version=.
-  await versioning.getByRole('link', { name: `Versión ${n}`, exact: true }).click()
+  await versioning.getByRole('link', { name: new RegExp(`^Versión ${n}( ·|$)`) }).click()
   await expect(page).toHaveURL(new RegExp(`/ontologias/externas/${SAREF.slug}$`))
-  await expect(versioning.getByRole('link', { name: `Versión ${n}`, exact: true })).toHaveAttribute('aria-current', 'page')
+  await expect(versioning.getByRole('link', { name: new RegExp(`^Versión ${n}( ·|$)`) })).toHaveAttribute('aria-current', 'page')
 
   // Una versión que no existe.
   await spaGo(page, `/ontologias/externas/${SAREF.slug}?version=${n + 50}`)
@@ -356,7 +356,7 @@ test('un lector anónimo ve el historial y la URI de una versión lleva a su fic
   await page.goto(`/ontologias/externas/${SAREF.slug}?version=${n}`)
   await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
   const versioning = page.getByRole('region', { name: 'Versionado' })
-  await expect(versioning.getByRole('link', { name: `Versión ${n}`, exact: true })).toHaveAttribute('aria-current', 'page')
+  await expect(versioning.getByRole('link', { name: new RegExp(`^Versión ${n}( ·|$)`) })).toHaveAttribute('aria-current', 'page')
   await expect(page.getByRole('group', { name: ACTIONS })).toHaveCount(0)
 
   // La URI persistente de la versión, abierta como un navegador (Accept: text/html), acaba en la ficha.
@@ -365,6 +365,6 @@ test('un lector anónimo ve el historial y la URI de una versión lleva a su fic
   const location = new URL(response.headers.get('location') ?? '')
   expect(location.pathname + location.search).toBe(`/ontologias/externas/${SAREF.slug}?version=${n}`)
   await page.goto(`${location.pathname}${location.search}`)
-  await expect(versioning.getByRole('link', { name: `Versión ${n}`, exact: true })).toHaveAttribute('aria-current', 'page')
+  await expect(versioning.getByRole('link', { name: new RegExp(`^Versión ${n}( ·|$)`) })).toHaveAttribute('aria-current', 'page')
   check()
 })
