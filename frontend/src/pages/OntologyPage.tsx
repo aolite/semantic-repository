@@ -15,6 +15,9 @@ import {
 } from '../api'
 import { lastSegment, NOT_STATED, PLACEHOLDERS, resourceLabel } from '../catalog/labels'
 import { CopyUriButton } from '../components/CopyUriButton'
+import { GoneView } from '../components/GoneView'
+import { catalogRoute } from '../crud/navigation'
+import { OntologyActions } from '../crud/OntologyActions'
 import { KindTag, StatusTag, SyntheticTag, TypeTag } from '../components/Tags'
 import { useApiLoad } from '../hooks/useApiLoad'
 import {
@@ -28,6 +31,7 @@ import {
 import { conceptRouteFromUri, ontologyRoute, schemeRoute } from '../vocab/routes'
 import '../styles/dataset.css'
 import '../styles/vocab.css'
+import '../styles/crud.css'
 
 const SERIALIZATIONS: { format: VocabRdfFormat; label: string }[] = [
   { format: 'turtle', label: 'Turtle' },
@@ -41,9 +45,21 @@ export function OntologyPage() {
   const [searchParams] = useSearchParams()
   const version = searchParams.get('version')
   const loader = useCallback((signal: AbortSignal) => fetchOntology(slug, version, signal), [slug, version])
-  const { state, retry } = useApiLoad(loader)
+  const { state, lastData, retry } = useApiLoad(loader)
+  // Tras mover la ontología se vuelve a pedir la ficha: mientras tanto se sigue mostrando la anterior.
+  const shown =
+    state.status === 'ok' ? state.data : state.status === 'loading' && lastData?.slug === slug ? lastData : null
 
-  if (state.status === 'loading' || state.status === 'idle') {
+  if (state.status === 'gone') {
+    return (
+      <GoneView
+        gone={state.gone}
+        note={version ? `La versión ${version} se dio de baja con la ontología.` : undefined}
+      />
+    )
+  }
+
+  if (!shown && (state.status === 'loading' || state.status === 'idle')) {
     return (
       <p role="status" className="state">
         Cargando ontología…
@@ -64,7 +80,7 @@ export function OntologyPage() {
     )
   }
 
-  if (state.status === 'error' || state.status === 'gone') {
+  if (state.status === 'error') {
     return (
       <div className="dataset">
         <Breadcrumbs slug={slug} />
@@ -78,7 +94,8 @@ export function OntologyPage() {
     )
   }
 
-  return <OntologyView data={state.data} />
+  if (!shown) return null
+  return <OntologyView data={shown} onChanged={retry} />
 }
 
 function Breadcrumbs({ slug }: { slug: string }) {
@@ -93,7 +110,7 @@ function Breadcrumbs({ slug }: { slug: string }) {
   )
 }
 
-function OntologyView({ data }: { data: OntologyDetail }) {
+function OntologyView({ data, onChanged }: { data: OntologyDetail; onChanged: () => void }) {
   const v = data.versioning
   const isCurrent = !v.current_version || v.version === v.current_version
   // Las descargas y la URI de una versión antigua llevan la versión; las de la actual, no.
@@ -106,35 +123,42 @@ function OntologyView({ data }: { data: OntologyDetail }) {
     <div className="dataset">
       <Breadcrumbs slug={data.slug} />
 
-      <header className="vocab-header">
-        <div className="dataset__header">
-          <div className="dataset__tags">
-            <TypeTag>owl:Ontology</TypeTag>
-            <KindTag kind="own" />
-            <StatusTag status={data.status} />
-            {data.synthetic && <SyntheticTag label="Sintético" />}
-            {v.version && (
-              <span className="tag tag--version mono">
-                v{v.version}
-                {isCurrent ? ' · actual' : ''}
+      <OntologyActions ontology={data} onChanged={onChanged}>
+        <header className="vocab-header">
+          <div className="dataset__header">
+            <div className="dataset__tags">
+              <TypeTag>owl:Ontology</TypeTag>
+              <KindTag kind="own" />
+              <StatusTag status={data.status} />
+              {data.synthetic && <SyntheticTag label="Sintético" />}
+              {v.version && (
+                <span className="tag tag--version mono">
+                  v{v.version}
+                  {isCurrent ? ' · actual' : ''}
+                </span>
+              )}
+            </div>
+            <h1 className="page-title dataset__title">{title}</h1>
+            {(prefix || data.metadata.namespace) && (
+              <span className="mono vocab-header__ns">
+                {prefix && <span className="card__prefix">{prefix}</span>} {data.metadata.namespace}
               </span>
             )}
+            <span className="mono dataset__uri">{uri}</span>
+            {data.catalog && (
+              <p className="catalog-link">
+                Catálogo: <Link to={catalogRoute(data.catalog.slug)}>{data.catalog.title ?? data.catalog.slug}</Link>
+              </p>
+            )}
           </div>
-          <h1 className="page-title dataset__title">{title}</h1>
-          {(prefix || data.metadata.namespace) && (
-            <span className="mono vocab-header__ns">
-              {prefix && <span className="card__prefix">{prefix}</span>} {data.metadata.namespace}
-            </span>
-          )}
-          <span className="mono dataset__uri">{uri}</span>
-        </div>
-        <div className="vocab-header__actions">
-          <CopyUriButton uri={uri} />
-          <a className="button button--primary" href={ontologyRdfUrl(data.slug, 'turtle', shownVersion)} download>
-            Descargar Turtle
-          </a>
-        </div>
-      </header>
+          <div className="vocab-header__actions">
+            <CopyUriButton uri={uri} />
+            <a className="button button--primary" href={ontologyRdfUrl(data.slug, 'turtle', shownVersion)} download>
+              Descargar Turtle
+            </a>
+          </div>
+        </header>
+      </OntologyActions>
 
       <div className="dataset__columns">
         <div className="dataset__main">

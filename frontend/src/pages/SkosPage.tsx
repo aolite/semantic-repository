@@ -14,6 +14,9 @@ import {
 } from '../api'
 import { domainStyle, NOT_STATED } from '../catalog/labels'
 import { ConceptTree } from '../components/ConceptTree'
+import { GoneView } from '../components/GoneView'
+import { catalogRoute } from '../crud/navigation'
+import { SchemeActions } from '../crud/SchemeActions'
 import { DomainTag, KindTag, StatusTag, SyntheticTag, TypeTag } from '../components/Tags'
 import { useApiLoad } from '../hooks/useApiLoad'
 import {
@@ -30,6 +33,7 @@ import { conceptRouteFromUri, ontologyRoute, schemeRoute } from '../vocab/routes
 import '../styles/dataset.css'
 import '../styles/catalog.css'
 import '../styles/vocab.css'
+import '../styles/crud.css'
 
 /** Primer concepto con slug del árbol (recorrido en profundidad). */
 function firstSlug(nodes: ConceptNode[]): string | null {
@@ -51,9 +55,25 @@ export function SkosPage({ corp }: { corp: boolean }) {
   const concept = searchParams.get('concepto')
 
   const schemeLoader = useCallback((signal: AbortSignal) => fetchScheme(slug, corp, signal), [slug, corp])
-  const { state, retry } = useApiLoad(schemeLoader)
+  const { state, lastData, retry } = useApiLoad(schemeLoader)
+  // Tras editar o republicar se vuelve a pedir el esquema: mientras tanto se sigue mostrando el anterior.
+  const shown =
+    state.status === 'ok'
+      ? state.data
+      : state.status === 'loading' && lastData?.slug === slug && lastData.corp === corp
+        ? lastData
+        : null
 
-  if (state.status === 'loading' || state.status === 'idle') {
+  if (state.status === 'gone') {
+    return (
+      <GoneView
+        gone={state.gone}
+        note={concept ? `El concepto «${concept}» pertenecía a este esquema y se dio de baja con él.` : undefined}
+      />
+    )
+  }
+
+  if (!shown && (state.status === 'loading' || state.status === 'idle')) {
     return (
       <p role="status" className="state">
         Cargando esquema…
@@ -73,7 +93,7 @@ export function SkosPage({ corp }: { corp: boolean }) {
     )
   }
 
-  if (state.status === 'error' || state.status === 'gone') {
+  if (state.status === 'error') {
     return (
       <div className="dataset">
         <Breadcrumbs corp={corp} slug={slug} />
@@ -87,7 +107,8 @@ export function SkosPage({ corp }: { corp: boolean }) {
     )
   }
 
-  const scheme = state.data
+  if (!shown) return null
+  const scheme = shown
   const selected = concept ?? firstSlug(scheme.tree)
 
   return (
@@ -95,6 +116,7 @@ export function SkosPage({ corp }: { corp: boolean }) {
       scheme={scheme}
       selected={selected}
       onSelect={(next) => setSearchParams({ concepto: next })}
+      onChanged={retry}
     />
   )
 }
@@ -116,43 +138,51 @@ interface SchemeViewProps {
   scheme: SchemeDetail
   selected: string | null
   onSelect: (slug: string) => void
+  onChanged: () => void
 }
 
-function SchemeView({ scheme, selected, onSelect }: SchemeViewProps) {
+function SchemeView({ scheme, selected, onSelect, onChanged }: SchemeViewProps) {
   const prefix = prefixLabel(scheme.prefix)
   return (
     <div className="dataset">
       <Breadcrumbs corp={scheme.corp} slug={scheme.slug} kind={scheme.kind} />
 
-      <header className="vocab-header">
-        <div className="dataset__header">
-          <div className="dataset__tags">
-            <TypeTag>skos:ConceptScheme</TypeTag>
-            <KindTag kind={scheme.kind} />
-            {scheme.domain && <DomainTag slug={scheme.domain.slug} />}
-            <StatusTag status={scheme.status} />
-            {scheme.synthetic && <SyntheticTag label="Sintético" />}
-            <span className="tag tag--version mono">{versionLabel(scheme.version)}</span>
+      <SchemeActions scheme={scheme} onChanged={onChanged}>
+        <header className="vocab-header">
+          <div className="dataset__header">
+            <div className="dataset__tags">
+              <TypeTag>skos:ConceptScheme</TypeTag>
+              <KindTag kind={scheme.kind} />
+              {scheme.domain && <DomainTag slug={scheme.domain.slug} />}
+              <StatusTag status={scheme.status} />
+              {scheme.synthetic && <SyntheticTag label="Sintético" />}
+              <span className="tag tag--version mono">{versionLabel(scheme.version)}</span>
+            </div>
+            <h1 className="page-title dataset__title">{scheme.title ?? scheme.slug}</h1>
+            {(prefix || scheme.namespace) && (
+              <span className="mono vocab-header__ns">
+                {prefix && <span className="card__prefix">{prefix}</span>} {scheme.namespace}
+              </span>
+            )}
+            {scheme.description && <p className="vocab-header__desc">{scheme.description}</p>}
+            {scheme.corp && (
+              <p className="vocab-header__meta">
+                Responsable: {scheme.responsible ?? VOCAB_PLACEHOLDERS.responsible}
+              </p>
+            )}
+            {scheme.catalog && (
+              <p className="catalog-link">
+                Catálogo: <Link to={catalogRoute(scheme.catalog.slug)}>{scheme.catalog.title ?? scheme.catalog.slug}</Link>
+              </p>
+            )}
           </div>
-          <h1 className="page-title dataset__title">{scheme.title ?? scheme.slug}</h1>
-          {(prefix || scheme.namespace) && (
-            <span className="mono vocab-header__ns">
-              {prefix && <span className="card__prefix">{prefix}</span>} {scheme.namespace}
-            </span>
-          )}
-          {scheme.description && <p className="vocab-header__desc">{scheme.description}</p>}
-          {scheme.corp && (
-            <p className="vocab-header__meta">
-              Responsable: {scheme.responsible ?? VOCAB_PLACEHOLDERS.responsible}
-            </p>
-          )}
-        </div>
-        <div className="vocab-header__actions">
-          <a className="button button--outline" href={schemeRdfUrl(scheme.slug, scheme.corp, 'turtle')} download>
-            Exportar Turtle
-          </a>
-        </div>
-      </header>
+          <div className="vocab-header__actions">
+            <a className="button button--outline" href={schemeRdfUrl(scheme.slug, scheme.corp, 'turtle')} download>
+              Exportar Turtle
+            </a>
+          </div>
+        </header>
+      </SchemeActions>
 
       <div className="skos">
         <SchemeList current={scheme} />
@@ -242,7 +272,7 @@ function ConceptPanel({ scheme, slug }: { scheme: SchemeDetail; slug: string }) 
     [scheme.slug, scheme.corp, slug],
   )
   const { state, retry } = useApiLoad(loader)
-  const titled = state.status === 'ok' || state.status === 'not-found'
+  const titled = state.status === 'ok' || state.status === 'not-found' || state.status === 'gone'
 
   return (
     <article
@@ -262,6 +292,16 @@ function ConceptPanel({ scheme, slug }: { scheme: SchemeDetail; slug: string }) 
             Concepto no encontrado
           </h2>
           <p className="muted">El concepto «{slug}» no existe en este esquema.</p>
+        </>
+      )}
+      {state.status === 'gone' && (
+        <>
+          <h2 id="concepto-titulo" className="skos__concept-title">
+            Concepto dado de baja
+          </h2>
+          <p className="muted">
+            El concepto «{slug}» se dio de baja con su esquema{state.gone.title ? ` «${state.gone.title}»` : ''}.
+          </p>
         </>
       )}
       {state.status === 'error' && (
@@ -335,6 +375,28 @@ function ConceptView({ scheme, concept: c }: { scheme: SchemeDetail; concept: Co
         </h2>
         {c.definition && <p className="panel__text">{c.definition}</p>}
       </div>
+
+      {c.deprecated && (
+        <div className="skos__deprecated" role="note" aria-label="Concepto retirado">
+          <p>
+            <span className="tag tag--deprecated">Retirado</span>{' '}
+            <span className="mono small">owl:deprecated</span> · Este concepto ya no se usa en versiones nuevas: sigue
+            existiendo para que las publicadas lo conserven.
+          </p>
+          {(c.replaced_by ?? []).length > 0 ? (
+            <div>
+              <p className="mono small">dct:isReplacedBy</p>
+              <div className="pills" aria-label="Sustitutos">
+                {(c.replaced_by ?? []).map((r) => (
+                  <ConceptLink key={r.uri} concept={r} />
+                ))}
+              </div>
+            </div>
+          ) : (
+            <p className="muted small">No indica sustitutos.</p>
+          )}
+        </div>
+      )}
 
       <dl className="fields fields--grid skos__fields">
         {prefLabels.length > 0 ? (

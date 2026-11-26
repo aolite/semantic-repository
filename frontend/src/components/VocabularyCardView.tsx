@@ -1,5 +1,6 @@
 import { Link } from 'react-router'
 import type { VocabularyCard } from '../api'
+import { catalogRoute } from '../crud/navigation'
 import { isLinkableIri, metricsLine, prefixLabel, versionLabel } from '../vocab/labels'
 import { vocabularyHref } from '../vocab/routes'
 import { DomainTag, KindTag, StatusTag, SyntheticTag, TypeTag } from './Tags'
@@ -43,6 +44,11 @@ export function VocabularyCardView({ item }: { item: VocabularyCard }) {
         </span>
       )}
       {item.description && <p className="card__desc">{item.description}</p>}
+      {item.catalog && (
+        <p className="catalog-link">
+          Catálogo: <Link to={catalogRoute(item.catalog.slug)}>{item.catalog.title ?? item.catalog.slug}</Link>
+        </p>
+      )}
       <div className="card__footer mono card__formats">
         <span>{metricsLine(item)}</span>
         <span>{versionLabel(item.version)}</span>

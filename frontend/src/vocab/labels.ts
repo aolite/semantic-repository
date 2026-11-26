@@ -138,9 +138,11 @@ const KNOWN_PREFIXES: [string, string][] = [
   ['http://www.w3.org/1999/02/22-rdf-syntax-ns#', 'rdf:'],
   ['http://www.w3.org/2002/07/owl#', 'owl:'],
   ['http://www.w3.org/2004/02/skos/core#', 'skos:'],
+  ['http://www.w3.org/ns/dcat#', 'dcat:'],
+  ['http://purl.org/dc/terms/', 'dct:'],
 ]
 
-/** Abrevia las IRIs de RDF, RDFS, OWL y SKOS (p. ej. `rdfs:subClassOf`); el resto, tal cual. */
+/** Abrevia las IRIs de RDF, RDFS, OWL, SKOS, DCAT y DCT (p. ej. `rdfs:subClassOf`); el resto, tal cual. */
 export function compactIri(iri: string): string {
   for (const [ns, prefix] of KNOWN_PREFIXES) {
     if (iri.startsWith(ns)) return prefix + iri.slice(ns.length)

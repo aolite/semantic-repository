@@ -1,6 +1,6 @@
 """Puerta G3 · «vocabularios cargados», de extremo a extremo sobre Docker Compose.
 
-Recorre el criterio de la puerta con el Compose real: ``load-semantic`` carga los 21
+Recorre el criterio de la puerta con el Compose real: ``load-semantic`` carga los 22
 ficheros de ``semantic/`` (esquemas SKOS, ontologías propias con todas sus versiones,
 ontologías externas, catálogo y series); ``/vocabularies`` da los recuentos y filtra; la
 ficha de ``itot`` trae métricas de owlready2 y la consistencia de Pellet (el de verdad: la
@@ -23,6 +23,7 @@ import urllib.parse
 
 import pytest
 from conftest import (
+    E2E_CATALOG,
     REPO_ROOT,
     Account,
     Response,
@@ -58,6 +59,8 @@ DOMAIN_LABELS = {
     "pqc": "PQC e identidad",
     "ia": "IA adversaria",
 }
+# Muestras inválidas que la API rechaza con 403 not_managed y no con 422 (decisión 50).
+NOT_MANAGED_SAMPLES = {"esquema-auxiliar-en-catalogo.ttl"}
 SAFE_DISPOSITION = r'attachment; filename="[a-z0-9]+(?:[.-][a-z0-9]+)*\.(?:ttl|jsonld|rdf)"'
 
 
@@ -130,8 +133,15 @@ def _post(
     body: str | bytes,
     token: str | None,
     headers: dict[str, str] = TURTLE,
+    *,
+    catalog: bool = True,
 ) -> Response:
+    """``POST`` de RDF. Desde la decisión 50, un esquema o una ontología pertenece a un
+    catálogo: por defecto se publica en el de las pruebas (``?catalog=``); con
+    ``catalog=False`` el RDF se envía tal cual."""
     raw = body.encode() if isinstance(body, str) else body
+    if catalog and path in ("/schemes", "/ontologies"):
+        path = f"{path}?catalog={E2E_CATALOG}"
     return http("POST", f"{stack.api}{path}", raw_body=raw, headers=headers, token=token)
 
 
@@ -317,15 +327,17 @@ def test_las_variables_del_razonador_son_opcionales(stack: Stack) -> None:
 def test_la_migracion_ha_creado_la_tabla_de_metricas(stack: Stack) -> None:
     tables = stack.psql("select tablename from pg_tables where schemaname = 'public'")
     assert "ontology_metrics" in tables
-    # La 0003 es de la fase 4 (ficheros, FAIR, consultas guardadas, login y SPARQL).
-    assert stack.psql("select version_num from alembic_version") == ["0003"]
+    # La 0004 es de la decisión 50 (prefijos VANN de esquemas y ontologías dados de baja);
+    # la 0003 era de la fase 4 (ficheros, FAIR, consultas guardadas, login y SPARQL).
+    assert stack.psql("select version_num from alembic_version") == ["0004"]
+    assert "withdrawn_prefixes" in tables
 
 
 # --- 2. load-semantic ------------------------------------------------------------------
 
 
 def _expected_graphs(base: str) -> dict[str, str]:
-    """``fichero (relativo a semantic/) -> grafo`` de los 21 ficheros (22 grafos)."""
+    """``fichero (relativo a semantic/) -> grafo`` de los 22 ficheros (23 grafos)."""
     expected = {
         **{f"vocabularios/{slug}.ttl": f"{base}vocab/{slug}" for slug in DOMAIN_SCHEMES},
         **{f"vocabularios/corp/{slug}.ttl": f"{base}vocab/corp/{slug}" for slug in CORP_SCHEMES},
@@ -334,6 +346,8 @@ def _expected_graphs(base: str) -> dict[str, str]:
         "ontologias/externas.ttl": f"{base}onto/externas",
         "data/catalogo.ttl": f"{base}catalogo",
         "data/catalogos/sintetico.ttl": f"{base}catalogo/sintetico",  # decisión 49
+        # decisión 50: el catálogo de los esquemas y las ontologías sintéticos
+        "data/catalogos/vocabularios-sinteticos.ttl": f"{base}catalogo/vocabularios-sinteticos",
     }
     for slug, versions in ONTOLOGY_VERSIONS.items():
         for version in versions:
@@ -343,16 +357,16 @@ def _expected_graphs(base: str) -> dict[str, str]:
     return expected
 
 
-def test_load_semantic_carga_las_veintiuna_piezas(stack: Stack, loaded: str) -> None:
+def test_load_semantic_carga_las_veintidos_piezas(stack: Stack, loaded: str) -> None:
     base = _base(stack)
     expected = _expected_graphs(base)
-    assert len(expected) == 22
-    assert len({name.split(" (")[0] for name in expected}) == 21
-    # Los 21 ficheros existen en semantic/ (lo que se monta en el backend).
+    assert len(expected) == 23
+    assert len({name.split(" (")[0] for name in expected}) == 22
+    # Los 22 ficheros existen en semantic/ (lo que se monta en el backend).
     for name in expected:
         assert (SEMANTIC / name.split(" (")[0]).is_file(), name
     lines = [line for line in loaded.splitlines() if " -> <" in line]
-    assert len(lines) == 22, loaded
+    assert len(lines) == 23, loaded
     for name, graph in expected.items():
         assert any(line.startswith(f"{name} -> <{graph}>") for line in lines), f"{name}\n{loaded}"
     graphs = _graphs(stack)
@@ -388,7 +402,7 @@ def test_load_semantic_es_idempotente_y_no_recalcula_metricas(stack: Stack, load
     code, output = _load_semantic(stack)
     assert code == 0, output
     lines = [line for line in output.splitlines() if " -> <" in line]
-    assert len(lines) == 22, output
+    assert len(lines) == 23, output
     assert all("sin cambios" in line for line in lines), output
     ontology_lines = [
         line for line in lines if line.startswith("ontologias/") and "externas" not in line
@@ -1105,6 +1119,7 @@ def test_un_editor_publica_un_esquema_skos(
         "triples": result["triples"],
         "created": True,
         "changed": True,
+        "catalog": f"{base}catalogo/{E2E_CATALOG}",  # decisión 50
     }
     assert _graphs(stack)[uri] == result["triples"]
     page = _vocabularies(stack)
@@ -1164,10 +1179,15 @@ def test_lo_que_no_cumple_shacl_se_rechaza_con_422(
     assert len(examples) >= 19
     for path in examples:
         endpoint = "/ontologies" if path.name.startswith("ontologia-") else "/schemes"
-        response = _post(stack, endpoint, path.read_bytes(), g3_editor.token)
+        # Tal cual, sin ?catalog=: es lo que valida validate.py (decisión 50).
+        response = _post(stack, endpoint, path.read_bytes(), g3_editor.token, catalog=False)
+        if path.name in NOT_MANAGED_SAMPLES:  # decisión 50, regla 12: 403, no 422
+            assert response.status == 403, f"{path.name}: {response.status} {response.text[:300]}"
+            assert response.json()["kind"] == "not_managed", path.name
+            continue
         assert response.status == 422, f"{path.name}: {response.status} {response.text[:300]}"
         body = response.json()
-        assert body["kind"] in ("shacl", "uri", "structure"), path.name
+        assert body["kind"] in ("shacl", "uri", "structure", "catalog"), path.name
         if body["kind"] == "shacl":
             assert body["issues"] and body["report"], path.name
             expected = set(
@@ -1178,7 +1198,7 @@ def test_lo_que_no_cumple_shacl_se_rechaza_con_422(
 
     # Un ejemplo concreto, con su informe.
     sample = (INVALID_DIR / "esquema-sin-version.ttl").read_bytes()
-    report = _post(stack, "/schemes", sample, g3_editor.token).json()
+    report = _post(stack, "/schemes", sample, g3_editor.token, catalog=False).json()
     assert report["kind"] == "shacl"
     assert f"{base}shapes#ConceptScheme-version" in {i["source_shape"] for i in report["issues"]}
 
@@ -1230,11 +1250,14 @@ def test_la_ingesta_no_escribe_fuera_de_su_grafo(
         _ontology_ttl(slug, "2.0.0", prior="3.0.0"),
     ):
         assert _post(stack, "/ontologies", body, g3_editor.token).status == 422
-    # 'corp' no es un slug, y los esquemas auxiliares solo los carga load-semantic.
-    for uri in ("vocab/corp", "vocab/dominio", "vocab/tipo-dataset"):
+    # 'corp' no es un slug (422); los esquemas auxiliares solo los carga load-semantic y
+    # la API no los gestiona (decisión 50, regla 12: 403 not_managed).
+    rejected = _post(stack, "/schemes", _scheme_ttl("vocab/corp", prefix=slug), g3_editor.token)
+    assert rejected.status == 422 and rejected.json()["kind"] == "uri"
+    for uri in ("vocab/dominio", "vocab/tipo-dataset"):
         rejected = _post(stack, "/schemes", _scheme_ttl(uri, prefix=slug), g3_editor.token)
-        assert rejected.status == 422, uri
-        assert rejected.json()["kind"] == "uri", uri
+        assert rejected.status == 403, uri
+        assert rejected.json()["kind"] == "not_managed", uri
     assert _graphs(stack) == before
     for path in (
         "/ontologies/itot",

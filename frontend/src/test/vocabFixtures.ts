@@ -5,10 +5,13 @@
  * de `src/api/types.ts`.
  */
 import type {
+  CatalogRef,
   ConceptDetail,
   ConceptNode,
   OntologyDetail,
+  OntologyIngestResult,
   SchemeDetail,
+  SchemeIngestResult,
   VocabularyCard,
   VocabularyCounts,
   VocabularyPage,
@@ -301,6 +304,48 @@ export function conceptFixture(overrides: Partial<ConceptDetail> = {}): ConceptD
       ],
       ontologies: [{ slug: 'onto-prueba', uri: ONTO, title: 'Ontología de prueba', versions: ['1.2.0'] }],
     },
+    ...overrides,
+  }
+}
+
+/* Decisión 50: vocabularios y ontologías en los catálogos. */
+
+export function catalogRefFixture(overrides: Partial<CatalogRef> = {}): CatalogRef {
+  return { slug: 'catalogo-prueba', uri: `${BASE}catalogo/catalogo-prueba`, title: 'Catálogo de prueba', ...overrides }
+}
+
+export function schemeIngestFixture(overrides: Partial<SchemeIngestResult> = {}): SchemeIngestResult {
+  return {
+    slug: 'esq-prueba',
+    corp: false,
+    uri: SCHEME,
+    graph: SCHEME,
+    concepts: 6,
+    triples: 42,
+    created: true,
+    changed: true,
+    catalog: `${BASE}catalogo/catalogo-prueba`,
+    ...overrides,
+  }
+}
+
+export function ontologyIngestFixture(overrides: Partial<OntologyIngestResult> = {}): OntologyIngestResult {
+  const onto = ontologyFixture()
+  return {
+    slug: 'onto-prueba',
+    uri: ONTO,
+    version: '1.3.0',
+    version_iri: `${ONTO}/1.3.0`,
+    graph: `${ONTO}/1.3.0`,
+    triples: 120,
+    created: true,
+    changed: true,
+    metrics_recomputed: true,
+    metrics: onto.metrics!,
+    profile: onto.profile!,
+    consistency: onto.consistency!,
+    documentation: onto.documentation!,
+    catalog: `${BASE}catalogo/catalogo-prueba`,
     ...overrides,
   }
 }

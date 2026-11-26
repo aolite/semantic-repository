@@ -29,11 +29,17 @@ export type FieldErrors = Partial<Record<FormField, string>>
 
 /**
  * Errores del formulario. `requireSlug` al crear; `requirePublisher` en los
- * catálogos (en la serie el publicador es opcional en el contrato).
+ * catálogos (en la serie el publicador es opcional en el contrato);
+ * `requireDescription` salvo al editar un esquema que no tenía descripción
+ * (decisión 50: en `SchemeUpdate` es opcional).
  */
 export function validateResource(
   values: ResourceValues,
-  { requireSlug, requirePublisher }: { requireSlug: boolean; requirePublisher: boolean },
+  {
+    requireSlug,
+    requirePublisher,
+    requireDescription = true,
+  }: { requireSlug: boolean; requirePublisher: boolean; requireDescription?: boolean },
 ): FieldErrors {
   const errors: FieldErrors = {}
   if (requireSlug) {
@@ -42,7 +48,7 @@ export function validateResource(
     else if (!SLUG_PATTERN.test(slug) || slug.length > LIMITS.slug) errors.slug = VALIDATION_TEXT.slug
   }
   if (!values.title.trim()) errors.title = VALIDATION_TEXT.required
-  if (!values.description.trim()) errors.description = VALIDATION_TEXT.required
+  if (requireDescription && !values.description.trim()) errors.description = VALIDATION_TEXT.required
   if (requirePublisher && !values.publisher_name.trim()) errors.publisher_name = VALIDATION_TEXT.required
   return errors
 }

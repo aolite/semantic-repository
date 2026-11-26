@@ -126,21 +126,7 @@ def _schema_enum(schema: dict[str, Any]) -> list[str] | None:
 # Valores nuevos de un enum del contrato que el frontend todavía no tiene (el contrato
 # OpenAPI cambia en su propia PR y el frontend se adapta después). Se borran cuando
 # frontend/src/api/types.ts los incorpore.
-# Decisión 50 (contrato del backend antes que el frontend): valores nuevos que frontend
-# aún no tiene en types.ts.
-PENDING_FRONTEND_VALUES: dict[tuple[str, str], set[str]] = {
-    ("IngestErrorResponse", "kind"): {
-        "prefix_withdrawn",
-        "prefix_in_use",
-        "concepts_removed",
-        "concept_reactivated",
-        "replacement",
-        "deprecated_theme",
-        "unknown_theme",
-    },
-    ("ConflictResponse", "kind"): {"in_use"},
-    ("GoneResponse", "resource"): {"scheme", "ontology"},
-}
+PENDING_FRONTEND_VALUES: dict[tuple[str, str], set[str]] = {}
 
 
 def test_frontend_literal_types_match_the_contract_enums() -> None:
@@ -261,7 +247,8 @@ def test_frontend_calls_only_paths_and_parameters_of_the_contract() -> None:
     }
     calls = _client_calls()
     expected = {
-        "/vocabularies": {"q", "kind", "domain"},
+        # Decisión 50: `catalog` filtra por catálogo.
+        "/vocabularies": {"q", "kind", "domain", "catalog"},
         "/ontologies/{}": {"version"},
         "/ontologies/{}/rdf": {"format", "version", "download"},
         "/schemes/{}": set(),

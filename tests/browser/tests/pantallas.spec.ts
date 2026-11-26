@@ -66,7 +66,11 @@ test('Vocabularios y ontologías: recuentos y filtros por tipo', async ({ page }
   }
   await expect(page.getByText(/^\d+ vocabularios$/)).toBeVisible()
   await page.getByRole('group', { name: 'Tipo de vocabulario' }).getByRole('button', { name: 'Ontologías propias' }).click()
-  await expect(page.getByText('3 vocabularios')).toBeVisible()
+  // Los tres de los datos sintéticos, y los que hayan publicado otras pruebas (decisión 50): no se
+  // fija el total, que depende del orden de los ficheros.
+  await expect
+    .poll(async () => Number((await page.getByText(/^\d+ vocabularios$/).innerText()).match(/\d+/)?.[0] ?? 0))
+    .toBeGreaterThanOrEqual(3)
   await expect(page.getByText('Ontología de activos y amenazas IT/OT')).toBeVisible()
   await expectNoBrokenText(page)
   check()
