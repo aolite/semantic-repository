@@ -1,0 +1,34 @@
+# Ejemplo VÁLIDO (decisión 50, 2026-11-26): primera sustitución de una
+# ontología externa. Es lo que valida el backend: el registro de referencia
+# (que guarda en {BASE_URI}onto/externas) junto con el registro de la versión
+# nueva (que guarda, con el fichero completo de la ontología, en el grafo
+# {BASE_URI}onto/externas/ejemplo/1). El contenido de la ontología no se
+# valida con las formas.
+# Las formas que aplica están en semantic/shapes/. Ver semantic/uris.md,
+# «Versiones de las ontologías externas».
+
+# BASE_URI: el fichero no declara @base; las URIs propias son relativas. La
+# IRI oficial de la ontología es ficticia (example.org) y la fecha, también.
+
+@prefix dct:  <http://purl.org/dc/terms/> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix adms: <http://www.w3.org/ns/adms#> .
+@prefix vann: <http://purl.org/vocab/vann/> .
+@prefix dcat: <http://www.w3.org/ns/dcat#> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+
+<http://example.org/ontologia-externa>
+    a owl:Ontology ;
+    dct:title "Ontología externa de ejemplo"@es ;
+    vann:preferredNamespacePrefix "ejemplo" ;
+    vann:preferredNamespaceUri <http://example.org/ontologia-externa#> ;
+    dcat:hasVersion <onto/externas/ejemplo/1> ;
+    dcat:hasCurrentVersion <onto/externas/ejemplo/1> .
+
+<onto/externas/ejemplo/1>
+    a prov:Entity ;
+    dct:isVersionOf <http://example.org/ontologia-externa> ;
+    dcat:version "1" ;
+    prov:generatedAtTime "2026-01-01T00:00:00Z"^^xsd:dateTime .

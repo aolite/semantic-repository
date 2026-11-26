@@ -1,0 +1,33 @@
+# Ejemplo INVÁLIDO (decisión 50): dos ontologías externas comparten el slug de
+# sus versiones.
+# Todo lo demás es válido, así que solo deben fallar las formas indicadas.
+# validate.py lee las líneas «expect-violation» (nombre local en {BASE_URI}shapes#).
+# expect-violation: ExternalOntologyVersioned-hasVersion-slug-unico
+
+# BASE_URI: el fichero no declara @base; las URIs propias son relativas. La
+# IRI oficial de la ontología es ficticia (example.org) y la fecha, también.
+
+@prefix dct:  <http://purl.org/dc/terms/> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix adms: <http://www.w3.org/ns/adms#> .
+@prefix vann: <http://purl.org/vocab/vann/> .
+@prefix dcat: <http://www.w3.org/ns/dcat#> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+
+<http://example.org/ontologia-externa>
+    a owl:Ontology ;
+    dct:title "Ontología externa de ejemplo"@es ;
+    vann:preferredNamespacePrefix "ejemplo" ;
+    vann:preferredNamespaceUri <http://example.org/ontologia-externa#> ;
+    dcat:hasVersion <onto/externas/ejemplo/1> ;
+    dcat:hasCurrentVersion <onto/externas/ejemplo/1> .
+
+<http://example.org/otra-ontologia-externa>
+    a owl:Ontology ;
+    dct:title "Ontología externa de ejemplo"@es ;
+    vann:preferredNamespacePrefix "otra" ;
+    vann:preferredNamespaceUri <http://example.org/otra-ontologia-externa#> ;
+    dcat:hasVersion <onto/externas/ejemplo/1> ;
+    dcat:hasCurrentVersion <onto/externas/ejemplo/1> .

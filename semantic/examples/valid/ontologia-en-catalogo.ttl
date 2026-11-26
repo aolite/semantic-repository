@@ -25,7 +25,10 @@
     dct:description "Ontología mínima para un ejemplo."@es ;
     adms:status <http://purl.org/adms/status/Completed> ;
     vann:preferredNamespacePrefix "ejemplo" ;
-    vann:preferredNamespaceUri <onto/ejemplo#> .
+    vann:preferredNamespaceUri <onto/ejemplo#> ;
+    # dct:subject hacia un concepto o, desde el 2026-11-26, hacia un esquema
+    # SKOS entero (decisión 50).
+    dct:subject <vocab/ejemplo/concepto> , <vocab/ejemplo> .
 
 # Pertenencia a un catálogo (decisión 50): en la ingesta, el backend añade este
 # triple a partir del catálogo elegido.
