@@ -317,3 +317,82 @@ export async function baseUri(): Promise<string> {
   const catalogs = (await (await api('/catalogs')).json()) as { items: { uri: string }[] }
   return catalogs.items[0].uri.replace(/catalogo\/[^/]+$/, '')
 }
+
+// --- Ontologías externas y sus versiones (decisión 51) ------------------------------------
+
+export const EXTERNALS = {
+  /** Se sustituye en las pruebas (y cambia de título). */
+  saref: { slug: 'saref', iri: 'https://saref.etsi.org/core/' },
+  /** No se sustituye nunca con éxito: es la «externa sin versiones». */
+  d3f: { slug: 'd3f', iri: 'http://d3fend.mitre.org/ontologies/d3fend.owl' },
+} as const
+
+export interface ExternalVersion {
+  number: number
+  uri: string
+  current: boolean
+  version_info: string | null
+  notes: string | null
+  metrics: { classes: number } | null
+}
+
+export interface ExternalDetail {
+  slug: string
+  uri: string
+  title: string | null
+  prefix: string | null
+  namespace: string | null
+  publisher: string | null
+  versions: ExternalVersion[]
+  current_version: ExternalVersion | null
+}
+
+export async function externalDetail(slug: string): Promise<ExternalDetail> {
+  const response = await api(`/ontologies/externas/${slug}`)
+  if (response.status !== 200) throw new Error(`ficha de la externa ${slug}: ${response.status}`)
+  return (await response.json()) as ExternalDetail
+}
+
+/** Un fichero Turtle sintético de una externa: tres clases suyas y una propiedad. */
+export function externalOntologyTurtle(iri: string, tag: string, namespace: string = iri): string {
+  return (
+    [
+      '@prefix owl: <http://www.w3.org/2002/07/owl#> .',
+      '@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .',
+      `<${iri}> a owl:Ontology .`,
+      `<${namespace}Marcador${tag}> a owl:Class ; rdfs:label "Marcador ${tag}"@en .`,
+      `<${namespace}Sensor${tag}> a owl:Class ; rdfs:subClassOf <${namespace}Marcador${tag}> .`,
+      `<${namespace}Actuador${tag}> a owl:Class .`,
+      `<${namespace}tiene${tag}> a owl:ObjectProperty .`,
+    ].join('\n') + '\n'
+  )
+}
+
+/** Sustituye una externa por la API (multipart). Devuelve el estado y el cuerpo. */
+export async function apiReplaceExternal(
+  token: string,
+  slug: string,
+  fields: Record<string, string>,
+  file: { name: string; mimeType: string; text: string },
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  const form = new FormData()
+  for (const [name, value] of Object.entries(fields)) form.append(name, value)
+  form.append('file', new Blob([file.text], { type: file.mimeType }), file.name)
+  const response = await api(`/ontologies/externas/${slug}/versions`, { method: 'POST', body: form, token })
+  return { status: response.status, body: (await response.json()) as Record<string, unknown> }
+}
+
+/** Si la externa aún no tiene versiones, la sustituye una vez (no hace nada si ya las tiene). */
+export async function ensureExternalVersion(token: string, slug: keyof typeof EXTERNALS = 'saref'): Promise<ExternalDetail> {
+  const current = await externalDetail(slug)
+  if (current.versions.length > 0) return current
+  const { iri } = EXTERNALS[slug]
+  const result = await apiReplaceExternal(
+    token,
+    slug,
+    { title: current.title ?? slug, prefix: current.prefix ?? slug, namespace: current.namespace ?? iri },
+    { name: 'o.ttl', mimeType: 'text/turtle', text: externalOntologyTurtle(iri, Math.random().toString(16).slice(2, 8)) },
+  )
+  if (result.status !== 201) throw new Error(`sustituir ${slug}: ${result.status} ${JSON.stringify(result.body).slice(0, 300)}`)
+  return externalDetail(slug)
+}
