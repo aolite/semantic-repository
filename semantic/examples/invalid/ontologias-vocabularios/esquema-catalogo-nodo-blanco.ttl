@@ -1,0 +1,36 @@
+# Ejemplo INVÁLIDO (decisión 50): Esquema cuyo catálogo es un nodo en blanco, sin IRI.
+# Todo lo demás es válido, así que solo deben fallar las formas indicadas.
+# validate.py lee las líneas «expect-violation» (nombre local en {BASE_URI}shapes#).
+# expect-violation: ConceptSchemeCatalogShape
+
+# BASE_URI: el fichero no declara @base; las URIs son relativas.
+
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix dct:  <http://purl.org/dc/terms/> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix adms: <http://www.w3.org/ns/adms#> .
+@prefix vann: <http://purl.org/vocab/vann/> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix dcat: <http://www.w3.org/ns/dcat#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+
+<vocab/ejemplo>
+    a skos:ConceptScheme ;
+    dct:title "Esquema de ejemplo"@es ;
+    dct:description "Esquema mínimo para un ejemplo."@es ;
+    dct:subject <vocab/dominio/ot> ;
+    owl:versionInfo "1.0" ;
+    adms:status <http://purl.org/adms/status/Completed> ;
+    vann:preferredNamespacePrefix "ej" ;
+    vann:preferredNamespaceUri <vocab/ejemplo/> ;
+    skos:hasTopConcept <vocab/ejemplo/a> .
+
+<vocab/ejemplo/a>
+    a skos:Concept ;
+    skos:inScheme <vocab/ejemplo> ;
+    skos:topConceptOf <vocab/ejemplo> ;
+    skos:prefLabel "Concepto A"@es .
+
+[] dcat:resource <vocab/ejemplo> .

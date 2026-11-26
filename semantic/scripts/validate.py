@@ -29,16 +29,25 @@ Comprueba:
      dominio, marca de sintético, referencias entre series, versiones y
      distribuciones, URIs según semantic/uris.md y catálogos (el raíz
      agrupa con dcat:catalog los de data/catalogos/{slug}.ttl, que listan
-     las series; un fichero por catálogo).
+     las series; un fichero por catálogo) y los esquemas SKOS y ontologías
+     propias que listan con dcat:resource (decisión 50).
   7. Que cada esquema de semantic/vocabularios/ (un fichero, un esquema, un
-     grafo con nombre) cumple las formas por sí solo y es coherente: URI
+     grafo con nombre), junto con el triple de pertenencia a su catálogo que
+     da semantic/data/catalogos/ (como hace el backend en la ingesta),
+     cumple las formas y es coherente: URI
      según la ruta del fichero, dominio (dct:subject) en los de dominio y no
      en los corporativos, marca de sintético y prefijos VANN únicos.
-  8. Que cada versión de semantic/ontologias/{slug}/{version}.ttl y
-     semantic/ontologias/externas.ttl cumplen las formas por sí solos y son
+  8. Que cada versión de semantic/ontologias/{slug}/{version}.ttl (con el
+     triple de pertenencia de su ontología) y semantic/ontologias/externas.ttl
+     cumplen las formas y son
      coherentes: URIs según la ruta, cadena de owl:priorVersion, términos en
      su espacio de nombres, imports y alineamientos hacia ontologías
-     externas catalogadas y dct:subject hacia conceptos existentes.
+     externas catalogadas y dct:subject hacia conceptos o esquemas
+     existentes. externas.ttl es solo la semilla de las referencias: no lleva
+     versiones (las crea la aplicación al sustituir una externa, decisión 50)
+     y cada externa tiene un prefijo VANN, del que sale el slug de sus
+     versiones. Los prefijos VANN son únicos entre esquemas, ontologías
+     propias y externas (regla 14).
   9. Que semantic/data/sintetico/ficheros/ tiene un fichero por cada
      distribución PUBLIC o RESTRICTED (salvo los formatos pendientes de
      ficheros_sinteticos.PENDIENTES, hoy ninguno) y ninguno para las NON_PUBLIC, y que
@@ -98,6 +107,10 @@ DOMAIN_SLUGS = ("it", "ot", "pqc", "ia")
 SYNTHETIC_TYPE = "vocab/tipo-dataset/sintetico"
 # Segmentos de vocab/ que no pueden ser slug de un esquema de dominio.
 RESERVED_VOCAB_SLUGS = ("corp", "dominio", "tipo-dataset")
+# Segmento de onto/ que no puede ser slug de una ontología propia:
+# {BASE_URI}onto/externas es el grafo de las externas y sus versiones cuelgan
+# de {BASE_URI}onto/externas/{slug}/{n} (decisión 50).
+RESERVED_ONTOLOGY_SLUGS = ("externas",)
 # Mientras todo el contenido de ontologias/ y vocabularios/ sea sintético
 # (hasta el piloto), cada ontología propia y cada esquema lleva la marca.
 REQUIRE_SYNTHETIC_MARK = True
@@ -180,11 +193,20 @@ def main() -> int:
         print(f"  FALLO  meta-SHACL: {exc}")
         return report(errors)
 
-    def run(path: Path) -> tuple[bool, Graph, str] | None:
+    def run(path: Path, membership: Graph | None = None) -> tuple[bool, Graph, str] | None:
+        """Valida un fichero. ``membership`` son los triples «<catálogo>
+        dcat:resource <recurso>» de semantic/data/catalogos/: si se pasa, se
+        añaden los que apuntan a un sujeto del fichero, igual que el backend
+        añade el del catálogo elegido antes de validar (decisión 50)."""
         try:
             data = parse(path, base)
         except Exception:  # noqa: BLE001 - ya informado en el paso 1
             return None
+        if membership is not None:
+            subjects = set(data.subjects())
+            for triple in membership.triples((None, DCAT.resource, None)):
+                if triple[2] in subjects:
+                    data.add(triple)
         conforms, results, text = validate(
             data,
             shacl_graph=shapes,
@@ -305,13 +327,20 @@ def main() -> int:
     if not problems:
         print("  ok     coherencia (dominios, marca de sintético, referencias y URIs)")
 
+    # Pertenencia de esquemas y ontologías a su catálogo (decisión 50): vive
+    # solo en el grafo del catálogo, no en los ficheros de vocabularios/ ni de
+    # ontologias/. Para validarlos se les añade su triple.
+    membership = Graph()
+    for triple in combined.triples((None, DCAT.resource, None)):
+        membership.add(triple)
+
     # 7. Esquemas SKOS, uno a uno: formas y coherencia.
     print(f"\n[7] Esquemas SKOS de semantic/vocabularios/, uno a uno ({len(vocab_files)} ficheros)")
     if not vocab_files:
         errors.append("no hay esquemas en semantic/vocabularios/")
     prefixes: dict[str, list[str]] = {}
     for path in vocab_files:
-        outcome = run(path)
+        outcome = run(path, membership)
         if outcome is None:
             errors.append(f"{rel(path)}: no se puede validar (sintaxis)")
             continue
@@ -336,7 +365,7 @@ def main() -> int:
         return report(errors)
     external = parse(EXTERNAL_FILE, base)
     for path in [*onto_files, EXTERNAL_FILE]:
-        outcome = run(path)
+        outcome = run(path, membership)
         if outcome is None:
             errors.append(f"{rel(path)}: no se puede validar (sintaxis)")
             continue
@@ -355,8 +384,19 @@ def main() -> int:
         if conforms and not problems:
             print(f"  ok     {rel(path)}")
 
-    # Prefijos VANN únicos entre esquemas y ontologías (las versiones de una
-    # misma ontología comparten el suyo).
+    # Catálogos de los esquemas y las ontologías (decisión 50).
+    problems = resource_catalogs(combined, base, vocab_files, onto_files, external)
+    for problem in problems:
+        errors.append(f"semantic/data/catalogos/: {problem}")
+        print(f"  FALLO  {problem}")
+    if not problems:
+        print("  ok     cada esquema y cada ontología propia, en exactamente un catálogo")
+
+    # Prefijos VANN únicos entre esquemas, ontologías propias y externas
+    # (reglas 7 y 14 de semantic/uris.md; las externas cuentan desde el
+    # 2026-11-26). Las versiones de una misma ontología comparten el suyo, y
+    # un prefijo que una versión posterior deja de usar sigue reservado para
+    # esa ontología: aquí cuenta con la carpeta de la ontología como dueña.
     for prefix, owners in sorted(prefixes.items()):
         if len(set(owners)) > 1:
             errors.append(f"prefijo VANN «{prefix}» repetido en {', '.join(sorted(set(owners)))}")
@@ -480,6 +520,45 @@ def catalog_files(base: str) -> list[str]:
     return problems
 
 
+def resource_catalogs(
+    g: Graph, base: str, vocab_files: list[Path], onto_files: list[Path], external: Graph
+) -> list[str]:
+    """dcat:resource de los catálogos (decisión 50) sobre semantic/data/.
+
+    Cada esquema de vocabularios/ y cada ontología propia de ontologias/ está
+    en exactamente un catálogo catalogo/{slug}; el raíz no lista recursos; los
+    esquemas auxiliares y las ontologías externas no están en ninguno, y
+    dcat:resource solo apunta a esquemas u ontologías del repositorio (nunca
+    a una versión). SHACL comprueba lo mismo fichero a fichero; aquí se
+    cruzan todos los catálogos.
+    """
+    problems: list[str] = []
+    short = short_of(base)
+    schemes = {
+        URIRef(f"{base}vocab/corp/{p.stem}" if p.parent == CORP_DIR else f"{base}vocab/{p.stem}")
+        for p in vocab_files
+    }
+    ontologies = {URIRef(f"{base}onto/{p.parent.name}") for p in onto_files}
+    wanted = schemes | ontologies
+    root = URIRef(f"{base}catalogo")
+    children = {c for c in g.subjects(RDF.type, DCAT.Catalog) if c != root}
+    found: dict[URIRef, set] = {}
+    for catalog, item in g.subject_objects(DCAT.resource):
+        if catalog not in children:
+            problems.append(f"{short(catalog)}: dcat:resource {short(item)} desde algo que no es un catálogo catalogo/{{slug}} descrito")
+        if item not in wanted:
+            problems.append(f"{short(catalog)}: dcat:resource {short(item)} no es un esquema de vocabularios/ ni una ontología propia de ontologias/")
+        found.setdefault(item, set()).add(catalog)
+    for item in sorted(wanted, key=str):
+        catalogs = found.get(item, set())
+        if len(catalogs) != 1:
+            problems.append(f"{short(item)}: tiene que estar en exactamente un catálogo y está en {len(catalogs)}")
+    for onto in external.subjects(RDF.type, OWL.Ontology):
+        if onto in found:
+            problems.append(f"{short(onto)}: una ontología externa no está en ningún catálogo")
+    return sorted(problems)
+
+
 def short_of(base: str):
     def short(node) -> str:
         return str(node)[len(base):] if str(node).startswith(base) else str(node)
@@ -539,6 +618,9 @@ def scheme_coherence(path: Path, g: Graph, base: str, vocab: Graph, prefixes: di
         if (subject, SKOS.inScheme, expected) not in g:
             problems.append(f"describe {short(subject)}, que no es un concepto de este esquema")
 
+    if (None, DCAT.resource, None) in g:
+        problems.append("la pertenencia al catálogo (dcat:resource) no va en el fichero, sino en data/catalogos/")
+
     for prefix in g.objects(expected, VANN.preferredNamespacePrefix):
         prefixes.setdefault(str(prefix), []).append(rel(path))
     return problems
@@ -559,6 +641,8 @@ def ontology_coherence(
     slug, version = path.parent.name, path.stem
     if path.parent.parent != ONTO_DIR or not SLUG.match(slug) or not SEMVER.match(version):
         return [f"ubicación no prevista; las versiones van en {rel(ONTO_DIR)}/{{slug}}/{{version}}.ttl"]
+    if slug in RESERVED_ONTOLOGY_SLUGS:
+        return [f"«{slug}» es un segmento reservado de onto/"]
     onto = URIRef(f"{base}onto/{slug}")
     ontologies = set(g.subjects(RDF.type, OWL.Ontology))
     if ontologies != {onto}:
@@ -601,10 +685,16 @@ def ontology_coherence(
     if REQUIRE_SYNTHETIC_MARK and (onto, DCTERMS.type, URIRef(base + SYNTHETIC_TYPE)) not in g:
         problems.append(f"falta dct:type <{SYNTHETIC_TYPE}>")
 
-    # dct:subject: conceptos SKOS existentes.
+    # dct:subject: conceptos SKOS existentes o, desde el 2026-11-26 (decisión
+    # 50), un esquema entero.
     for concept in g.objects(onto, DCTERMS.subject):
-        if (concept, RDF.type, SKOS.Concept) not in vocab:
-            problems.append(f"dct:subject {short(concept)} no es un skos:Concept de semantic/vocabularios/")
+        if (concept, RDF.type, SKOS.Concept) not in vocab and (concept, RDF.type, SKOS.ConceptScheme) not in vocab:
+            problems.append(f"dct:subject {short(concept)} no es un skos:Concept ni un skos:ConceptScheme de semantic/vocabularios/")
+
+    # La pertenencia al catálogo no va en la versión (decisión 50, validado el 2026-11-25):
+    # las versiones son inmutables (decisión 28) y el catálogo puede cambiar.
+    if (None, DCAT.resource, None) in g:
+        problems.append("la pertenencia al catálogo (dcat:resource) no va en la versión, sino en data/catalogos/")
 
     # Términos propios en {URI}#; ningún otro recurso bajo BASE_URI.
     namespace = f"{onto}#"
@@ -632,7 +722,14 @@ def ontology_coherence(
 
 
 def external_coherence(g: Graph, base: str, prefixes: dict[str, list[str]]) -> list[str]:
-    """externas.ttl: solo referencias, con la IRI oficial (fuera de BASE_URI)."""
+    """externas.ttl: solo referencias, con la IRI oficial (fuera de BASE_URI).
+
+    Es la semilla del grafo {BASE_URI}onto/externas. Las versiones de una
+    externa ({BASE_URI}onto/externas/{slug}/{n}) las crea solo la aplicación
+    al sustituirla (decisión 50, 2026-11-26): el fichero no las lleva. Cada
+    externa tiene exactamente un prefijo VANN, que será el slug de sus
+    versiones [PROPUESTA pendiente de validar].
+    """
     problems: list[str] = []
     short = short_of(base)
     ontologies = set(g.subjects(RDF.type, OWL.Ontology))
@@ -645,11 +742,21 @@ def external_coherence(g: Graph, base: str, prefixes: dict[str, list[str]]) -> l
             problems.append(f"{short(onto)}: una ontología externa no lleva owl:versionIRI (identifica las propias)")
         if g.value(onto, ADMS.status) is not None:
             problems.append(f"{short(onto)}: una ontología externa no lleva adms:status (su estado es «Referenciada»)")
-        for prefix in g.objects(onto, VANN.preferredNamespacePrefix):
-            prefixes.setdefault(str(prefix), []).append(f"{rel(EXTERNAL_FILE)} ({onto})")
+        for prop in (DCAT.hasVersion, DCAT.hasCurrentVersion):
+            if g.value(onto, prop) is not None:
+                problems.append(f"{short(onto)}: {short(prop)} no va en {rel(EXTERNAL_FILE)}; las versiones las crea la aplicación al sustituir la externa")
+        onto_prefixes = [str(p) for p in g.objects(onto, VANN.preferredNamespacePrefix)]
+        if len(onto_prefixes) != 1 or not SLUG.match(onto_prefixes[0]):
+            problems.append(f"{short(onto)}: necesita exactamente un vann:preferredNamespacePrefix, que sea un slug válido (el de sus versiones)")
+        # Regla 14 (decidido el 2026-11-26): los prefijos de las externas
+        # también cuentan; ningún esquema ni ontología propia puede usarlos.
+        for prefix in onto_prefixes:
+            prefixes.setdefault(prefix, []).append(f"{rel(EXTERNAL_FILE)} ({onto})")
     for subject in set(g.subjects()):
         if isinstance(subject, URIRef) and str(subject).startswith(base):
             problems.append(f"describe {short(subject)}, un recurso bajo BASE_URI")
+    if (None, DCTERMS.isVersionOf, None) in g:
+        problems.append("dct:isVersionOf no va en el fichero; los registros de versión los crea la aplicación")
     return problems
 
 
@@ -669,7 +776,11 @@ def coherence(g: Graph, base: str, synthetic: set[URIRef], vocab: Graph) -> list
     # Temas: conceptos de un esquema de dominio (con dct:subject hacia
     # vocab/dominio), y de un solo dominio por versión. «PQC e identidad»
     # tiene dos esquemas (pqc y did): lo que cuenta es el dominio, no el
-    # esquema.
+    # esquema. Es una regla de los datos de este repositorio, más estricta
+    # que la ingesta: el backend admite temas externos (conceptos fuera de
+    # BASE_URI, decidido el 2026-11-26) y solo da 422 por un concepto bajo
+    # BASE_URI que no existe o es de un esquema dado de baja (regla 13 de
+    # semantic/uris.md).
     for version in versions:
         found = set()
         for theme in g.objects(version, DCAT.theme):
