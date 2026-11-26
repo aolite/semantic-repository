@@ -79,9 +79,19 @@ Puntuación real de F-UJI 4.0.1 con los datos sintéticos (versión actual de ca
 6. 403 `not_managed` (esquemas auxiliares y ontologías externas) con editor y admin, y roles en cada endpoint (anónimo 401, miembro 403, token manipulado 401, sin escribir nada).
 7. IRIs y parámetros hostiles (422 `uri` antes de llegar a SPARQL), el SPARQL público sin lo dado de baja, la auditoría y las bajas y traslados simultáneos.
 
-### Defectos de la decisión 50
+### Segunda ronda de la decisión 50
 
-Marcados con `xfail(strict=True)` hasta que se corrijan: **QA-50-01** (dos recursos vivos con el mismo prefijo VANN: al dar de baja uno, el otro no puede publicar versiones nuevas) y **QA-50-02** (dar de baja un esquema que es sustituto de un concepto retirado de otro lo permite y deja al otro irrepublicable).
+Con la validación del 2026-11-26 las pruebas ya no llevan `xfail` por QA-50-01 a QA-50-03:
+
+1. **QA-50-01:** dos recursos vivos no comparten prefijo VANN (409 `prefix_in_use`, con el dueño en `issues[].value`, también contra los esquemas sintéticos); el dueño sigue publicando versiones; tras darlo de baja, el prefijo da `prefix_withdrawn`.
+2. **QA-50-02:** dar de baja el sustituto de un concepto retirado da 409 `in_use` con `via` `dct:isReplacedBy`; un `isReplacedBy` dentro del mismo esquema no bloquea.
+3. **QA-50-03:** 422 `unknown_theme` (concepto inexistente, de un esquema dado de baja o el esquema mismo); los temas externos y los de los esquemas auxiliares pasan.
+4. `in_use` por `dct:subject` hacia el esquema mismo y por `dct:conformsTo` de una versión de dataset (a la ontología o a una de sus versiones); `onto/itot` no se puede dar de baja con los datos sintéticos.
+5. **Baja robusta (QA-50-04) con un fallo real a mitad:** una sesión de PostgreSQL retiene una fila con el mismo prefijo para que el `INSERT` del backend espere, se para Fuseki, se suelta la fila y la baja falla en el Update (503). Después se comprueba que el recurso sigue vivo y completo, que su dueño puede republicarlo, que nadie más usa el prefijo y que reintentar completa la baja una sola vez (una lápida, un prefijo, un evento de auditoría). Los títulos con `\u`, `$`, comillas y texto no latino llegan íntegros a la lápida.
+
+### Defectos abiertos de la decisión 50
+
+Con `xfail(strict=True)`: **QA-50-06** (el prefijo que una versión nueva de una ontología dejó de usar sigue ocupado por sus versiones antiguas: `prefix_in_use`).
 
 ## Puerta G3 · vocabularios cargados
 

@@ -172,8 +172,11 @@ def ontology_ttl(
 """
 
 
-def series_ttl(slug: str, catalog: str, versions: dict[str, list[str]]) -> str:
-    """Serie con las versiones ``{versión: [temas]}`` (la última es ``dcat:last``)."""
+def series_ttl(
+    slug: str, catalog: str, versions: dict[str, list[str]], conforms: list[str] | None = None
+) -> str:
+    """Serie con las versiones ``{versión: [temas]}`` (la última es ``dcat:last``); ``conforms``
+    son las IRIs de ``dct:conformsTo`` de cada versión."""
     last = list(versions)[-1]
     out = [
         "@prefix dcat: <http://www.w3.org/ns/dcat#> .",
@@ -191,6 +194,7 @@ def series_ttl(slug: str, catalog: str, versions: dict[str, list[str]]) -> str:
             f'    dcat:version "{version}" ; dcat:inSeries <dataset/{slug}> ;',
             f"    dct:accessRights <{AR}PUBLIC> ;",
             f"    dcat:theme {links} ;" if themes else "",
+            "    dct:conformsTo " + ", ".join(f"<{c}>" for c in conforms) + " ;" if conforms else "",
             f"    dcat:distribution <dataset/{slug}/{version}/csv> .",
             f"<dataset/{slug}/{version}/csv> a dcat:Distribution ; dct:accessRights <{AR}PUBLIC> ;",
             f"    dcat:mediaType <{IANA}text/csv> ; dcat:accessURL <dataset/{slug}/{version}/csv> .",
@@ -879,10 +883,11 @@ def test_el_catalogo_con_un_esquema_movido_queda_vacio_y_se_puede_borrar(
 def _republish(
     stack: Stack, token: str | None, catalog: str, slug: str, **kwargs: object
 ) -> Response:
+    prefix = kwargs.pop("prefix", None) or f"p{slug}"
     return _post(
         stack,
         f"/schemes?catalog={catalog}",
-        scheme_ttl(slug, f"p{slug}", **kwargs),  # type: ignore[arg-type]
+        scheme_ttl(slug, prefix, **kwargs),  # type: ignore[arg-type]
         token,
     )
 
@@ -1474,33 +1479,86 @@ def test_una_ontologia_sin_version_o_con_el_slug_reservado_no_crea_nada(
     assert _json(_get(stack, "/vocabularies"))["counts"] is not None
 
 
-# --- 13. Hallazgos abiertos (xfail estricto hasta que se corrijan) ----------------------
+# --- 13. Segunda ronda de la decisión 50 -----------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="QA-50-01 (backend): dos recursos vivos pueden compartir prefijo VANN; al dar de baja "
-    "uno, el otro no puede publicar versiones nuevas (409 prefix_withdrawn con su propio prefijo)",
-)
-def test_qa_50_01_un_recurso_vivo_con_el_prefijo_de_otro_dado_de_baja_sigue_publicando(
-    stack: Stack, editor: Account, cat_a: str
+def _issue_values(response: Response) -> list[str]:
+    return [i["value"] for i in _json(response)["issues"]]
+
+
+def test_qa_50_01_dos_recursos_vivos_no_comparten_prefijo_vann(
+    stack: Stack, editor: Account, cat_a: str, cat_b: str
 ) -> None:
+    base = _base(stack)
     shared = _slug("sh")
     scheme, created = publish_scheme(stack, editor.token, cat_a, prefix=shared)
-    onto, created_onto = publish_ontology(stack, editor.token, cat_a, prefix=shared)
-    assert created.status == 201 and created_onto.status == 201
-    assert _api(stack, "DELETE", f"/schemes/{scheme}", editor.token).status == 204
-    # La ontología sigue viva con su prefijo: una versión nueva tendría que poder publicarse.
-    newer = ontology_ttl(onto, shared, "1.1.0", prior="1.0.0")
+    assert created.status == 201
+    # Otro esquema, otra ontología (en cualquier catálogo): 409 prefix_in_use y el dueño en value.
+    other = _slug("s")
+    for catalog in (cat_a, cat_b):
+        response = _post(stack, f"/schemes?catalog={catalog}", scheme_ttl(other, shared), editor.token)
+        assert response.status == 409, response.text
+        assert _json(response)["kind"] == "prefix_in_use"
+        assert _issue_values(response) == [f"{base}vocab/{scheme}"]
+    onto = _slug("o")
+    response = _post(stack, f"/ontologies?catalog={cat_a}", ontology_ttl(onto, shared), editor.token)
+    assert response.status == 409 and _json(response)["kind"] == "prefix_in_use", response.text
+    assert _issue_values(response) == [f"{base}vocab/{scheme}"]
+    assert _get(stack, f"/schemes/{other}").status == 404 and _get(stack, f"/ontologies/{onto}").status == 404
+    # El dueño sigue publicando (republicar el esquema) con su propio prefijo.
+    again = _republish(stack, editor.token, cat_a, scheme, concepts=("raiz", "hoja", "otra"), prefix=shared)
+    assert again.status == 200, again.text
+    # Una ontología dueña de su prefijo publica versiones nuevas.
+    own = _slug("op")
+    assert _post(stack, f"/ontologies?catalog={cat_a}", ontology_ttl(own, f"q{own}"), editor.token).status == 201
+    newer = ontology_ttl(own, f"q{own}", "1.1.0", prior="1.0.0")
     assert _post(stack, f"/ontologies?catalog={cat_a}", newer, editor.token).status == 201
+    # Y una ontología con el prefijo de un esquema: el mismo 409 desde el otro lado.
+    clash = _post(stack, f"/ontologies?catalog={cat_a}", ontology_ttl(_slug("o"), f"q{own}"), editor.token)
+    assert clash.status == 409 and _issue_values(clash) == [f"{base}onto/{own}"], clash.text
+    # Dado de baja el dueño, el prefijo queda reservado: prefix_withdrawn (ya no «en uso»).
+    assert _api(stack, "DELETE", f"/schemes/{scheme}", editor.token).status == 204
+    after = _post(stack, f"/schemes?catalog={cat_a}", scheme_ttl(_slug("s"), shared), editor.token)
+    assert after.status == 409 and _json(after)["kind"] == "prefix_withdrawn", after.text
+    after = _post(stack, f"/ontologies?catalog={cat_a}", ontology_ttl(_slug("o"), shared), editor.token)
+    assert after.status == 409 and _json(after)["kind"] == "prefix_withdrawn", after.text
+
+
+def test_el_prefijo_de_un_recurso_sintetico_tampoco_se_puede_usar(
+    stack: Stack, editor: Account, cat_a: str
+) -> None:
+    base = _base(stack)
+    # `ot` es el prefijo del esquema vocab/ot (de los ficheros de semantic/).
+    import re
+
+    turtle = _get(stack, "/schemes/ot/rdf?format=turtle").text
+    found = re.search(r'preferredNamespacePrefix\s+"([^"]+)"', turtle)
+    assert found, turtle[:500]
+    response = _post(stack, f"/schemes?catalog={cat_a}", scheme_ttl(_slug("s"), found.group(1)), editor.token)
+    assert response.status == 409, response.text
+    assert _json(response)["kind"] == "prefix_in_use"
+    assert _issue_values(response) == [f"{base}vocab/ot"]
 
 
 @pytest.mark.xfail(
     strict=True,
-    reason="QA-50-02 (semantico/backend): dar de baja un esquema del que otro tiene un concepto "
-    "retirado con dct:isReplacedBy lo permite (204) y deja al otro sin poder republicarse igual",
+    reason="QA-50-06 (backend, propuesta): live_prefix_owners mira todas las versiones de una "
+    "ontología, así que el prefijo que una versión nueva dejó de usar sigue ocupado (prefix_in_use)",
 )
-def test_qa_50_02_dar_de_baja_un_sustituto_no_deja_al_otro_esquema_irrepublicable(
+def test_qa_50_06_el_prefijo_antiguo_de_una_version_de_ontologia_no_bloquea_a_otros(
+    stack: Stack, editor: Account, cat_a: str
+) -> None:
+    """Una ontología cambia de prefijo en su versión 1.1.0: el prefijo que dejó queda libre."""
+    old, new = _slug("pa"), _slug("pb")
+    slug, created = publish_ontology(stack, editor.token, cat_a, prefix=old)
+    assert created.status == 201
+    v2 = ontology_ttl(slug, new, "1.1.0", prior="1.0.0")
+    assert _post(stack, f"/ontologies?catalog={cat_a}", v2, editor.token).status == 201
+    taker = _post(stack, f"/schemes?catalog={cat_a}", scheme_ttl(_slug("s"), old), editor.token)
+    assert taker.status == 201, taker.text
+
+
+def test_qa_50_02_dar_de_baja_un_sustituto_da_409_in_use_por_dct_isreplacedby(
     stack: Stack, editor: Account, cat_a: str, cat_b: str
 ) -> None:
     base = _base(stack)
@@ -1508,7 +1566,238 @@ def test_qa_50_02_dar_de_baja_un_sustituto_no_deja_al_otro_esquema_irrepublicabl
     replacement, _ = publish_scheme(stack, editor.token, cat_b)
     target = f"{base}vocab/{replacement}/hoja"
     assert _republish(stack, editor.token, cat_a, retired, deprecated={"hoja": [target]}).status == 200
-    withdrawn = _api(stack, "DELETE", f"/schemes/{replacement}", editor.token)
-    again = _republish(stack, editor.token, cat_a, retired, deprecated={"hoja": [target]})
-    # O se rechaza la baja (el sustituto está en uso) o el mismo contenido sigue siendo válido.
-    assert withdrawn.status == 409 or again.status == 200
+    uses = _in_use(_api(stack, "DELETE", f"/schemes/{replacement}", editor.token))
+    assert uses == [
+        {
+            "uri": f"{base}vocab/{retired}/hoja",
+            "resource": "scheme",
+            "via": "http://purl.org/dc/terms/isReplacedBy",
+            "target": target,
+        }
+    ]
+    assert _get(stack, f"/schemes/{replacement}").status == 200
+    # Dado de baja el esquema con el concepto retirado, el sustituto queda libre.
+    assert _api(stack, "DELETE", f"/schemes/{retired}", editor.token).status == 204
+    assert _api(stack, "DELETE", f"/schemes/{replacement}", editor.token).status == 204
+
+
+def test_un_isreplacedby_dentro_del_mismo_esquema_no_bloquea_la_baja(
+    stack: Stack, editor: Account, cat_a: str
+) -> None:
+    base = _base(stack)
+    slug, _ = publish_scheme(stack, editor.token, cat_a, concepts=("raiz", "hoja", "otra"))
+    retired = _republish(
+        stack,
+        editor.token,
+        cat_a,
+        slug,
+        concepts=("raiz", "hoja", "otra"),
+        deprecated={"hoja": [f"{base}vocab/{slug}/otra"]},
+    )
+    assert retired.status == 200, retired.text
+    assert _api(stack, "DELETE", f"/schemes/{slug}", editor.token).status == 204
+
+
+def test_qa_50_03_unknown_theme_en_las_versiones_nuevas(
+    stack: Stack, editor: Account, cat_a: str
+) -> None:
+    base = _base(stack)
+    live, _ = publish_scheme(stack, editor.token, cat_a)
+    dead, _ = publish_scheme(stack, editor.token, cat_a)
+    assert _api(stack, "DELETE", f"/schemes/{dead}", editor.token).status == 204
+    cases = {
+        f"vocab/{live}/no-existe": "no es un concepto de ningún esquema publicado",
+        f"vocab/{dead}/hoja": "esquema dado de baja",
+        f"vocab/{live}": "no es un concepto",  # el esquema, no un concepto
+        "vocab/ot/no-existe": "no es un concepto de ningún esquema publicado",
+    }
+    before = _snapshot(stack)
+    for theme, text in cases.items():
+        series = _slug("d")
+        response = _post(stack, "/datasets", series_ttl(series, cat_a, {"1.0.0": [theme]}), editor.token)
+        assert response.status == 422, f"{theme}: {response.status} {response.text[:300]}"
+        body = _json(response)
+        assert body["kind"] == "unknown_theme", theme
+        assert [i["value"] for i in body["issues"]] == [f"{base}{theme}"]
+        assert text in body["issues"][0]["message"], (theme, body["issues"])
+        assert _get(stack, f"/datasets/{series}").status == 404
+    assert _snapshot(stack) == before
+    # Sí pasan: un concepto vivo, un concepto de un esquema auxiliar y un tema externo.
+    for theme in (f"vocab/{live}/hoja", "vocab/dominio/ot", "https://example.org/externo/tema"):
+        series = _slug("d")
+        response = _post(stack, "/datasets", series_ttl(series, cat_a, {"1.0.0": [theme]}), editor.token)
+        assert response.status == 201, f"{theme}: {response.status} {response.text[:300]}"
+    # Una mezcla rechaza solo por el desconocido; las versiones publicadas no se reevalúan.
+    series = _slug("d")
+    ok = series_ttl(series, cat_a, {"1.0.0": [f"vocab/{live}/hoja"]})
+    assert _post(stack, "/datasets", ok, editor.token).status == 201
+    mixed = series_ttl(series, cat_a, {"1.0.0": [f"vocab/{live}/hoja"], "1.1.0": [f"vocab/{live}/hoja", "vocab/ot/x-x"]})
+    refused = _post(stack, "/datasets", mixed, editor.token)
+    assert refused.status == 422 and _json(refused)["kind"] == "unknown_theme"
+    assert _post(stack, "/datasets", ok, editor.token).status == 200
+
+
+def test_in_use_por_dct_subject_hacia_el_esquema_mismo(
+    stack: Stack, editor: Account, cat_a: str
+) -> None:
+    base = _base(stack)
+    scheme, _ = publish_scheme(stack, editor.token, cat_a)
+    onto = _slug("o")
+    body = ontology_ttl(
+        onto, f"p{onto}", extra=f"<onto/{onto}> <http://purl.org/dc/terms/subject> <vocab/{scheme}> ."
+    )
+    created = _post(stack, f"/ontologies?catalog={cat_a}", body, editor.token)
+    assert created.status == 201, created.text
+    uses = _in_use(_api(stack, "DELETE", f"/schemes/{scheme}", editor.token))
+    assert uses == [
+        {
+            "uri": f"{base}onto/{onto}/1.0.0",
+            "resource": "ontology",
+            "via": "http://purl.org/dc/terms/subject",
+            "target": f"{base}vocab/{scheme}",
+        }
+    ]
+    assert _api(stack, "DELETE", f"/ontologies/{onto}", editor.token).status == 204
+    assert _api(stack, "DELETE", f"/schemes/{scheme}", editor.token).status == 204
+
+
+def test_in_use_por_dct_conformsto_de_una_version_de_dataset(
+    stack: Stack, editor: Account, cat_a: str
+) -> None:
+    base = _base(stack)
+    onto, created = publish_ontology(stack, editor.token, cat_a)
+    assert created.status == 201
+    for target in (f"onto/{onto}", f"onto/{onto}/1.0.0"):
+        series = _slug("d")
+        ttl = series_ttl(series, cat_a, {"1.0.0": []}, conforms=[target])
+        published = _post(stack, "/datasets", ttl, editor.token)
+        assert published.status == 201, published.text
+        uses = _in_use(_api(stack, "DELETE", f"/ontologies/{onto}", editor.token))
+        assert uses == [
+            {
+                "uri": f"{base}dataset/{series}/1.0.0",
+                "resource": "dataset",
+                "via": "http://purl.org/dc/terms/conformsTo",
+                "target": f"{base}{target}",
+            }
+        ]
+        assert _graph_exists(stack, f"{base}onto/{onto}/1.0.0")
+        assert _api(stack, "DELETE", f"/datasets/{series}", editor.token).status == 204
+    assert _api(stack, "DELETE", f"/ontologies/{onto}", editor.token).status == 204
+
+
+def test_las_ontologias_sinteticas_no_se_pueden_dar_de_baja(stack: Stack, editor: Account) -> None:
+    """Con los datos sintéticos, `itot` está en uso (la importan otras ontologías y la usan
+    versiones de dataset): la baja da 409 y no toca nada."""
+    before = _snapshot(stack)
+    response = _api(stack, "DELETE", "/ontologies/itot", editor.token)
+    assert response.status == 409, response.text
+    uses = _json(response)["used_by"]
+    assert uses and {u["resource"] for u in uses} <= {"ontology", "dataset"}
+    assert _snapshot(stack) == before
+    assert _get(stack, "/ontologies/itot").status == 200
+
+
+def test_la_baja_conserva_titulos_con_barras_dolares_y_escapes(
+    stack: Stack, editor: Account, cat_a: str
+) -> None:
+    """La lápida se escribe con BIND de expresiones (no con INSERT DATA): un título con `\\u`,
+    `$`, comillas, saltos de línea o texto no latino llega íntegro al 410."""
+    titles = [
+        "Barra \\ y \\u0041 y \\U0001F600 y \\n literal",
+        'Comillas " y \' y """ triples',
+        "Dólar $title ${x} y $$",
+        "Ñandú · 日本語 · عربى · 🙂",
+        "} ; DROP ALL ; {",
+    ]
+    for title in titles:
+        scheme, _ = publish_scheme(stack, editor.token, cat_a)
+        patched = _api(stack, "PATCH", f"/schemes/{scheme}", editor.token, {"title": title})
+        assert patched.status == 200, (title, patched.text)
+        assert _api(stack, "DELETE", f"/schemes/{scheme}", editor.token).status == 204, title
+        gone = _get(stack, f"/schemes/{scheme}")
+        assert gone.status == 410, (title, gone.status)
+        assert _json(gone)["title"].replace("\r", "") == title.replace("\r", ""), (title, _json(gone))
+    # Ontología: el título viene del RDF de su última versión (escapes de Turtle).
+    onto = _slug("o")
+    ttl = ontology_ttl(onto, f"p{onto}").replace(
+        f'"Ontología de la prueba {onto}"@es', r'"Barra \\ y \\u0041 $x \"q\" ñ"@es'
+    )
+    assert _post(stack, f"/ontologies?catalog={cat_a}", ttl, editor.token).status == 201
+    assert _api(stack, "DELETE", f"/ontologies/{onto}", editor.token).status == 204
+    gone = _get(stack, f"/ontologies/{onto}")
+    assert gone.status == 410 and _json(gone)["title"] == 'Barra \\ y \\u0041 $x "q" ñ', gone.text
+    assert not _ask(stack, "ASK { GRAPH ?g { ?s <http://evil.example/p> ?o } }")
+
+
+def test_la_baja_se_puede_reintentar_si_fuseki_cae_a_mitad(
+    stack: Stack, editor: Account, cat_a: str
+) -> None:
+    """Fallo real a mitad de la baja contra el stack: PostgreSQL ya tiene reservado el prefijo
+    (se confirma antes del Update) y Fuseki cae justo antes de la petición de Update. Se
+    consigue reteniendo desde otra sesión de PostgreSQL una fila con el mismo prefijo: el
+    INSERT del backend espera, se para Fuseki, se suelta la fila y la baja sigue hasta el
+    Update, que falla (503). Después: el recurso sigue vivo y completo, su dueño puede
+    republicarlo, nadie más puede usar el prefijo, y reintentar la baja la completa una sola
+    vez."""
+    import subprocess
+    import time
+
+    base = _base(stack)
+    prefix = _slug("rb")
+    scheme, created = publish_scheme(stack, editor.token, cat_a, prefix=prefix)
+    assert created.status == 201
+    uri = f"{base}vocab/{scheme}"
+    sql = (
+        "BEGIN; INSERT INTO withdrawn_prefixes (prefix, resource_uri, withdrawn_at) "
+        f"VALUES ('{prefix}', '{uri}', now()); SELECT pg_sleep(12); ROLLBACK;"
+    )
+    holder = subprocess.Popen(  # noqa: S603 - comando fijo, datos de la prueba
+        [
+            *stack._base(),
+            "exec", "-T", "postgres", "psql", "-U", stack.env["POSTGRES_USER"],
+            "-d", stack.env["POSTGRES_DB"], "-v", "ON_ERROR_STOP=1", "-c", sql,
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    result: dict[str, Response] = {}
+    try:
+        time.sleep(3)  # la fila retenida ya está insertada (sin confirmar)
+        import threading
+
+        thread = threading.Thread(
+            target=lambda: result.update(r=http("DELETE", f"{stack.api}/schemes/{scheme}", token=editor.token, timeout=90))
+        )
+        thread.start()
+        time.sleep(3)  # el backend ya hizo sus lecturas y espera en el INSERT del prefijo
+        assert stack.compose("stop", "fuseki", timeout=120).returncode == 0
+        thread.join(timeout=60)  # al soltarse la fila (12 s) sigue y falla en el Update
+        assert not thread.is_alive()
+    finally:
+        holder.kill()
+        holder.wait()
+        assert stack.compose("start", "fuseki", timeout=120).returncode == 0
+        deadline = time.monotonic() + 120
+        while time.monotonic() < deadline:
+            if _get(stack, "/health/ready").status == 200:
+                break
+            time.sleep(2)
+    failed = result["r"]
+    assert failed.status == 503, f"{failed.status} {failed.text[:300]}"
+    # Estado coherente: vivo y completo, prefijo reservado a su nombre, sin lápida ni auditoría.
+    assert _get(stack, f"/schemes/{scheme}").status == 200
+    assert _get(stack, f"/schemes/{scheme}/concepts/hoja").status == 200
+    assert not _graph_has(stack, f"{base}bajas", f"<{uri}> ?p ?o")
+    assert stack.psql(f"select resource_uri from withdrawn_prefixes where prefix = '{prefix}'") == [uri]
+    assert not [r for r in _audit(stack, "scheme_withdrawn") if r["details"]["scheme"] == uri]
+    # Su dueño sigue publicando; otro recurso no puede usar el prefijo.
+    assert _republish(stack, editor.token, cat_a, scheme, prefix=prefix).status == 200
+    clash = _post(stack, f"/schemes?catalog={cat_a}", scheme_ttl(_slug("s"), prefix), editor.token)
+    assert clash.status == 409, clash.text
+    # Reintentar completa la baja, una sola vez.
+    assert _api(stack, "DELETE", f"/schemes/{scheme}", editor.token).status == 204
+    assert _get(stack, f"/schemes/{scheme}").status == 410
+    assert stack.psql(f"select count(*) from withdrawn_prefixes where prefix = '{prefix}'") == ["1"]
+    assert len([r for r in _audit(stack, "scheme_withdrawn") if r["details"]["scheme"] == uri]) == 1
+    assert not _graph_exists(stack, uri)
