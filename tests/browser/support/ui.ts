@@ -55,3 +55,17 @@ export async function expectNoBrokenText(page: Page): Promise<void> {
   const text = await page.locator('main').innerText()
   expect(text, 'restos de un render roto').not.toMatch(/\b(undefined|null|NaN)\b|\[object Object\]/)
 }
+
+
+/** Navega dentro de la aplicación sin recargar (un `goto` perdería la sesión, que vive en memoria). */
+export async function spaGo(page: Page, path: string): Promise<void> {
+  await page.evaluate((to) => {
+    window.history.pushState({}, '', to)
+    window.dispatchEvent(new PopStateEvent('popstate'))
+  }, path)
+}
+
+/** Un fichero Turtle para `setInputFiles`. */
+export function ttl(name: string, text: string) {
+  return { name: `${name}.ttl`, mimeType: 'text/turtle', buffer: Buffer.from(text) }
+}

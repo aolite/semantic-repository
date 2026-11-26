@@ -187,3 +187,133 @@ export async function uploadFile(
   })
   return response.status
 }
+
+
+// --- Esquemas SKOS y ontologías en los catálogos (decisión 50) ---------------------------
+
+/** Prefijo VANN válido (minúsculas y dígitos) derivado de un slug. */
+export function defaultPrefix(slug: string): string {
+  return `p${slug.replace(/[^a-z0-9]/g, '')}`
+}
+
+export function uniquePrefix(prefix: string): string {
+  return defaultPrefix(uniqueSlug(prefix))
+}
+
+export interface SchemeOptions {
+  corp?: boolean
+  concepts?: string[]
+  /** `{concepto: [sustitutos]}` */
+  deprecated?: Record<string, string[]>
+  prefix?: string
+  title?: string
+}
+
+/** Esquema SKOS mínimo ficticio (Turtle con IRIs relativas a BASE_URI): la raíz es `concepts[0]`. */
+export function schemeTurtle(slug: string, options: SchemeOptions = {}): string {
+  const { corp = false, concepts = ['raiz', 'hoja'], deprecated = {}, prefix = defaultPrefix(slug), title = `Esquema ${slug}` } = options
+  const path = corp ? `vocab/corp/${slug}` : `vocab/${slug}`
+  const [root, ...leaves] = concepts
+  const out = [
+    '@prefix skos: <http://www.w3.org/2004/02/skos/core#> .',
+    '@prefix dct: <http://purl.org/dc/terms/> .',
+    '@prefix owl: <http://www.w3.org/2002/07/owl#> .',
+    '@prefix adms: <http://www.w3.org/ns/adms#> .',
+    '@prefix vann: <http://purl.org/vocab/vann/> .',
+    `<${path}> a skos:ConceptScheme ; ${corp ? '' : 'dct:subject <vocab/dominio/it> ;'}`,
+    '    dct:type <vocab/tipo-dataset/sintetico> ;',
+    `    skos:prefLabel "${title}"@es ; dct:title "${title}"@es ;`,
+    '    dct:description "Esquema ficticio de las pruebas de pantallas."@es ;',
+    '    owl:versionInfo "1.0" ; adms:status <http://purl.org/adms/status/Completed> ;',
+    `    vann:preferredNamespacePrefix "${prefix}" ; vann:preferredNamespaceUri <${path}/> ;`,
+    `    skos:hasTopConcept <${path}/${root}> .`,
+    `<${path}/${root}> a skos:Concept ; skos:inScheme <${path}> ; skos:topConceptOf <${path}> ; skos:prefLabel "Raíz"@es .`,
+  ]
+  for (const leaf of leaves) {
+    out.push(`<${path}/${leaf}> a skos:Concept ; skos:inScheme <${path}> ; skos:broader <${path}/${root}> ; skos:prefLabel "Hoja ${leaf}"@es .`)
+  }
+  for (const [concept, targets] of Object.entries(deprecated)) {
+    out.push(`<${path}/${concept}> owl:deprecated "true"^^<http://www.w3.org/2001/XMLSchema#boolean> .`)
+    for (const target of targets) out.push(`<${path}/${concept}> dct:isReplacedBy <${target}> .`)
+  }
+  return out.join('\n') + '\n'
+}
+
+export function ontologyTurtle(slug: string, options: { prefix?: string; version?: string; prior?: string; extra?: string } = {}): string {
+  const { prefix = defaultPrefix(slug), version = '1.0.0', prior, extra = '' } = options
+  return [
+    '@prefix owl: <http://www.w3.org/2002/07/owl#> .',
+    '@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .',
+    '@prefix dct: <http://purl.org/dc/terms/> .',
+    '@prefix adms: <http://www.w3.org/ns/adms#> .',
+    '@prefix vann: <http://purl.org/vocab/vann/> .',
+    `@prefix : <onto/${slug}#> .`,
+    `<onto/${slug}> a owl:Ontology ; owl:versionIRI <onto/${slug}/${version}> ; owl:versionInfo "${version}" ;`,
+    prior ? `    owl:priorVersion <onto/${slug}/${prior}> ;` : '',
+    '    dct:type <vocab/tipo-dataset/sintetico> ; adms:status <http://purl.org/adms/status/UnderDevelopment> ;',
+    `    dct:title "Ontología ${slug}"@es ; dct:description "Ontología ficticia de las pruebas de pantallas."@es ;`,
+    `    vann:preferredNamespacePrefix "${prefix}" ; vann:preferredNamespaceUri <onto/${slug}#> .`,
+    ':Activo a owl:Class ; rdfs:comment "Clase de relleno."@en .',
+    extra,
+  ].join('\n') + '\n'
+}
+
+/** Serie con las versiones `{versión: [temas]}` en un catálogo. */
+export function themedSeriesTurtle(slug: string, catalog: string, versions: Record<string, string[]>): string {
+  const names = Object.keys(versions)
+  const last = names[names.length - 1]
+  const out = [
+    '@prefix dcat: <http://www.w3.org/ns/dcat#> .',
+    '@prefix dct:  <http://purl.org/dc/terms/> .',
+    `<catalogo/${catalog}> dcat:dataset <dataset/${slug}> .`,
+    `<dataset/${slug}> a dcat:DatasetSeries ; dct:type <vocab/tipo-dataset/sintetico> ;`,
+    `    dct:title "Dataset ${slug}"@es ; dct:description "Serie de la prueba de pantallas."@es ; dcat:last <dataset/${slug}/${last}> .`,
+  ]
+  for (const [version, themes] of Object.entries(versions)) {
+    out.push(
+      `<dataset/${slug}/${version}> a dcat:Dataset ; dct:type <vocab/tipo-dataset/sintetico> ;`,
+      `    dct:title "Dataset ${slug}"@es ; dct:description "Serie de la prueba de pantallas."@es ;`,
+      `    dcat:version "${version}" ; dcat:inSeries <dataset/${slug}> ; dct:accessRights <${AR}PUBLIC> ;`,
+      themes.length ? `    dcat:theme ${themes.map((t) => `<${t}>`).join(', ')} ;` : '',
+      `    dcat:distribution <dataset/${slug}/${version}/csv> .`,
+      `<dataset/${slug}/${version}/csv> a dcat:Distribution ; dct:accessRights <${AR}PUBLIC> ;`,
+      `    dcat:mediaType <${IANA}text/csv> ; dcat:accessURL <dataset/${slug}/${version}/csv> .`,
+    )
+  }
+  return out.join('\n') + '\n'
+}
+
+async function postTurtle(path: string, token: string, turtle: string): Promise<Response> {
+  return api(path, { method: 'POST', headers: { 'Content-Type': 'text/turtle' }, body: turtle, token })
+}
+
+export async function apiPublishScheme(token: string, catalog: string, slug: string, options: SchemeOptions = {}): Promise<void> {
+  const response = await postTurtle(`/schemes?catalog=${catalog}`, token, schemeTurtle(slug, options))
+  if (response.status !== 201) throw new Error(`publicar esquema ${slug}: ${response.status} ${(await response.text()).slice(0, 300)}`)
+}
+
+export async function apiPublishOntology(
+  token: string,
+  catalog: string,
+  slug: string,
+  options: { prefix?: string; version?: string; prior?: string; extra?: string } = {},
+): Promise<void> {
+  const response = await postTurtle(`/ontologies?catalog=${catalog}`, token, ontologyTurtle(slug, options))
+  if (response.status !== 201) throw new Error(`publicar ontología ${slug}: ${response.status} ${(await response.text()).slice(0, 300)}`)
+}
+
+export async function apiPublishThemedSeries(token: string, catalog: string, slug: string, versions: Record<string, string[]>): Promise<number> {
+  const response = await postTurtle('/datasets', token, themedSeriesTurtle(slug, catalog, versions))
+  return response.status
+}
+
+/** `DELETE` de un recurso: devuelve el código (204, 409…). */
+export async function apiDelete(token: string, path: string): Promise<number> {
+  return (await api(path, { method: 'DELETE', token })).status
+}
+
+/** URI base de las pruebas (la `BASE_URI` del backend), sacada de un catálogo. */
+export async function baseUri(): Promise<string> {
+  const catalogs = (await (await api('/catalogs')).json()) as { items: { uri: string }[] }
+  return catalogs.items[0].uri.replace(/catalogo\/[^/]+$/, '')
+}
