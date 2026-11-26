@@ -7,7 +7,7 @@ import { resourceLabel } from '../catalog/labels'
 import { Notice } from '../components/Notice'
 import { TypeTag } from '../components/Tags'
 import { getBaseUri } from '../config'
-import { catalogCount, datasetCount } from '../crud/labels'
+import { catalogCount, datasetCount, ontologyCount, schemeCount } from '../crud/labels'
 import { catalogRoute, noticeState } from '../crud/navigation'
 import { ResourceForm, type ResourceFormValues } from '../crud/ResourceForm'
 import { useApiLoad } from '../hooks/useApiLoad'
@@ -64,7 +64,7 @@ export function CatalogsPage() {
         <div className="crud-header__text">
           <span className="eyebrow mono">dcat:Catalog · dcat:catalog</span>
           <h1 className="page-title catalog__title">Catálogos</h1>
-          <p className="catalog__intro">Cada dataset pertenece a un solo catálogo.</p>
+          <p className="catalog__intro">Cada dataset, vocabulario SKOS u ontología propia pertenece a un solo catálogo.</p>
         </div>
         {editor && (
           <div className="crud-actions">
@@ -146,7 +146,13 @@ function CatalogCardView({ item }: { item: CatalogSummary }) {
       {item.description && <p className="card__desc">{item.description}</p>}
       <div className="card__footer">
         <span className="card__formats">{resourceLabel(item.publisher, '')}</span>
-        <span className="card__count">{datasetCount(item.dataset_count)}</span>
+        <span className="card__counts">
+          <span className="card__count">{datasetCount(item.dataset_count)}</span>
+          {(item.scheme_count ?? 0) > 0 && <span className="card__count">{schemeCount(item.scheme_count ?? 0)}</span>}
+          {(item.ontology_count ?? 0) > 0 && (
+            <span className="card__count">{ontologyCount(item.ontology_count ?? 0)}</span>
+          )}
+        </span>
       </div>
     </article>
   )

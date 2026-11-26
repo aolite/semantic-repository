@@ -15,6 +15,10 @@
  * de la PR del contrato; las pruebas de contrato del backend
  * (`backend/tests/test_contracts_fase2.py` y `test_contracts_fase3.py`)
  * comprueban que coinciden.
+ *
+ * Los de la decisión 50 (vocabularios y ontologías en los catálogos) salen del
+ * `openapi.json` de la rama del backend de esa decisión; los campos nuevos
+ * que el contrato no exige van con `?:`.
  */
 
 /** Esquema `Role`: roles con cuenta. El lector es anónimo y no tiene token. */
@@ -66,13 +70,20 @@ export interface IngestErrorResponse {
    * `catalog` (422): el catálogo indicado no existe o está dado de baja.
    * `version_removed` / `version_immutable` (409, fase 4): falta o cambia una versión ya publicada.
    * `withdrawn` (409): el slug es de un recurso dado de baja y no se reutiliza.
-   * `catalog_conflict` (409): la serie ya está en otro catálogo (se mueve con `PATCH`).
+   * `catalog_conflict` (409): la serie, el esquema o la ontología ya está en otro catálogo (se mueve con `PATCH`).
+   * Decisión 50: `prefix_withdrawn` (409, prefijo VANN de un recurso dado de baja),
+   * `concepts_removed` (409, faltan conceptos ya publicados), `concept_reactivated` (409,
+   * reactivar un concepto retirado), `replacement` (422, sustituto que no es un concepto vivo)
+   * y `deprecated_theme` (422, temas retirados, con `issues[].replaced_by`).
    */
-  kind: 'syntax' | 'structure' | 'uri' | 'shacl' | 'limit' | 'catalog' | 'version_removed' | 'version_immutable' | 'withdrawn' | 'catalog_conflict'
+  kind: IngestErrorKind
   issues: IngestIssue[]
   /** Informe SHACL en texto (solo `kind=shacl`). */
   report: string | null
 }
+
+/** Valores de `IngestErrorResponse.kind`. */
+export type IngestErrorKind = 'syntax' | 'structure' | 'uri' | 'shacl' | 'limit' | 'catalog' | 'version_removed' | 'version_immutable' | 'withdrawn' | 'catalog_conflict' | 'prefix_withdrawn' | 'concepts_removed' | 'concept_reactivated' | 'replacement' | 'deprecated_theme'
 
 /** Esquema `IngestIssue`. */
 export interface IngestIssue {
@@ -82,6 +93,8 @@ export interface IngestIssue {
   value: string | null
   severity: string
   source_shape: string | null
+  /** Solo con `kind=deprecated_theme`: sustitutos (`dct:isReplacedBy`) del tema retirado (`value`). */
+  replaced_by?: string[]
 }
 
 /** Esquema `ErrorResponse`. */
@@ -325,6 +338,8 @@ export interface VocabularyCard {
   metrics: MetricsSummary | null
   /** Número de conceptos (solo esquemas). */
   concepts: number | null
+  /** Catálogo de la ontología propia o del esquema (decisión 50); null en las externas. */
+  catalog?: CatalogRef | null
   /** Dominio (dct:subject): solo lo tienen los esquemas de dominio. */
   domain: DomainRef | null
   synthetic: boolean
@@ -537,6 +552,8 @@ export interface OntologyDetail {
   used_by_datasets: DatasetUse[]
   /** Esquemas SKOS usados (dct:subject). */
   subjects: SubjectRef[]
+  /** Catálogo de la ontología (decisión 50). */
+  catalog?: CatalogRef | null
 }
 
 /** Esquema `SchemeMetadata`. */
@@ -557,6 +574,8 @@ export interface ConceptNode {
   top_concept: boolean
   /** skos:altLabel por idioma. */
   alt_labels: LangLiteral[]
+  /** Concepto retirado (`owl:deprecated true`, decisión 50). */
+  deprecated?: boolean
   /** skos:narrower e inversa de skos:broader. */
   children: ConceptNode[]
 }
@@ -588,6 +607,8 @@ export interface SchemeDetail {
   concept_count: number
   /** Conceptos raíz con sus hijos. */
   tree: ConceptNode[]
+  /** Catálogo del esquema (decisión 50); null en los auxiliares, que no están en ningún catálogo. */
+  catalog?: CatalogRef | null
 }
 
 /** Esquema `LangLiteral`. */
@@ -632,6 +653,10 @@ export interface ConceptDetail {
   exact_match: string[]
   close_match: string[]
   used_by: ConceptUsage
+  /** Concepto retirado (`owl:deprecated true`, decisión 50). */
+  deprecated?: boolean
+  /** Sustitutos del concepto retirado (`dct:isReplacedBy`, decisión 50). */
+  replaced_by?: ConceptRef[]
 }
 
 /** Valores de `?format=` de `/ontologies/{slug}/rdf` y `/schemes/…/rdf`. */
@@ -686,6 +711,10 @@ export interface CatalogSummary {
   publisher: ResourceRef | null
   /** Número de datasets (series) del catálogo. */
   dataset_count: number
+  /** Número de esquemas SKOS del catálogo (decisión 50). */
+  scheme_count?: number
+  /** Número de ontologías propias del catálogo (decisión 50). */
+  ontology_count?: number
 }
 
 /** Esquema `CatalogPage`: respuesta de `GET /catalogs` (sin el raíz ni las bajas). */
@@ -709,8 +738,32 @@ export interface CatalogDetail {
   description: string | null
   publisher: ResourceRef | null
   dataset_count: number
+  /** Número de esquemas SKOS del catálogo (decisión 50). */
+  scheme_count?: number
+  /** Número de ontologías propias del catálogo (decisión 50). */
+  ontology_count?: number
   /** Series del catálogo, por título. */
   datasets: CatalogDatasetRef[]
+  /** Esquemas SKOS del catálogo, por título (decisión 50). */
+  schemes?: CatalogSchemeRef[]
+  /** Ontologías propias del catálogo, por título (decisión 50). */
+  ontologies?: CatalogOntologyRef[]
+}
+
+/** Esquema `CatalogSchemeRef`: esquema SKOS de un catálogo (decisión 50). */
+export interface CatalogSchemeRef {
+  slug: string
+  corp: boolean
+  uri: string
+  title: string | null
+}
+
+/** Esquema `CatalogOntologyRef`: ontología propia de un catálogo (decisión 50). */
+export interface CatalogOntologyRef {
+  slug: string
+  uri: string
+  /** `dct:title` de su versión actual. */
+  title: string | null
 }
 
 /** Esquema `CatalogCreate`: cuerpo de `POST /catalogs`. */
@@ -732,22 +785,49 @@ export interface CatalogUpdate {
 }
 
 /**
- * Esquema `ConflictResponse`: 409 del CRUD de catálogos y datasets.
- * `slug_in_use` y `withdrawn` al crear; `catalog_not_empty` (con `datasets`)
- * al dar de baja un catálogo con datasets.
+ * Esquema `ConflictResponse`: 409 del CRUD de catálogos, datasets, esquemas y
+ * ontologías. `slug_in_use` y `withdrawn` al crear; `catalog_not_empty` (con
+ * `datasets` y `resources`) al dar de baja un catálogo que no está vacío;
+ * `in_use` (con `used_by`, decisión 50) al dar de baja un esquema o una
+ * ontología que usan recursos vivos.
  */
 export interface ConflictResponse {
   detail: string
-  kind: 'slug_in_use' | 'withdrawn' | 'catalog_not_empty'
+  kind: 'slug_in_use' | 'withdrawn' | 'catalog_not_empty' | 'in_use'
   /** Solo con `catalog_not_empty`: URIs de las series que siguen en el catálogo. */
   datasets?: string[]
+  /** Solo con `catalog_not_empty`: URIs de los esquemas y ontologías que siguen en el catálogo. */
+  resources?: string[]
+  /** Solo con `in_use`: los recursos vivos que lo usan. */
+  used_by?: UsageRef[]
+}
+
+/** Esquema `UsageRef`: un uso que impide dar de baja un esquema o una ontología (409 `in_use`). */
+export interface UsageRef {
+  /** Quién lo usa: versión de dataset, versión de ontología (`owl:versionIRI`) o concepto de otro esquema. */
+  uri: string
+  resource: 'dataset' | 'ontology' | 'scheme'
+  /** Propiedad del uso (`dcat:theme`, `dct:subject`, `skos:related`, `owl:imports`…); null si usa un término. */
+  via: string | null
+  /** Concepto, ontología, versión o término usado. */
+  target: string
+}
+
+/**
+ * Esquema `ForbiddenResponse`: 403. Con `kind: "not_managed"` (decisión 50),
+ * el recurso es una ontología externa o un esquema auxiliar y no se gestiona
+ * desde la aplicación, con ningún rol; sin `kind`, falta el rol.
+ */
+export interface ForbiddenResponse {
+  detail: string
+  kind?: 'not_managed' | null
 }
 
 /** Esquema `GoneResponse`: 410, ficha mínima (lápida) de un recurso dado de baja. */
 export interface GoneResponse {
   detail: string
   uri: string
-  resource: 'catalog' | 'dataset'
+  resource: 'catalog' | 'dataset' | 'scheme' | 'ontology'
   title: string | null
   /** `prov:invalidatedAtTime` (xsd:dateTime). */
   withdrawn_at: string | null
@@ -778,4 +858,58 @@ export interface IngestResult {
   triples: number
   created: boolean
   changed: boolean
+}
+
+/* ------------------------------------------------------------------------ */
+/* Vocabularios y ontologías en los catálogos (decisión 50).                 */
+/* ------------------------------------------------------------------------ */
+
+/** Esquema `SchemeUpdate`: cuerpo de `PATCH /schemes/…` (solo cambian los campos presentes). */
+export interface SchemeUpdate {
+  /** `dct:title` y `skos:prefLabel` en español; los demás idiomas no cambian. */
+  title?: string | null
+  /** `dct:description` en español; los demás idiomas no cambian. */
+  description?: string | null
+  publisher_name?: string | null
+  /** Slug del catálogo de destino (mover el esquema). */
+  catalog?: string | null
+}
+
+/** Esquema `OntologyUpdate`: cuerpo de `PATCH /ontologies/{slug}` (solo mueve de catálogo). */
+export interface OntologyUpdate {
+  catalog: string
+}
+
+/** Esquema `SchemeIngestResult`: respuesta de `POST /schemes` (201 nuevo, 200 sustituido). */
+export interface SchemeIngestResult {
+  slug: string
+  corp: boolean
+  uri: string
+  graph: string
+  concepts: number
+  triples: number
+  created: boolean
+  changed: boolean
+  /** URI del catálogo. */
+  catalog?: string | null
+}
+
+/** Esquema `OntologyIngestResult`: respuesta de `POST /ontologies` (201 nueva, 200 sustituida). */
+export interface OntologyIngestResult {
+  slug: string
+  uri: string
+  version: string
+  version_iri: string
+  graph: string
+  triples: number
+  created: boolean
+  changed: boolean
+  /** false si la versión ya tenía métricas para el mismo contenido. */
+  metrics_recomputed: boolean
+  metrics: OntologyMetricsRead
+  profile: OwlProfile
+  consistency: ConsistencyRead
+  documentation: DocumentationCoverageRead
+  /** URI del catálogo. */
+  catalog?: string | null
 }

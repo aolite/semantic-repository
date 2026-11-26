@@ -1,7 +1,19 @@
 import { describe, expect, it } from 'vitest'
 import { ApiError } from '../api'
 import { goneFixture } from '../test/fixtures'
-import { conflictDatasets, conflictKind, CRUD_TEXT, describeError, goneFromError, INGEST_KIND_TEXT, ingestError } from './errors'
+import {
+  conflictDatasets,
+  conflictKind,
+  conflictResources,
+  conflictUsedBy,
+  CRUD_TEXT,
+  describeError,
+  goneFromError,
+  INGEST_KIND_TEXT,
+  ingestError,
+  isNotManaged,
+  SCHEME_INGEST_TEXT,
+} from './errors'
 
 const CONTEXT = { notFound: 'No existe de prueba.', fallback: 'Fallo de prueba.' }
 
@@ -115,8 +127,83 @@ describe('Errores de los formularios de catálogos y datasets', () => {
     expect(conflictDatasets(apiError(422, { datasets: ['a'] }))).toEqual([])
   })
 
-  it('ingestError ignora kinds desconocidos', () => {
-    expect(ingestError(apiError(422, ingest('otro')))).toBeNull()
+  it('ingestError reconoce un kind nuevo del backend si trae issues, y muestra su detail', () => {
+    expect(ingestError(apiError(422, { detail: 'x', kind: 'otro' }))).toBeNull()
     expect(ingestError(apiError(422, ingest('shacl')))?.kind).toBe('shacl')
+    const body = ingest('otro', {
+      detail: 'Detalle nuevo del backend.',
+      issues: [{ message: 'Incidencia', focus_node: null, path: null, value: null, severity: 'Violation', source_shape: null }],
+    })
+    expect(ingestError(apiError(422, body))?.kind).toBe('otro')
+    const info = describeError(apiError(422, body), CONTEXT)
+    expect(info.message).toBe('Detalle nuevo del backend.')
+    expect(info.issues).toEqual(['Incidencia'])
+  })
+
+  it.each([
+    ['prefix_withdrawn', 409],
+    ['concepts_removed', 409],
+    ['concept_reactivated', 409],
+    ['replacement', 422],
+    ['deprecated_theme', 422],
+  ] as const)('decisión 50: %s (%i) usa el texto de su kind', (kind, status) => {
+    expect(describeError(apiError(status, ingest(kind)), CONTEXT).message).toBe(INGEST_KIND_TEXT[kind])
+  })
+
+  it('ingestText sustituye el texto de un kind para el recurso (catalog_conflict de un esquema)', () => {
+    const info = describeError(apiError(409, ingest('catalog_conflict')), { ...CONTEXT, ingestText: SCHEME_INGEST_TEXT })
+    expect(info.message).toBe(SCHEME_INGEST_TEXT.catalog_conflict)
+    expect(describeError(apiError(409, ingest('withdrawn')), { ...CONTEXT, ingestText: SCHEME_INGEST_TEXT }).fields.slug).toBe(
+      SCHEME_INGEST_TEXT.withdrawn,
+    )
+  })
+
+  it('deprecated_theme lista cada tema retirado con sus sustitutos', () => {
+    const body = ingest('deprecated_theme', {
+      issues: [
+        {
+          message: 'Tema retirado',
+          focus_node: 'http://uri.test/itot/dataset/d/2.0.0',
+          path: null,
+          value: 'http://uri.test/itot/vocab/ot/viejo',
+          severity: 'Violation',
+          source_shape: null,
+          replaced_by: ['http://uri.test/itot/vocab/ot/nuevo-a', 'http://uri.test/itot/vocab/ot/nuevo-b'],
+        },
+        { message: 'Tema retirado sin sustitutos', focus_node: null, path: null, value: null, severity: 'Violation', source_shape: null, replaced_by: [] },
+      ],
+    })
+    expect(describeError(apiError(422, body), CONTEXT).issues).toEqual([
+      'Tema retirado (2.0.0) · Sustitutos: nuevo-a, nuevo-b',
+      'Tema retirado sin sustitutos',
+    ])
+  })
+
+  it('409 ConflictResponse in_use: el esquema o la ontología están en uso, con used_by', () => {
+    const usage = { uri: 'http://uri.test/itot/dataset/d/1.0.0', resource: 'dataset', via: 'dcat:theme', target: 'http://uri.test/itot/vocab/ot/a' }
+    const error = apiError(409, { detail: 'x', kind: 'in_use', used_by: [usage, { uri: 1 }] })
+    expect(conflictKind(error)).toBe('in_use')
+    expect(describeError(error, CONTEXT).message).toBe(CRUD_TEXT.inUse)
+    expect(conflictUsedBy(error)).toEqual([usage])
+    expect(conflictUsedBy(apiError(409, { detail: 'x', kind: 'in_use' }))).toEqual([])
+  })
+
+  it('conflictResources devuelve los esquemas y ontologías del 409 catalog_not_empty', () => {
+    const body = { detail: 'x', kind: 'catalog_not_empty', datasets: [], resources: ['http://uri.test/itot/vocab/ot', 7] }
+    expect(conflictResources(apiError(409, body))).toEqual(['http://uri.test/itot/vocab/ot'])
+    expect(conflictResources(apiError(422, body))).toEqual([])
+  })
+
+  it('403 not_managed (recurso no gestionable) es distinto del 403 por rol, que no lleva kind', () => {
+    const notManaged = apiError(403, { detail: 'x', kind: 'not_managed' })
+    expect(isNotManaged(notManaged)).toBe(true)
+    expect(describeError(notManaged, CONTEXT).message).toBe(CRUD_TEXT.notManaged)
+    expect(isNotManaged(apiError(403, { detail: 'x' }))).toBe(false)
+    expect(describeError(apiError(403, { detail: 'x', kind: null }), CONTEXT).message).toBe(CRUD_TEXT.forbidden)
+  })
+
+  it('goneFromError reconoce las bajas de esquemas y ontologías', () => {
+    expect(goneFromError(apiError(410, goneFixture({ resource: 'scheme' })))?.resource).toBe('scheme')
+    expect(goneFromError(apiError(410, goneFixture({ resource: 'ontology' })))?.resource).toBe('ontology')
   })
 })

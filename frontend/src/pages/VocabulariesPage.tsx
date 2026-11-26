@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react'
-import { listVocabularies, type VocabularyKind } from '../api'
+import { Link, useSearchParams } from 'react-router'
+import { listCatalogs, listVocabularies, type VocabularyKind } from '../api'
 import { VocabularyCardView } from '../components/VocabularyCardView'
 import { useApiLoad } from '../hooks/useApiLoad'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
@@ -15,15 +16,39 @@ const CHIPS: { id: KindFilter; label: string }[] = [
   ...KIND_ORDER.map((kind) => ({ id: kind, label: KINDS[kind].short })),
 ]
 
-/** Pantalla «Vocabularios y ontologías» (`/vocabularios`). */
+/** Patrón de los slugs de catálogo (`semantic/uris.md`): otro valor de `?catalog=` se ignora. */
+const CATALOG_SLUG = /^[a-z0-9]+(-[a-z0-9]+)*$/
+
+/**
+ * Pantalla «Vocabularios y ontologías» (`/vocabularios`). Con `?catalog=`
+ * (decisión 50) solo muestra las ontologías propias y los esquemas de ese
+ * catálogo; las externas no están en ninguno.
+ */
 export function VocabulariesPage() {
   const [query, setQuery] = useState('')
   const [kind, setKind] = useState<KindFilter>('all')
   const q = useDebouncedValue(query.trim(), SEARCH_DEBOUNCE_MS)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const rawCatalog = searchParams.get('catalog')
+  const catalog = rawCatalog && CATALOG_SLUG.test(rawCatalog) ? rawCatalog : null
+
+  // Catálogos para el filtro. Si la lista falla, el filtro no se muestra.
+  const catalogs = useApiLoad(listCatalogs)
+  const catalogItems = catalogs.state.status === 'ok' ? catalogs.state.data.items : []
+
+  function setCatalog(value: string | null) {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      if (value) next.set('catalog', value)
+      else next.delete('catalog')
+      return next
+    })
+  }
 
   const loader = useCallback(
-    (signal: AbortSignal) => listVocabularies({ q, kind: kind === 'all' ? undefined : kind }, signal),
-    [q, kind],
+    (signal: AbortSignal) =>
+      listVocabularies({ q, kind: kind === 'all' ? undefined : kind, catalog: catalog ?? undefined }, signal),
+    [q, kind, catalog],
   )
   const { state, lastData, retry } = useApiLoad(loader)
   const counts = lastData?.counts
@@ -85,6 +110,30 @@ export function VocabulariesPage() {
             </button>
           ))}
         </div>
+        {(catalogItems.length > 0 || catalog) && (
+          <div className="catalog__catalog-row">
+            <label htmlFor="filtro-catalogo-vocab" className="catalog__search-label">
+              Catálogo
+            </label>
+            <select
+              id="filtro-catalogo-vocab"
+              className="select"
+              value={catalog ?? ''}
+              onChange={(e) => setCatalog(e.target.value || null)}
+            >
+              <option value="">Todos los catálogos</option>
+              {catalog && !catalogItems.some((c) => c.slug === catalog) && <option value={catalog}>{catalog}</option>}
+              {catalogItems.map((c) => (
+                <option key={c.slug} value={c.slug}>
+                  {c.title ?? c.slug}
+                </option>
+              ))}
+            </select>
+            <Link to="/catalogos" className="catalog__catalogs-link">
+              Ver los catálogos
+            </Link>
+          </div>
+        )}
       </div>
 
       <div className="section-bar">
