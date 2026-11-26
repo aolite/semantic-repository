@@ -145,6 +145,10 @@
   border-radius: var(--radius-card);
 }
 
+.dialog--form {
+  width: min(640px, 100%);
+}
+
 .dialog__body {
   display: flex;
   flex-direction: column;

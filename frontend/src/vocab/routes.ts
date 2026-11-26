@@ -18,6 +18,15 @@ export function ontologyRoute(slug: string, version?: string | null): string {
   return version ? `${base}?version=${encodeURIComponent(version)}` : base
 }
 
+/**
+ * Ficha de una ontología externa (decisión 51): `/ontologias/externas/{slug}`
+ * y, para una versión, `?version={n}`. Destino del 303 de `onto/externas/…`.
+ */
+export function externalOntologyRoute(slug: string, version?: number | string | null): string {
+  const base = `/ontologias/externas/${encodeURIComponent(slug)}`
+  return version ? `${base}?version=${encodeURIComponent(String(version))}` : base
+}
+
 /** Navegador SKOS: `/vocabularios/{slug}` o `/vocabularios/corp/{slug}`, con `?concepto=`. */
 export function schemeRoute(slug: string, corp: boolean, concept?: string | null): string {
   const base = `/vocabularios/${corp ? 'corp/' : ''}${encodeURIComponent(slug)}`
@@ -52,10 +61,16 @@ export function schemeRouteFromUri(uri: string): string | null {
   return null
 }
 
-/** Ruta de la ficha para la URI de una ontología propia o de una de sus versiones (`owl:versionIRI`). */
+/**
+ * Ruta de la ficha para la URI de una ontología propia o de una de sus
+ * versiones (`owl:versionIRI`), o de una versión de ontología externa
+ * (`onto/externas/{slug}/{n}`, decisión 51).
+ */
 export function ontologyRouteFromUri(uri: string): string | null {
   const rel = relative(uri)
   if (rel === null) return null
+  const external = new RegExp(`^onto/externas/(${SLUG})(?:/([1-9][0-9]*))?$`).exec(rel)
+  if (external) return externalOntologyRoute(external[1], external[2])
   const match = new RegExp(`^onto/(${SLUG})(?:/(${VERSION}))?$`).exec(rel)
   if (!match || match[1] === 'externas') return null
   return ontologyRoute(match[1], match[2])
@@ -81,11 +96,13 @@ export function resourceRouteFromUri(uri: string): string | null {
 }
 
 /**
- * Destino de una tarjeta de vocabulario. Las ontologías externas no tienen
- * ficha propia: enlazan a su IRI oficial (`external: true`).
+ * Destino de una tarjeta de vocabulario. Las ontologías externas con `slug`
+ * van a su ficha (decisión 51); sin `slug` (sin prefijo), a su IRI oficial
+ * (`external: true`).
  */
 export function vocabularyHref(card: VocabularyCard): { href: string; external: boolean } {
-  if (card.kind === 'external' || !card.slug) return { href: card.uri, external: true }
+  if (!card.slug) return { href: card.uri, external: true }
+  if (card.kind === 'external') return { href: externalOntologyRoute(card.slug), external: false }
   if (card.kind === 'own') return { href: ontologyRoute(card.slug), external: false }
   return { href: schemeRoute(card.slug, card.kind === 'skos_corp'), external: false }
 }

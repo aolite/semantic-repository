@@ -276,6 +276,19 @@ span.history__num {
   color: var(--color-text);
 }
 
+/* Versión que muestra la ficha (`?version=`) en el historial de una ontología externa. */
+.history__item--selected {
+  padding-left: 10px;
+  box-shadow: inset 3px 0 0 var(--color-brand);
+}
+
+.history__download {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--touch-target);
+  font-size: 13px;
+}
+
 .badge {
   padding: 2px 8px;
   border-radius: 999px;

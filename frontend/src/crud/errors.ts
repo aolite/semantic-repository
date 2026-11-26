@@ -62,7 +62,7 @@ export const CRUD_TEXT = {
   inUse:
     'No se puede dar de baja: lo usan recursos publicados. Antes hay que dar de baja los recursos que lo usan (las versiones publicadas no cambian).',
   notManaged:
-    'Este recurso no se gestiona desde la aplicación (ontología externa o esquema auxiliar): solo cambia con sus ficheros y la carga semántica.',
+    'Esta acción no está disponible para este recurso: una ontología externa solo se sustituye entera («Sustituir ontología» en su ficha) y un esquema auxiliar solo cambia con sus ficheros y la carga semántica.',
 } as const
 
 /** Mensaje de cada `IngestErrorResponse.kind`. */
@@ -92,6 +92,7 @@ export const INGEST_KIND_TEXT: Record<IngestErrorKind, string> = {
     'La versión usa temas (dcat:theme) que son conceptos retirados. Cámbialos por sus sustitutos, si los tienen.',
   unknown_theme:
     'La versión usa temas (dcat:theme) del repositorio que no son conceptos de un esquema publicado (no existen o su esquema se dio de baja).',
+  version_exists: 'Otra persona acaba de sustituir esta ontología; recarga la ficha y vuelve a intentarlo.',
 }
 
 /** Textos de los formularios de esquemas (decisión 50). */
@@ -106,6 +107,32 @@ export const ONTOLOGY_INGEST_TEXT: Partial<Record<IngestErrorKind, string>> = {
   catalog_conflict:
     'La ontología ya está en otro catálogo. Para cambiarla de catálogo, usa «Mover de catálogo» en su ficha.',
   withdrawn: 'Esa URI es de una ontología dada de baja y no se reutiliza.',
+}
+
+/** Textos de «Sustituir ontología» de una ontología externa (decisión 51). */
+export const EXTERNAL_INGEST_TEXT: Partial<Record<IngestErrorKind, string>> = {
+  structure:
+    'El fichero no declara la ontología con su IRI oficial (owl:Ontology) o algún campo del formulario no es válido.',
+  uri: 'El fichero describe recursos con URIs del repositorio: una ontología externa no puede usarlas.',
+  shacl: 'Los metadatos de la versión no cumplen las reglas de validación (SHACL).',
+}
+
+/**
+ * Campos del formulario señalados en un 422 `structure` de la sustitución de
+ * una externa (decisión 51): el backend pone el nombre del campo en
+ * `issues[].path`. Solo se devuelven los de `fields`, con su mensaje.
+ */
+export function ingestFieldIssues<F extends string>(error: unknown, fields: readonly F[]): Partial<Record<F, string>> {
+  const body = ingestError(error)
+  const result: Partial<Record<F, string>> = {}
+  if (!body || body.kind !== 'structure' || !Array.isArray(body.issues)) return result
+  for (const issue of body.issues) {
+    const path = issue.path
+    if (typeof path === 'string' && (fields as readonly string[]).includes(path) && !result[path as F]) {
+      result[path as F] = issue.message || CRUD_TEXT.invalidField
+    }
+  }
+  return result
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
