@@ -358,6 +358,25 @@ a:hover {
   color: var(--color-white);
 }
 
+/*
+ * Enlaces con aspecto de botón («Descargar Turtle»…): conservan el color de
+ * texto de su botón en todos sus estados, porque `a:hover` (0,1,1) gana a
+ * `.button--primary` (0,1,0) y dejaba el texto azul sobre el fondo oscuro
+ * (contraste 1,83:1, QA-51-03). `:is()` sube la especificidad a (0,2,1).
+ */
+a.button--primary:is(:link, :visited, :hover, :focus-visible, :active),
+a.button--ghost:is(:link, :visited, :hover, :focus-visible, :active) {
+  color: var(--color-white);
+}
+
+a.button--secondary:is(:link, :visited, :focus-visible, :active) {
+  color: var(--color-text);
+}
+
+a.button--secondary:hover {
+  color: var(--color-brand);
+}
+
 /* Formularios */
 .form {
   display: flex;
