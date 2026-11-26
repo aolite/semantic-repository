@@ -259,6 +259,7 @@ def test_detail_old_version_with_missing_data(api: TestClient) -> None:
     assert len(first["version"]["distributions"]) == 2
 
 
+@pytest.mark.usefixtures("synthetic_themes")
 def test_detail_referenced_only_previous_version(
     client: TestClient, store: MemoryStore, semantic_dir: Path, uris: Uris
 ) -> None:
