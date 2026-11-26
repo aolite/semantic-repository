@@ -147,24 +147,35 @@ def withdrawn_prefix_owner(session: Session, prefix: str | None) -> str | None:
     return record.resource_uri if record is not None else None
 
 
-# Recursos propios vivos (esquemas, también los auxiliares, y versiones de ontologías
-# propias) que declaran el prefijo VANN $prefix en su propio grafo (el del esquema o el de
-# una versión), salvo $resource. Las ontologías externas
-# (sujetos fuera de BASE_URI, en {BASE_URI}onto/externas) no cuentan.
+# Recursos vivos que declaran el prefijo VANN $prefix, salvo $resource:
+# - propios (esquemas, también los auxiliares, y versiones de ontologías propias), en su
+#   propio grafo (el del esquema o el de una versión);
+# - ontologías externas (owl:Ontology fuera de BASE_URI, en el grafo $externas): su prefijo
+#   también cuenta como ocupado (regla 14, decidido el 2026-11-26).
+# Las versiones anteriores de una ontología propia siguen publicadas: el prefijo que una
+# versión posterior deja de usar queda reservado para esa ontología (QA-50-06).
 _PREFIX_OWNERS = """CONSTRUCT { ?r <http://purl.org/vocab/vann/preferredNamespacePrefix> ?p }
 WHERE {
-  GRAPH ?g { ?r <http://purl.org/vocab/vann/preferredNamespacePrefix> ?p }
+  {
+    GRAPH ?g { ?r <http://purl.org/vocab/vann/preferredNamespacePrefix> ?p }
+    FILTER(STRSTARTS(STR(?g), $vocab_ns) || STRSTARTS(STR(?g), $onto_ns))
+    FILTER(STRSTARTS(STR(?r), $vocab_ns) || STRSTARTS(STR(?r), $onto_ns))
+    FILTER(?g = ?r || STRSTARTS(STR(?g), CONCAT(STR(?r), "/")))
+  } UNION {
+    GRAPH $externas {
+      ?r a <http://www.w3.org/2002/07/owl#Ontology> ;
+         <http://purl.org/vocab/vann/preferredNamespacePrefix> ?p
+    }
+  }
   FILTER(isIRI(?r) && ?r != $resource && STR(?p) = $prefix)
-  FILTER(STRSTARTS(STR(?g), $vocab_ns) || STRSTARTS(STR(?g), $onto_ns))
-  FILTER(STRSTARTS(STR(?r), $vocab_ns) || STRSTARTS(STR(?r), $onto_ns))
-  FILTER(?g = ?r || STRSTARTS(STR(?g), CONCAT(STR(?r), "/")))
 }"""
 
 
 def live_prefix_owners(
     store: TripleStore, uris: Uris, prefix: str | None, resource: str
 ) -> list[str]:
-    """Otros recursos vivos que usan ``prefix`` (QA-50-01)."""
+    """Otros recursos que tienen ``prefix`` (QA-50-01, regla 14): esquemas y ontologías
+    propias vivos (con todas sus versiones publicadas) y ontologías externas."""
     if not prefix:
         return []
     graph = store.construct(
@@ -174,6 +185,7 @@ def live_prefix_owners(
             prefix=literal(prefix),
             vocab_ns=literal(uris.vocab_ns),
             onto_ns=literal(uris.onto_ns),
+            externas=iri(uris.external_ontologies_graph),
         )
     )
     return sorted({str(s) for s in graph.subjects() if isinstance(s, URIRef)})
@@ -194,7 +206,8 @@ def check_resource_publication(
 
     - Recurso dado de baja: 409 ``withdrawn`` (el slug no se reutiliza).
     - Prefijo VANN de un recurso dado de baja: 409 ``prefix_withdrawn``.
-    - Prefijo VANN que ya usa **otro** recurso vivo (QA-50-01): 409 ``prefix_in_use``.
+    - Prefijo VANN que ya usa **otro** recurso vivo, propio o externo, o que reservó una
+      versión anterior de otra ontología (QA-50-01, QA-50-06): 409 ``prefix_in_use``.
     - Recurso ya en otro catálogo: 409 ``catalog_conflict`` (``other="conflict"``, la API;
       moverlo es ``PATCH``) o se conserva el actual (``"keep"``, ``load-semantic``).
     - Catálogo que no existe o está dado de baja: 422 ``catalog``.

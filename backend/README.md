@@ -423,7 +423,7 @@ Cada esquema SKOS (de dominio o corporativo) y cada ontología propia está en *
 | El recurso ya está en otro catálogo (regla 3): mover es `PATCH` | 409 `catalog_conflict` |
 | El recurso se dio de baja: su URI no se reutiliza (regla 7) | 409 `withdrawn` |
 | Su `vann:preferredNamespacePrefix` era de un recurso dado de baja (regla 7) | 409 `prefix_withdrawn` |
-| Su `vann:preferredNamespacePrefix` ya lo usa **otro** recurso vivo: un esquema (también los auxiliares) u otra ontología propia (QA-50-01). Los prefijos de las ontologías externas no cuentan. El recurso que ya lo usa sigue publicando (versiones nuevas, republicar) | 409 `prefix_in_use`, con el recurso en `issues[].value` |
+| Su `vann:preferredNamespacePrefix` ya lo usa **otro** recurso vivo: un esquema (también los auxiliares), otra ontología propia o una ontología externa (QA-50-01, regla 14; el de las externas cuenta desde el 2026-11-26). De una ontología propia cuentan **todas** sus versiones publicadas: el prefijo que una versión posterior deja de usar sigue reservado para esa ontología (QA-50-06). El recurso que ya lo usa sigue publicando (versiones nuevas, republicar). `load-semantic` aplica la misma regla entre los ficheros (también `externas.ttl`) y contra lo publicado | 409 `prefix_in_use`, con el recurso en `issues[].value` |
 | Al republicar un esquema faltan conceptos ya publicados (regla 9) | 409 `concepts_removed`, con los conceptos en `issues` |
 | Un concepto retirado (`owl:deprecated true`) deja de estarlo: reactivar queda fuera del piloto | 409 `concept_reactivated` |
 | Un sustituto (`dct:isReplacedBy`) no es un `skos:Concept` vivo, de este esquema o de otro publicado (regla 9) | 422 `replacement` |

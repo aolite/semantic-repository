@@ -994,12 +994,70 @@ def test_a_vann_prefix_used_by_another_live_resource_is_409(
     second = _post(api, "/ontologies", _onto(prefix="compartido"), editor, "pruebas")
     assert second.status_code == 409 and second.json()["kind"] == "prefix_in_use"
     assert second.json()["issues"][0]["value"] == f"{BASE_URI}vocab/nuevo"
-    # Los prefijos de las ontologías externas no cuentan.
-    assert _post(api, "/ontologies", _onto(prefix="sosa"), editor, "pruebas").status_code == 201
     # El recurso que lo usa sigue publicando (sus versiones nuevas y su republicación).
-    newer = _onto(prefix="sosa", version="1.1.0")
+    own = _onto(slug="propia", prefix="propia")
+    assert _post(api, "/ontologies", own, editor, "pruebas").status_code == 201
+    newer = _onto(slug="propia", prefix="propia", version="1.1.0")
     assert _post(api, "/ontologies", newer, editor, "pruebas").status_code == 201
     assert _post(api, "/schemes", SCHEME_OT, editor, "vocabularios-sinteticos").status_code == 200
+
+
+def test_the_prefix_of_an_external_ontology_is_taken(
+    api: TestClient, vocab_store: MemoryStore, editor: dict[str, str]
+) -> None:
+    """Regla 14 (decidido el 2026-11-26): el prefijo VANN de una ontología externa cuenta
+    como ocupado, para un esquema y para una ontología propia."""
+    for path, body, value in (
+        ("/ontologies", _onto(prefix="sosa"), "http://www.w3.org/ns/sosa/"),
+        ("/schemes", _scheme(prefix="saref"), "https://saref.etsi.org/core/"),
+    ):
+        response = _post(api, path, body, editor, "pruebas")
+        assert response.status_code == 409, (path, response.text)
+        assert response.json()["kind"] == "prefix_in_use"
+        assert [i["value"] for i in response.json()["issues"]] == [value]
+    assert f"{BASE_URI}onto/nueva/1.0.0" not in vocab_store.graph_names()
+    assert f"{BASE_URI}vocab/nuevo" not in vocab_store.graph_names()
+    # Un prefijo que no es de ninguna externa sigue libre.
+    assert _post(api, "/ontologies", _onto(prefix="libre"), editor, "pruebas").status_code == 201
+
+
+def test_a_prefix_dropped_by_a_later_version_stays_reserved_for_its_ontology(
+    api: TestClient, vocab_store: MemoryStore, editor: dict[str, str]
+) -> None:
+    """QA-50-06: las versiones anteriores siguen publicadas, así que el prefijo que deja
+    de usar una versión posterior sigue siendo de esa ontología."""
+    first = _onto(prefix="antiguo")
+    assert _post(api, "/ontologies", first, editor, "pruebas").status_code == 201
+    later = _onto(prefix="moderno", version="1.1.0")
+    assert _post(api, "/ontologies", later, editor, "pruebas").status_code == 201
+    for path, body in (
+        ("/schemes", _scheme(prefix="antiguo")),
+        ("/ontologies", _onto(slug="otra", prefix="antiguo")),
+    ):
+        response = _post(api, path, body, editor, "pruebas")
+        assert response.status_code == 409, (path, response.text)
+        assert response.json()["kind"] == "prefix_in_use"
+        assert [i["value"] for i in response.json()["issues"]] == [f"{BASE_URI}onto/nueva"]
+    # La propia ontología puede volver a usarlo.
+    again = _onto(prefix="antiguo", version="1.2.0")
+    assert _post(api, "/ontologies", again, editor, "pruebas").status_code == 201
+
+
+def test_replacement_inside_the_same_scheme_does_not_block_its_withdrawal(
+    api: TestClient, vocab_store: MemoryStore, editor: dict[str, str]
+) -> None:
+    """Un dct:isReplacedBy entre conceptos del mismo esquema no es un uso que bloquee la
+    baja (solo cuenta desde otro esquema vivo, QA-50-02)."""
+    scheme = f"{BASE_URI}vocab/nuevo"
+    assert _post(api, "/schemes", _scheme(concepts="a b"), editor, "pruebas").status_code == 201
+    retired = _with_deprecated(_scheme(concepts="a b"), f"{scheme}/a", [f"{scheme}/b"])
+    assert _post(api, "/schemes", retired, editor, "pruebas").status_code == 200
+    assert (URIRef(f"{scheme}/a"), DCT.isReplacedBy, URIRef(f"{scheme}/b")) in (
+        vocab_store.get_graph(scheme)
+    )
+    response = api.delete("/schemes/nuevo", headers=editor)
+    assert response.status_code == 204, response.text
+    assert scheme not in vocab_store.graph_names()
 
 
 def _fail_on(store: MemoryStore, monkeypatch: pytest.MonkeyPatch, marker: str) -> None:
@@ -1185,6 +1243,17 @@ def test_load_semantic_rejects_duplicated_or_taken_prefixes(
         assert result.exit_code == 1, result.output
         assert "«pqc» ya lo usa" in result.output
         assert f"{BASE_URI}vocab/nuevo" in result.output
+        assert OT not in store.graph_names()
+        # Regla 14: contra el prefijo de una ontología externa de externas.ttl.
+        store.delete_graph(f"{BASE_URI}vocab/nuevo")
+        pqc.write_text(
+            original.replace('preferredNamespacePrefix "pqc"', 'preferredNamespacePrefix "sosa"'),
+            encoding="utf-8",
+        )
+        result = CliRunner().invoke(cli_module.cli, ["load-semantic"])
+        assert result.exit_code == 1, result.output
+        assert "«sosa» ya lo usa" in result.output
+        assert "http://www.w3.org/ns/sosa/" in result.output
         assert OT not in store.graph_names()
     finally:
         monkeypatch.undo()
