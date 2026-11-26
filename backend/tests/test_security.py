@@ -645,7 +645,18 @@ def test_login_always_runs_the_password_hash(
         assert calls[0].startswith("$argon2id$"), username
 
 
-def test_dummy_hash_costs_the_same_as_a_real_one() -> None:
+def test_production_password_hash_is_argon2id_with_its_default_cost(
+    production_password_hash: None,
+) -> None:
+    """En producción, argon2id con 64 MiB, 3 pasadas y 4 hilos (las pruebas usan un coste
+    mínimo; ver ``conftest.py``)."""
+    password_hash = security.hash_password(DEFAULT_PASSWORD)
+    assert password_hash.startswith("$argon2id$v=19$m=65536,t=3,p=4$")
+    assert security.verify_password(DEFAULT_PASSWORD, password_hash)
+    assert not security.verify_password("otra-contrasena-larga", password_hash)
+
+
+def test_dummy_hash_costs_the_same_as_a_real_one(production_password_hash: None) -> None:
     """El hash de relleno usa los mismos parámetros argon2 que una contraseña real."""
 
     def params(password_hash: str) -> tuple[str, ...]:
@@ -656,7 +667,7 @@ def test_dummy_hash_costs_the_same_as_a_real_one() -> None:
 
 
 def test_login_timing_does_not_reveal_accounts(
-    client: TestClient, make_user: Callable[..., User]
+    client: TestClient, make_user: Callable[..., User], production_password_hash: None
 ) -> None:
     """Medición gruesa: el login de un usuario inexistente no es mucho más rápido.
 

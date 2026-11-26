@@ -550,6 +550,14 @@ Las pruebas usan **SQLite en memoria** por defecto: no necesitan servicios, son 
 
 **Fase 4:** `tests/fixtures/semantic/consultas/` copia las consultas de referencia de `semantic/consultas/`. `tests/fase4_data.py` define una serie propia de las pruebas con distribuciones PUBLIC, RESTRICTED, NON_PUBLIC y sin `dcat:mediaType` (los datos sintéticos de `semantic/` solo tienen RESTRICTED). F-UJI se simula con `httpx.MockTransport` y `tests/fixtures/fuji/evaluate-respuesta.json`, con el formato real de F-UJI 4.0.1: el envoltorio `FAIRResults` de su `fuji_server/yaml/openapi.yaml` y el `summary` grabado de una evaluación real que guarda su `tests/functional/test_evaluation.py` (el detalle `results` va vacío y los datos del envoltorio son de prueba). El SPARQL público se prueba con `MemoryQueryRunner` (rdflib con el grafo por defecto como unión) y el cliente de Fuseki con `httpx.MockTransport`. El trabajador FAIR no arranca en las pruebas (`FAIR_WORKER_POLL_SECONDS=0`): se llama a `fair.process_pending`.
 
+**Tiempo de la batería.** Estas cosas la hacían lenta (más de 25 minutos en CI) y se han resuelto sin quitar pruebas ni aserciones:
+
+- **Cada validación SHACL volvía a importar el módulo principal** en el proceso hijo (pytest en las pruebas, uvicorn en el servidor): ~0,25 s por validación. El *forkserver* de `app/shacl_worker.py` lo importa ahora una sola vez (`"__main__"` en la precarga), y crear un hijo vuelve a costar milisegundos. También acelera la ingesta en producción.
+
+- **argon2id con los parámetros de producción** (64 MiB, 3 pasadas) en cada usuario y cada login. `conftest.py` usa argon2id con parámetros mínimos (mismo algoritmo y formato); las pruebas que dependen del coste real (los parámetros de producción y la medición del tiempo de login) piden la fixture `production_password_hash`.
+- **Cargar los datos de las fixtures en cada prueba** (`loaded_store`, `vocab_store`): validar cada serie con SHACL en un proceso hijo y las consultas de pertenencia costaban unos 2 s por prueba. Se cargan una vez por sesión y cada prueba recibe un `MemoryStore` nuevo con una copia de las cuádruplas (solo si el triplestore está recién sembrado; si no, se cargan de verdad).
+- **El análisis de cada consulta SPARQL en `MemoryStore`** (pyparsing de rdflib), más caro que evaluarla: se guarda la consulta ya analizada (`lru_cache` por texto y prefijos) y `get_graph` copia el grafo sin pasar por el motor SPARQL. Además se ignora un aviso interno de rdflib (`Dataset.default_context`) que salía en cada consulta.
+
 ### Pruebas contra un Fuseki real
 
 `tests/test_fuseki_integration.py` se salta salvo que se le indique un Fuseki **desechable** (sustituye grafos):

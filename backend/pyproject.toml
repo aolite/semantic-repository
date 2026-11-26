@@ -33,6 +33,11 @@ package = false
 testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "-ra"
+# rdflib avisa en cada consulta SPARQL de un uso interno suyo (Dataset.default_context):
+# decenas de miles de avisos que no son del backend y que pytest registra uno a uno.
+filterwarnings = [
+    "ignore:Dataset.default_context is deprecated:DeprecationWarning:rdflib",
+]
 
 [tool.ruff]
 target-version = "py315"
