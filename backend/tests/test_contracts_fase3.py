@@ -227,14 +227,21 @@ def _client_calls() -> dict[str, set[str]]:
 
 
 def test_frontend_calls_only_paths_and_parameters_of_the_contract() -> None:
+    # Parámetros de todas las operaciones de cada ruta: desde la decisión 50 el cliente
+    # también llama con `withQuery` a `POST /schemes?catalog=` y `POST /ontologies?catalog=`.
     contract = {
-        re.sub(r"\{[^}]*\}", "{}", path): {p["name"] for p in ops["get"].get("parameters", [])}
+        re.sub(r"\{[^}]*\}", "{}", path): {
+            p["name"]
+            for op in ops.values()
+            if isinstance(op, dict)
+            for p in op.get("parameters", [])
+        }
         for path, ops in _contract()["paths"].items()
-        if "get" in ops
     }
     calls = _client_calls()
     expected = {
-        "/vocabularies": {"q", "kind", "domain"},
+        # Decisión 50: `catalog` filtra por catálogo.
+        "/vocabularies": {"q", "kind", "domain", "catalog"},
         "/ontologies/{}": {"version"},
         "/ontologies/{}/rdf": {"format", "version", "download"},
         "/schemes/{}": set(),

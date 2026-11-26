@@ -123,7 +123,9 @@ def ingest_error_response(exc: ingest.IngestError) -> JSONResponse:
         "contenido (409 `version_removed` o `version_immutable`, con las versiones en "
         "`issues`). Decisión 50: una versión nueva cuyo `dcat:theme` apunta a un concepto "
         "retirado (`owl:deprecated true`) se rechaza con 422 `deprecated_theme`, con los "
-        "temas y sus sustitutos (`dct:isReplacedBy`) en `issues[].replaced_by`. "
+        "temas y sus sustitutos (`dct:isReplacedBy`) en `issues[].replaced_by`; y una cuyo "
+        "`dcat:theme` es una IRI de `{BASE_URI}vocab/` que no es un concepto de un esquema "
+        "vivo (no existe o su esquema se dio de baja), con 422 `unknown_theme`. "
         "Las versiones nuevas se encolan para evaluarlas con F-UJI en segundo "
         "plano. 201 si la serie es nueva; 200 si ya existía (con `changed=false` si el "
         "contenido era idéntico). Requiere rol editor (admin hereda los permisos de editor)."
@@ -154,7 +156,7 @@ def ingest_error_response(exc: ingest.IngestError) -> JSONResponse:
             "description": "RDF no válido: sintaxis, estructura, URIs o informe SHACL; "
             "catálogo inexistente (catalog); o una versión nueva con temas retirados "
             "(deprecated_theme, decisión 50: issues con los temas y sus sustitutos en "
-            "replaced_by)",
+            "replaced_by) o que no son conceptos de un esquema vivo (unknown_theme)",
         },
         status.HTTP_503_SERVICE_UNAVAILABLE: {
             "model": schemas.ErrorResponse,

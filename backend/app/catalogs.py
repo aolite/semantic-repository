@@ -129,6 +129,13 @@ def _validate_catalog(graph: Graph, uris: Uris, uri: str, settings: Settings) ->
 def write_tombstone(
     store: TripleStore, uris: Uris, uri: str, titles: list[Literal], settings: Settings
 ) -> Graph:
+    graph = build_tombstone(uris, uri, titles, settings)
+    bajas.add_tombstone(store, uris, graph)
+    return graph
+
+
+def build_tombstone(uris: Uris, uri: str, titles: list[Literal], settings: Settings) -> Graph:
+    """La lápida de ``uri`` validada con ``itsh:BajaShape``, sin escribirla."""
     # Tienen lápida el catálogo, la serie (decisión 49), el esquema SKOS no auxiliar y la
     # ontología propia (decisión 50), con título no vacío (semantic/uris.md).
     if (
@@ -143,7 +150,6 @@ def write_tombstone(
     titles = [t for t in titles if str(t).strip()]
     graph = bajas.tombstone_graph(uri, titles or [Literal(uri)])
     ingest.validate_plain(graph, settings.semantic_dir, uris.base)  # forma itsh:BajaShape
-    bajas.add_tombstone(store, uris, graph)
     return graph
 
 

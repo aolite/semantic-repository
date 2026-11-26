@@ -36,7 +36,9 @@ Reglas de la fase 4:
   lápida en ``{BASE_URI}bajas`` da 409 ``withdrawn``.
 - **Temas retirados (decisión 50, regla 11).** Una versión nueva cuyo ``dcat:theme``
   apunta a un concepto con ``owl:deprecated true`` se rechaza (422 ``deprecated_theme``),
-  avisando de sus sustitutos (``dct:isReplacedBy``).
+  avisando de sus sustitutos (``dct:isReplacedBy``). Un ``dcat:theme`` de
+  ``{BASE_URI}vocab/`` que no es un concepto de un esquema vivo (no existe o su esquema
+  se dio de baja) da 422 ``unknown_theme`` (QA-50-03).
 - **FAIR.** Las versiones nuevas (las que no estaban en el grafo publicado) se encolan
   para evaluarlas con F-UJI en segundo plano (``app.fair``).
 - **Segmento reservado.** ``fichero`` no puede ser el slug de una distribución: es la ruta
@@ -81,10 +83,12 @@ IngestErrorKind = Literal[
     "catalog_conflict",
     # Decisión 50.
     "prefix_withdrawn",
+    "prefix_in_use",
     "concepts_removed",
     "concept_reactivated",
     "replacement",
     "deprecated_theme",
+    "unknown_theme",
     "not_managed",
 ]
 # Errores de ingesta que son un conflicto con lo publicado (409) y no un RDF inválido (422).
@@ -95,6 +99,7 @@ CONFLICT_KINDS = frozenset(
         "withdrawn",
         "catalog_conflict",
         "prefix_withdrawn",
+        "prefix_in_use",
         "concepts_removed",
         "concept_reactivated",
     }
@@ -876,6 +881,80 @@ def deprecated_concepts(store: TripleStore, uris: Uris, concepts: set[str]) -> d
     }
 
 
+_EXISTING_CONCEPTS_QUERY = """CONSTRUCT { ?c a <http://www.w3.org/2004/02/skos/core#Concept> }
+WHERE {
+  VALUES ?c { $values }
+  GRAPH ?g { ?c a <http://www.w3.org/2004/02/skos/core#Concept> }
+  FILTER(STRSTARTS(STR(?g), $vocab_ns))
+}"""
+
+
+def _new_version_themes(prepared: PreparedSeries, new_versions: list[str]) -> dict[str, set[str]]:
+    themes: dict[str, set[str]] = {}
+    for version in new_versions:
+        for theme in prepared.graph.objects(URIRef(version), DCAT.theme):
+            if isinstance(theme, URIRef):
+                themes.setdefault(str(theme), set()).add(version)
+    return themes
+
+
+def check_unknown_themes(
+    store: TripleStore,
+    prepared: PreparedSeries,
+    new_versions: list[str],
+    known: set[str] | frozenset[str] = frozenset(),
+) -> None:
+    """QA-50-03 (validado el 2026-11-26): una versión **nueva** cuyo ``dcat:theme`` es una
+    IRI de ``{BASE_URI}vocab/`` que no es un concepto de un esquema vivo (no existe, o su
+    esquema se dio de baja) se rechaza con 422 ``unknown_theme``. Los temas fuera de
+    ``{BASE_URI}vocab/`` (conceptos externos) no se comprueban: el backend no los conoce.
+    ``known``: conceptos que se publican en la misma ejecución de ``load-semantic``."""
+    if not new_versions or prepared.base_uri is None:
+        return
+    from app import bajas  # evita la importación circular
+
+    uris = Uris(prepared.base_uri)
+    themes = _new_version_themes(prepared, new_versions)
+    candidates = sorted(t for t in themes if t.startswith(uris.vocab_ns) and t not in known)
+    if not candidates:
+        return
+    found = store.construct(
+        render(
+            _EXISTING_CONCEPTS_QUERY, values=iri_list(candidates), vocab_ns=literal(uris.vocab_ns)
+        )
+    )
+    existing = {str(c) for c in found.subjects()}
+    missing = [t for t in candidates if t not in existing]
+    if not missing:
+        return
+    withdrawn: dict[str, bool] = {}
+    for theme in missing:
+        scheme = theme.rsplit("/", 1)[0]
+        if scheme not in withdrawn:
+            withdrawn[scheme] = (
+                uris.managed_resource(scheme) is not None
+                and bajas.get_tombstone(store, uris, scheme) is not None
+            )
+    issues = [
+        Issue(
+            "El tema es un concepto de un esquema dado de baja"
+            if withdrawn[theme.rsplit("/", 1)[0]]
+            else "El tema no es un concepto de ningún esquema publicado",
+            focus_node=version,
+            path=str(DCAT.theme),
+            value=theme,
+        )
+        for theme in missing
+        for version in sorted(themes[theme])
+    ]
+    raise IngestError(
+        "unknown_theme",
+        "La versión nueva usa temas que no son conceptos de un esquema vivo: usa conceptos "
+        "publicados",
+        issues,
+    )
+
+
 def check_deprecated_themes(
     store: TripleStore, prepared: PreparedSeries, new_versions: list[str]
 ) -> None:
@@ -885,11 +964,7 @@ def check_deprecated_themes(
     if not new_versions or prepared.base_uri is None:
         return
     uris = Uris(prepared.base_uri)
-    themes: dict[str, set[str]] = {}
-    for version in new_versions:
-        for theme in prepared.graph.objects(URIRef(version), DCAT.theme):
-            if isinstance(theme, URIRef):
-                themes.setdefault(str(theme), set()).add(version)
+    themes = _new_version_themes(prepared, new_versions)
     retired = deprecated_concepts(store, uris, set(themes))
     if not retired:
         return
@@ -924,6 +999,7 @@ def publish(
     current = store.get_graph(prepared.uri)
     new_versions = check_immutable(current, prepared)
     target = check_catalog(store, prepared, other=other)
+    check_unknown_themes(store, prepared, new_versions)
     check_deprecated_themes(store, prepared, new_versions)
     created = len(current) == 0
     changed = created or not isomorphic(current, prepared.graph)

@@ -1,6 +1,7 @@
 """Ingesta de ontologías (``POST /ontologies``) y esquemas SKOS (``POST /schemes``)."""
 
 import json
+import re
 from collections.abc import Callable
 from pathlib import Path
 
@@ -43,6 +44,12 @@ def editor(make_user: Callable[..., User], login: Callable[..., dict[str, str]])
 STATUS = "<http://purl.org/adms/status/Completed>"
 
 
+def _prefix(name: str, lead: str) -> str:
+    """Prefijo VANN propio de cada recurso de prueba: dos recursos vivos no comparten
+    prefijo (QA-50-01, 409 ``prefix_in_use``)."""
+    return lead + re.sub(r"[^a-z0-9]", "", name.rsplit("/", 1)[-1].lower())
+
+
 def _onto(body: str, version: str = "1.0.0", slug: str = "prueba", *, status: bool = True) -> bytes:
     """Versión mínima que cumple las formas de semantico (título, descripción, VANN y
     estado)."""
@@ -57,7 +64,8 @@ def _onto(body: str, version: str = "1.0.0", slug: str = "prueba", *, status: bo
 <onto/{slug}> a owl:Ontology ; owl:versionIRI <onto/{slug}/{version}> ;
     owl:versionInfo "{version}" ; {state}
     dct:title "Ontología de prueba"@es ; dct:description "Ontología de prueba"@es ;
-    vann:preferredNamespacePrefix "prueba" ; vann:preferredNamespaceUri <onto/{slug}#> .
+    vann:preferredNamespacePrefix "{_prefix(slug, "o")}" ;
+    vann:preferredNamespaceUri <onto/{slug}#> .
 {body}
 """.encode()
 
@@ -462,7 +470,7 @@ def _scheme(body: str, uri: str = "vocab/prueba", *, description: bool = True) -
 @prefix vann: <http://purl.org/vocab/vann/> .
 <{uri}> a skos:ConceptScheme ; skos:prefLabel "Prueba"@es ; dct:title "Prueba"@es ; {text}
     owl:versionInfo "1.0" ; adms:status {STATUS} ;
-    vann:preferredNamespacePrefix "prueba" ; vann:preferredNamespaceUri <{uri}/> .
+    vann:preferredNamespacePrefix "{_prefix(uri, "v")}" ; vann:preferredNamespaceUri <{uri}/> .
 {body}
 """.encode()
 
