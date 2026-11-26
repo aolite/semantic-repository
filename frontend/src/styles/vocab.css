@@ -320,11 +320,7 @@
   gap: 2px;
 }
 
-.tree__item {
-  border-radius: 7px;
-}
-
-.tree__item:focus-visible {
+.tree__row:focus-visible {
   outline: 3px solid var(--color-link);
   outline-offset: 0;
 }

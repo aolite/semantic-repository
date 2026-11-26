@@ -67,7 +67,9 @@ describe('Navegador SKOS · catálogo, conceptos retirados y 410 (decisión 50)'
     })
     const { user } = renderApp(`${ROUTE}?concepto=concepto-a1`)
     const item = await screen.findByRole('treeitem', { name: 'Concepto A1 (retirado)' })
-    expect(within(item).getByText('Retirado')).toBeInTheDocument()
+    // Se ve «Retirado» (text-transform); el nombre accesible es «Concepto A1 (retirado)», sin aria-label (QA-51-02).
+    expect(within(item).getByText('retirado', { selector: '.tree__deprecated' })).toBeInTheDocument()
+    expect(item).not.toHaveAttribute('aria-label')
     const note = await screen.findByRole('note', { name: 'Concepto retirado' })
     expect(within(note).getByText('dct:isReplacedBy')).toBeInTheDocument()
     const replacement = within(note).getByRole('link', { name: 'Concepto B1' })
