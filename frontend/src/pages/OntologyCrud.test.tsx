@@ -157,6 +157,7 @@ describe('Ficha de ontología · CRUD (decisión 50)', () => {
     const usedBy = [
       { uri: `${BASE}onto/otra/1.0.0`, resource: 'ontology', via: 'http://www.w3.org/2002/07/owl#imports', target: `${BASE}onto/onto-prueba` },
       { uri: `${BASE}onto/otra/1.0.0`, resource: 'ontology', via: null, target: `${BASE}onto/onto-prueba#Clase` },
+      { uri: `${BASE}dataset/dataset-prueba/2.1.0`, resource: 'dataset', via: 'http://purl.org/dc/terms/conformsTo', target: `${BASE}onto/onto-prueba/1.2.0` },
     ]
     const { user } = await renderEditor({
       ontology: (_u, init) =>
@@ -172,5 +173,9 @@ describe('Ficha de ontología · CRUD (decisión 50)', () => {
     expect(list).toHaveTextContent('usa el término')
     expect(list).toHaveTextContent('onto/onto-prueba#Clase')
     expect(within(list).getAllByRole('link', { name: 'onto/otra/1.0.0' })[0]).toHaveAttribute('href', '/ontologias/otra?version=1.0.0')
+    // Segunda ronda: una versión de dataset que la usa por dct:conformsTo.
+    const conforms = within(list).getByRole('link', { name: 'dataset/dataset-prueba/2.1.0' })
+    expect(conforms).toHaveAttribute('href', '/datasets/dataset-prueba?version=2.1.0')
+    expect(conforms.closest('li')).toHaveTextContent('Versión de dataset dataset/dataset-prueba/2.1.0 · dct:conformsTo → onto/onto-prueba/1.2.0')
   })
 })

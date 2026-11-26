@@ -238,7 +238,7 @@ describe('Navegador SKOS · CRUD del esquema (decisión 50)', () => {
   it('dar de baja un esquema en uso: 409 in_use con quién lo usa y enlaces', async () => {
     const usedBy = [
       { uri: `${BASE}dataset/dataset-prueba/2.1.0`, resource: 'dataset', via: 'http://www.w3.org/ns/dcat#theme', target: `${BASE}vocab/esq-prueba/concepto-a1` },
-      { uri: `${BASE}onto/onto-prueba/1.2.0`, resource: 'ontology', via: 'dct:subject', target: `${BASE}vocab/esq-prueba` },
+      { uri: `${BASE}onto/onto-prueba/1.2.0`, resource: 'ontology', via: 'http://purl.org/dc/terms/subject', target: `${BASE}vocab/esq-prueba` },
       { uri: `${BASE}vocab/otro/c-1`, resource: 'scheme', via: 'skos:exactMatch', target: `${BASE}vocab/esq-prueba/grupo-a` },
     ]
     const { user } = await renderEditor({
@@ -255,7 +255,10 @@ describe('Navegador SKOS · CRUD del esquema (decisión 50)', () => {
       'href',
       '/datasets/dataset-prueba?version=2.1.0',
     )
-    expect(within(list).getByRole('link', { name: 'onto/onto-prueba/1.2.0' })).toHaveAttribute('href', '/ontologias/onto-prueba?version=1.2.0')
+    const subject = within(list).getByRole('link', { name: 'onto/onto-prueba/1.2.0' })
+    expect(subject).toHaveAttribute('href', '/ontologias/onto-prueba?version=1.2.0')
+    // Segunda ronda: dct:subject hacia el propio esquema (target = URI del esquema).
+    expect(subject.closest('li')).toHaveTextContent('Versión de ontología onto/onto-prueba/1.2.0 · dct:subject → vocab/esq-prueba')
     expect(within(list).getByRole('link', { name: 'vocab/otro/c-1' })).toHaveAttribute('href', '/vocabularios/otro?concepto=c-1')
     expect(list).toHaveTextContent('dcat:theme')
     expect(list).toHaveTextContent('vocab/esq-prueba/concepto-a1')

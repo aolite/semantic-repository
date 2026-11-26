@@ -74,7 +74,9 @@ export interface IngestErrorResponse {
    * Decisión 50: `prefix_withdrawn` (409, prefijo VANN de un recurso dado de baja),
    * `concepts_removed` (409, faltan conceptos ya publicados), `concept_reactivated` (409,
    * reactivar un concepto retirado), `replacement` (422, sustituto que no es un concepto vivo)
-   * y `deprecated_theme` (422, temas retirados, con `issues[].replaced_by`).
+   * y `deprecated_theme` (422, temas retirados, con `issues[].replaced_by`). Segunda ronda:
+   * `prefix_in_use` (409, prefijo VANN de otro recurso vivo, en `issues[].value`) y
+   * `unknown_theme` (422, tema de `{BASE_URI}vocab/` que no es un concepto de un esquema vivo).
    */
   kind: IngestErrorKind
   issues: IngestIssue[]
@@ -83,7 +85,7 @@ export interface IngestErrorResponse {
 }
 
 /** Valores de `IngestErrorResponse.kind`. */
-export type IngestErrorKind = 'syntax' | 'structure' | 'uri' | 'shacl' | 'limit' | 'catalog' | 'version_removed' | 'version_immutable' | 'withdrawn' | 'catalog_conflict' | 'prefix_withdrawn' | 'concepts_removed' | 'concept_reactivated' | 'replacement' | 'deprecated_theme'
+export type IngestErrorKind = 'syntax' | 'structure' | 'uri' | 'shacl' | 'limit' | 'catalog' | 'version_removed' | 'version_immutable' | 'withdrawn' | 'catalog_conflict' | 'prefix_withdrawn' | 'prefix_in_use' | 'concepts_removed' | 'concept_reactivated' | 'replacement' | 'deprecated_theme' | 'unknown_theme'
 
 /** Esquema `IngestIssue`. */
 export interface IngestIssue {

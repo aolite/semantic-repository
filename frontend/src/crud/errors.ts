@@ -12,6 +12,7 @@ import {
   type UsageRef,
 } from '../api'
 import { lastSegment } from '../catalog/labels'
+import { shortUri } from './publish'
 
 export type FormField = 'slug' | 'title' | 'description' | 'publisher_name' | 'catalog' | 'file'
 
@@ -80,6 +81,8 @@ export const INGEST_KIND_TEXT: Record<IngestErrorKind, string> = {
     'La serie ya está en otro catálogo. Para cambiarla de catálogo, usa «Editar» en la ficha del dataset.',
   prefix_withdrawn:
     'El prefijo VANN (vann:preferredNamespacePrefix) era de un recurso dado de baja y no se reutiliza. Usa otro prefijo.',
+  prefix_in_use:
+    'El prefijo VANN (vann:preferredNamespacePrefix) ya lo usa otro recurso publicado. Usa otro prefijo.',
   concepts_removed:
     'Faltan conceptos que ya estaban publicados en el esquema. Un concepto no se quita: se retira marcándolo con owl:deprecated (y sus sustitutos con dct:isReplacedBy).',
   concept_reactivated:
@@ -87,6 +90,8 @@ export const INGEST_KIND_TEXT: Record<IngestErrorKind, string> = {
   replacement: 'Algún sustituto (dct:isReplacedBy) no es un concepto vivo de este esquema o de otro publicado.',
   deprecated_theme:
     'La versión usa temas (dcat:theme) que son conceptos retirados. Cámbialos por sus sustitutos, si los tienen.',
+  unknown_theme:
+    'La versión usa temas (dcat:theme) del repositorio que no son conceptos de un esquema publicado (no existen o su esquema se dio de baja).',
 }
 
 /** Textos de los formularios de esquemas (decisión 50). */
@@ -182,10 +187,23 @@ export function isNotManaged(error: unknown): boolean {
   return error instanceof ApiError && error.status === 403 && isObject(error.body) && error.body.kind === 'not_managed'
 }
 
+/** Qué es `issues[].value` en los `kind` que lo usan. */
+const VALUE_LABEL: Partial<Record<string, string>> = {
+  prefix_in_use: 'Lo usa',
+  deprecated_theme: 'Tema',
+  unknown_theme: 'Tema',
+}
+
 function issueLines(body: IngestErrorResponse): string[] {
   const lines = (Array.isArray(body.issues) ? body.issues : []).map((issue) => {
     const where = issue.path ?? issue.focus_node
-    const line = where ? `${issue.message} (${lastSegment(where)})` : issue.message
+    let line = where ? `${issue.message} (${lastSegment(where)})` : issue.message
+    // `issues[].value`: el recurso que ya usa el prefijo (`prefix_in_use`) o el tema afectado
+    // (`deprecated_theme`, `unknown_theme`), si el mensaje no lo nombra ya.
+    const value = typeof issue.value === 'string' ? issue.value : null
+    if (value && VALUE_LABEL[body.kind] && !issue.message.includes(value)) {
+      line = `${line} · ${VALUE_LABEL[body.kind]}: ${shortUri(value)}`
+    }
     // `deprecated_theme`: los sustitutos del tema retirado, para que el editor sepa por cuál cambiarlo.
     const replacements = Array.isArray(issue.replaced_by) ? issue.replaced_by.filter((r) => typeof r === 'string') : []
     return replacements.length > 0 ? `${line} · Sustitutos: ${replacements.map(lastSegment).join(', ')}` : line

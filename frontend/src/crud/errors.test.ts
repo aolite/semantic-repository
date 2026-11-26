@@ -146,6 +146,8 @@ describe('Errores de los formularios de catálogos y datasets', () => {
     ['concept_reactivated', 409],
     ['replacement', 422],
     ['deprecated_theme', 422],
+    ['prefix_in_use', 409],
+    ['unknown_theme', 422],
   ] as const)('decisión 50: %s (%i) usa el texto de su kind', (kind, status) => {
     expect(describeError(apiError(status, ingest(kind)), CONTEXT).message).toBe(INGEST_KIND_TEXT[kind])
   })
@@ -174,8 +176,28 @@ describe('Errores de los formularios de catálogos y datasets', () => {
       ],
     })
     expect(describeError(apiError(422, body), CONTEXT).issues).toEqual([
-      'Tema retirado (2.0.0) · Sustitutos: nuevo-a, nuevo-b',
+      'Tema retirado (2.0.0) · Tema: vocab/ot/viejo · Sustitutos: nuevo-a, nuevo-b',
       'Tema retirado sin sustitutos',
+    ])
+  })
+
+  it('prefix_in_use nombra el recurso que ya usa el prefijo (issues[].value)', () => {
+    const body = ingest('prefix_in_use', {
+      issues: [{ message: 'Prefijo en uso', focus_node: null, path: null, value: 'http://uri.test/itot/vocab/otro', severity: 'Violation', source_shape: null }],
+    })
+    expect(describeError(apiError(409, body), CONTEXT).issues).toEqual(['Prefijo en uso · Lo usa: vocab/otro'])
+  })
+
+  it('unknown_theme lista los temas que no son conceptos vivos, sin repetir el que ya nombra el mensaje', () => {
+    const body = ingest('unknown_theme', {
+      issues: [
+        { message: 'Tema desconocido', focus_node: 'http://uri.test/itot/dataset/d/2.0.0', path: null, value: 'http://uri.test/itot/vocab/baja/c', severity: 'Violation', source_shape: null, replaced_by: [] },
+        { message: 'Tema http://uri.test/itot/vocab/x/y desconocido', focus_node: null, path: null, value: 'http://uri.test/itot/vocab/x/y', severity: 'Violation', source_shape: null },
+      ],
+    })
+    expect(describeError(apiError(422, body), CONTEXT).issues).toEqual([
+      'Tema desconocido (2.0.0) · Tema: vocab/baja/c',
+      'Tema http://uri.test/itot/vocab/x/y desconocido',
     ])
   })
 
