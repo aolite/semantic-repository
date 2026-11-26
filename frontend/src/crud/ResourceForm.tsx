@@ -1,7 +1,7 @@
-import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import type { CatalogSummary } from '../api'
 import { describeError, type ErrorContext, type FormErrorInfo, type FormField } from './errors'
-import { LIMITS, validateResource, type FieldErrors, type ResourceValues } from './validation'
+import { LIMITS, validateResource, VALIDATION_TEXT, type FieldErrors, type ResourceValues } from './validation'
 
 export interface ResourceFormValues extends ResourceValues {
   /** Slug del catálogo (solo al editar un dataset). */
@@ -19,8 +19,16 @@ interface ResourceFormProps {
   publisherHint?: string
   /** Prefijo de la URI que se forma con el slug (`{BASE_URI}catalogo/`); vacío si no hay base. */
   uriPrefix?: string
-  /** Con la lista, se muestra el selector «Catálogo» (mover un dataset). */
+  /** Con la lista, se muestra el selector «Catálogo» (mover un dataset o un esquema, o elegir dónde crearlo). */
   catalogs?: CatalogSummary[]
+  /** La descripción es obligatoria (por defecto, sí). */
+  requireDescription?: boolean
+  /** El catálogo es obligatorio (crear un dataset eligiendo su catálogo). */
+  requireCatalog?: boolean
+  /** Ayuda bajo el selector de catálogo. */
+  catalogHint?: string
+  /** Explicación bajo el título del panel. */
+  intro?: ReactNode
   submitLabel: string
   errorContext: ErrorContext
   onSubmit: (values: ResourceFormValues) => Promise<void>
@@ -35,6 +43,8 @@ interface ResourceFormProps {
 export function ResourceForm(props: ResourceFormProps) {
   const { heading, mode, initial, requirePublisher, publisherHint, uriPrefix, catalogs, submitLabel, errorContext } =
     props
+  const { requireCatalog = false, requireDescription = true, intro } = props
+  const catalogHint = props.catalogHint ?? 'Cada dataset está en un solo catálogo. Moverlo no cambia sus URIs.'
   const id = useId()
   const [values, setValues] = useState<ResourceFormValues>(initial)
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
@@ -57,7 +67,8 @@ export function ResourceForm(props: ResourceFormProps) {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (submitting) return
-    const errors = validateResource(values, { requireSlug: mode === 'create', requirePublisher })
+    const errors = validateResource(values, { requireSlug: mode === 'create', requirePublisher, requireDescription })
+    if (requireCatalog && !values.catalog) errors.catalog = VALIDATION_TEXT.required
     setFieldErrors(errors)
     setApiError(null)
     const first = (Object.keys(errors) as FormField[])[0]
@@ -105,6 +116,7 @@ export function ResourceForm(props: ResourceFormProps) {
       <h2 id={`${id}-heading`} className="panel__title">
         {heading}
       </h2>
+      {intro && <div className="panel__text">{intro}</div>}
       <form
         ref={form}
         className="form form--wide"
@@ -170,10 +182,12 @@ export function ResourceForm(props: ResourceFormProps) {
         </div>
 
         <div className="form__field">
-          <label htmlFor={fieldId('description')}>Descripción (en español)</label>
+          <label htmlFor={fieldId('description')}>
+            {requireDescription ? 'Descripción (en español)' : 'Descripción (en español, opcional)'}
+          </label>
           <textarea
             {...fieldProps('description')}
-            required
+            required={requireDescription}
             rows={4}
             maxLength={LIMITS.description}
             value={values.description}
@@ -204,7 +218,7 @@ export function ResourceForm(props: ResourceFormProps) {
           <div className="form__field">
             <label htmlFor={fieldId('catalog')}>Catálogo</label>
             <select {...fieldProps('catalog', true)} value={values.catalog} onChange={(e) => set('catalog', e.target.value)}>
-              {!values.catalog && <option value="">Sin catálogo</option>}
+              {!values.catalog && <option value="">{requireCatalog ? 'Elige un catálogo' : 'Sin catálogo'}</option>}
               {catalogs.map((c) => (
                 <option key={c.slug} value={c.slug}>
                   {c.title ?? c.slug}
@@ -212,7 +226,7 @@ export function ResourceForm(props: ResourceFormProps) {
               ))}
             </select>
             <p id={`${fieldId('catalog')}-hint`} className="form__hint">
-              Cada dataset está en un solo catálogo. Moverlo no cambia sus URIs.
+              {catalogHint}
             </p>
             {fieldError('catalog')}
           </div>

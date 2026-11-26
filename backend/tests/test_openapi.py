@@ -163,9 +163,11 @@ def test_openapi_exposes_vocabulary_crud() -> None:
     kinds = set(components["IngestErrorResponse"]["properties"]["kind"]["enum"])
     assert {
         "prefix_withdrawn",
+        "prefix_in_use",
         "concepts_removed",
         "concept_reactivated",
         "replacement",
         "deprecated_theme",
+        "unknown_theme",
     } <= kinds
     assert "used_by" in components["ConflictResponse"]["properties"]

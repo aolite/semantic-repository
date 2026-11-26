@@ -22,17 +22,28 @@ import { Notice } from '../components/Notice'
 import { Pager } from '../components/Pager'
 import { TypeTag } from '../components/Tags'
 import { getBaseUri } from '../config'
-import { conflictDatasets, describeError } from '../crud/errors'
-import { datasetCount } from '../crud/labels'
+import { conflictDatasets, conflictResources, describeError } from '../crud/errors'
+import { datasetCount, ontologyCount, schemeCount } from '../crud/labels'
 import { datasetRoute, noticeState } from '../crud/navigation'
 import { ResourceForm, type ResourceFormValues } from '../crud/ResourceForm'
+import { ResourceList } from '../crud/UsageList'
 import { useApiLoad } from '../hooks/useApiLoad'
+import { ontologyRoute, schemeRoute } from '../vocab/routes'
 import { PAGE_SIZE } from './CatalogPage'
 import '../styles/catalog.css'
 import '../styles/dataset.css'
 import '../styles/crud.css'
+import '../styles/vocab.css'
 
 type Panel = 'none' | 'edit' | 'new-dataset'
+
+/** Error de la baja: con 409 `catalog_not_empty`, lo que sigue en el catálogo. */
+interface WithdrawError {
+  message: string
+  datasets: string[]
+  /** Esquemas y ontologías (decisión 50). */
+  resources: string[]
+}
 
 function pageCount(page: DatasetPage | null): number {
   if (!page || page.page_size <= 0) return 1
@@ -145,7 +156,7 @@ function CatalogView({ catalog, onChanged, datasets, datasetsStatus, retryDatase
   const [saved, setSaved] = useState<string | null>(null)
   const [confirming, setConfirming] = useState(false)
   const [withdrawing, setWithdrawing] = useState(false)
-  const [withdrawError, setWithdrawError] = useState<{ message: string; datasets: string[] } | null>(null)
+  const [withdrawError, setWithdrawError] = useState<WithdrawError | null>(null)
   const editButton = useRef<HTMLButtonElement>(null)
   const newButton = useRef<HTMLButtonElement>(null)
 
@@ -204,7 +215,7 @@ function CatalogView({ catalog, onChanged, datasets, datasetsStatus, retryDatase
         notFound: 'El catálogo no existe.',
         fallback: 'No se ha podido dar de baja el catálogo.',
       })
-      setWithdrawError({ message, datasets: conflictDatasets(error) })
+      setWithdrawError({ message, datasets: conflictDatasets(error), resources: conflictResources(error) })
       setWithdrawing(false)
     }
   }
@@ -339,6 +350,8 @@ function CatalogView({ catalog, onChanged, datasets, datasetsStatus, retryDatase
       )}
       {datasets && (totalPages > 1 || page > 1) && <Pager params={params} page={page} totalPages={totalPages} />}
 
+      <CatalogVocabularies catalog={catalog} />
+
       {confirming && (
         <ConfirmDialog
           title="Dar de baja el catálogo"
@@ -357,6 +370,7 @@ function CatalogView({ catalog, onChanged, datasets, datasetsStatus, retryDatase
                     ))}
                   </ul>
                 )}
+                <ResourceList uris={withdrawError.resources} label="Vocabularios y ontologías que siguen en el catálogo" />
               </>
             )
           }
@@ -367,9 +381,62 @@ function CatalogView({ catalog, onChanged, datasets, datasetsStatus, retryDatase
             «{title}» dejará de aparecer en los listados y en las consultas SPARQL, y su URI responderá que se dio de
             baja. Su slug no se podrá reutilizar.
           </p>
-          <p>Solo se puede dar de baja un catálogo vacío: antes hay que mover o dar de baja sus datasets.</p>
+          <p>
+            Solo se puede dar de baja un catálogo vacío: antes hay que mover o dar de baja sus datasets, vocabularios y
+            ontologías.
+          </p>
         </ConfirmDialog>
       )}
     </div>
+  )
+}
+
+/**
+ * Esquemas SKOS y ontologías propias del catálogo (decisión 50), de la propia
+ * ficha (`CatalogDetail.schemes` y `ontologies`, por título).
+ */
+function CatalogVocabularies({ catalog }: { catalog: CatalogDetail }) {
+  const schemes = catalog.schemes ?? []
+  const ontologies = catalog.ontologies ?? []
+  return (
+    <>
+      <div className="section-bar">
+        <h2 className="section-bar__title">Vocabularios SKOS</h2>
+        <span className="section-bar__count">{schemeCount(catalog.scheme_count ?? schemes.length)}</span>
+      </div>
+      {schemes.length === 0 ? (
+        <p className="state state--empty">Este catálogo no tiene vocabularios SKOS.</p>
+      ) : (
+        <ul className="link-list" aria-label="Vocabularios SKOS del catálogo">
+          {schemes.map((s) => (
+            <li key={s.uri}>
+              <Link to={schemeRoute(s.slug, s.corp)} className="link-row">
+                <span className="strong">{s.title ?? s.slug}</span>
+                <span className="mono link-row__meta">skos:ConceptScheme · {s.corp ? 'corporativo' : 'de dominio'}</span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className="section-bar">
+        <h2 className="section-bar__title">Ontologías</h2>
+        <span className="section-bar__count">{ontologyCount(catalog.ontology_count ?? ontologies.length)}</span>
+      </div>
+      {ontologies.length === 0 ? (
+        <p className="state state--empty">Este catálogo no tiene ontologías.</p>
+      ) : (
+        <ul className="link-list" aria-label="Ontologías del catálogo">
+          {ontologies.map((o) => (
+            <li key={o.uri}>
+              <Link to={ontologyRoute(o.slug)} className="link-row">
+                <span className="strong">{o.title ?? o.slug}</span>
+                <span className="mono link-row__meta">owl:Ontology</span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
   )
 }

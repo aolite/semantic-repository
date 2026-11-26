@@ -906,6 +906,7 @@ def test_create_user_rejects_control_chars_in_username_and_password(
 # --- La auditoría no guarda contraseñas ni tokens ------------------------------------
 
 
+@pytest.mark.usefixtures("synthetic_themes")
 def test_audit_never_stores_passwords_tokens_or_hashes(
     no_pellet: None,
     client: TestClient,
@@ -1030,6 +1031,7 @@ def test_audit_never_stores_passwords_tokens_or_hashes(
     assert not re.search(r"pass|contrase|secret|token|bearer", without_reasons, re.IGNORECASE)
 
 
+@pytest.mark.usefixtures("synthetic_themes")
 def test_audit_details_have_only_the_expected_keys(
     no_pellet: None,
     client: TestClient,

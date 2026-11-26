@@ -61,6 +61,25 @@ export function ontologyRouteFromUri(uri: string): string | null {
   return ontologyRoute(match[1], match[2])
 }
 
+/** Ruta de la ficha para la URI de un dataset o de una de sus versiones (`dataset/{slug}[/{version}]`). */
+export function datasetRouteFromUri(uri: string): string | null {
+  const rel = relative(uri)
+  if (rel === null) return null
+  const match = new RegExp(`^dataset/(${SLUG})(?:/(${VERSION}))?$`).exec(rel)
+  if (!match) return null
+  const base = `/datasets/${encodeURIComponent(match[1])}`
+  return match[2] ? `${base}?version=${encodeURIComponent(match[2])}` : base
+}
+
+/**
+ * Ruta del frontend para la URI de un recurso del repositorio: dataset (o
+ * versión), ontología (o versión), esquema o concepto. Null si no sigue el
+ * patrón (`semantic/uris.md`).
+ */
+export function resourceRouteFromUri(uri: string): string | null {
+  return datasetRouteFromUri(uri) ?? ontologyRouteFromUri(uri) ?? schemeRouteFromUri(uri) ?? conceptRouteFromUri(uri)
+}
+
 /**
  * Destino de una tarjeta de vocabulario. Las ontologías externas no tienen
  * ficha propia: enlazan a su IRI oficial (`external: true`).

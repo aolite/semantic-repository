@@ -202,7 +202,7 @@ export function ConceptTree({ nodes, selected, onSelect, label }: ConceptTreePro
           aria-level={level}
           aria-expanded={item.hasChildren ? open : undefined}
           aria-selected={isSelected}
-          aria-label={nodeLabel(node)}
+          aria-label={node.deprecated ? `${nodeLabel(node)} (retirado)` : nodeLabel(node)}
           tabIndex={key === tabStop ? 0 : -1}
           className="tree__item"
           onFocus={(e) => {
@@ -231,8 +231,22 @@ export function ConceptTree({ nodes, selected, onSelect, label }: ConceptTreePro
             ) : (
               <span className="tree__spacer" aria-hidden="true" />
             )}
-            <span className={item.hasChildren && level === 1 ? 'tree__label tree__label--group' : 'tree__label'}>
+            <span
+              className={[
+                'tree__label',
+                item.hasChildren && level === 1 ? 'tree__label--group' : '',
+                node.deprecated ? 'tree__label--deprecated' : '',
+              ]
+                .filter(Boolean)
+                .join(' ')}
+            >
               {nodeLabel(node)}
+              {/* Concepto retirado (owl:deprecated, decisión 50): el aria-label del treeitem ya lo dice. */}
+              {node.deprecated && (
+                <span className="tree__deprecated" aria-hidden="true">
+                  Retirado
+                </span>
+              )}
             </span>
           </div>
           {open && (

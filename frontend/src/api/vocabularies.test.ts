@@ -1,7 +1,21 @@
 import { describe, expect, it } from 'vitest'
 import { jsonResponse, mockFetch } from '../test/utils'
 import { conceptFixture, ontologyFixture, schemeFixture, vocabPageFixture } from '../test/vocabFixtures'
-import { fetchConcept, fetchOntology, fetchScheme, listVocabularies, ontologyRdfUrl, schemeRdfUrl } from '.'
+import {
+  fetchConcept,
+  fetchOntology,
+  fetchScheme,
+  listVocabularies,
+  ontologyRdfUrl,
+  publishOntology,
+  publishScheme,
+  schemeRdfUrl,
+  updateOntology,
+  updateScheme,
+  withdrawOntology,
+  withdrawScheme,
+} from '.'
+import { ontologyIngestFixture, schemeIngestFixture } from '../test/vocabFixtures'
 
 describe('API de vocabularios', () => {
   it('listVocabularies envía q y kind, y omite los vacíos', async () => {
@@ -50,6 +64,48 @@ describe('API de vocabularios', () => {
       'http://api.test/ontologies/onto-prueba/rdf?format=turtle&version=1.0.0&download=1',
     )
     expect(schemeRdfUrl('trl', true, 'turtle')).toBe('http://api.test/schemes/corp/trl/rdf?format=turtle&download=1')
+  })
+
+  it('listVocabularies envía ?catalog= (decisión 50)', async () => {
+    const fetchMock = mockFetch({ '/vocabularies': () => jsonResponse(vocabPageFixture()) })
+    await listVocabularies({ catalog: 'cat-a' })
+    expect(new URL(String(fetchMock.mock.calls[0][0])).searchParams.get('catalog')).toBe('cat-a')
+  })
+
+  it('publishScheme y publishOntology mandan el RDF con su tipo, ?catalog= y el token', async () => {
+    const fetchMock = mockFetch({
+      '/schemes': () => jsonResponse(schemeIngestFixture(), 201),
+      '/ontologies': () => jsonResponse(ontologyIngestFixture(), 201),
+    })
+    await expect(publishScheme('@prefix x: <y> .', 'text/turtle', 'cat-a', 'tk')).resolves.toEqual(schemeIngestFixture())
+    await publishOntology('{}', 'application/ld+json', 'cat-b', 'tk')
+    const [schemeCall, ontologyCall] = fetchMock.mock.calls
+    expect(String(schemeCall[0])).toBe('http://api.test/schemes?catalog=cat-a')
+    expect(schemeCall[1]?.method).toBe('POST')
+    expect(schemeCall[1]?.headers).toMatchObject({ 'Content-Type': 'text/turtle', Authorization: 'Bearer tk' })
+    expect(String(ontologyCall[0])).toBe('http://api.test/ontologies?catalog=cat-b')
+    expect(ontologyCall[1]?.headers).toMatchObject({ 'Content-Type': 'application/ld+json' })
+  })
+
+  it('updateScheme, withdrawScheme, updateOntology y withdrawOntology usan PATCH y DELETE en su ruta', async () => {
+    const fetchMock = mockFetch({
+      '/schemes/corp/trl': () => new Response(null, { status: 204 }),
+      '/schemes/ot': () => jsonResponse(schemeFixture()),
+      '/ontologies/onto-prueba': (_u, init) =>
+        init?.method === 'DELETE' ? new Response(null, { status: 204 }) : jsonResponse(ontologyFixture()),
+    })
+    await updateScheme('ot', false, { title: 'T', catalog: 'cat-b' }, 'tk')
+    await withdrawScheme('trl', true, 'tk')
+    await updateOntology('onto-prueba', { catalog: 'cat-b' }, 'tk')
+    await withdrawOntology('onto-prueba', 'tk')
+    expect(fetchMock.mock.calls.map(([u, init]) => `${init?.method} ${new URL(String(u)).pathname}`)).toEqual([
+      'PATCH /schemes/ot',
+      'DELETE /schemes/corp/trl',
+      'PATCH /ontologies/onto-prueba',
+      'DELETE /ontologies/onto-prueba',
+    ])
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({ title: 'T', catalog: 'cat-b' })
+    expect(JSON.parse(String(fetchMock.mock.calls[2][1]?.body))).toEqual({ catalog: 'cat-b' })
   })
 
   it('propaga el 404 como ApiError', async () => {

@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { vocabCardsFixture } from '../test/vocabFixtures'
 import {
   conceptRouteFromUri,
+  datasetRouteFromUri,
+  resourceRouteFromUri,
   ontologyRoute,
   ontologyRouteFromUri,
   schemeRoute,
@@ -44,6 +46,21 @@ describe('Rutas de vocabularios', () => {
     expect(ontologyRouteFromUri(`${BASE}onto/itot#Clase`)).toBeNull()
     expect(ontologyRouteFromUri(`${BASE}onto/externas`)).toBeNull()
     expect(ontologyRouteFromUri('https://saref.test/core/')).toBeNull()
+  })
+
+  it('deduce la ficha de un dataset o de una de sus versiones (usos del 409 in_use)', () => {
+    expect(datasetRouteFromUri(`${BASE}dataset/d-1`)).toBe('/datasets/d-1')
+    expect(datasetRouteFromUri(`${BASE}dataset/d-1/2.0.0`)).toBe('/datasets/d-1?version=2.0.0')
+    expect(datasetRouteFromUri(`${BASE}dataset/d-1/2.0.0/dist`)).toBeNull()
+    expect(datasetRouteFromUri('https://otro.test/dataset/d-1')).toBeNull()
+  })
+
+  it('resourceRouteFromUri elige la ruta según el tipo de URI', () => {
+    expect(resourceRouteFromUri(`${BASE}dataset/d-1/1.0.0`)).toBe('/datasets/d-1?version=1.0.0')
+    expect(resourceRouteFromUri(`${BASE}onto/itot/1.0.0`)).toBe('/ontologias/itot?version=1.0.0')
+    expect(resourceRouteFromUri(`${BASE}vocab/ot`)).toBe('/vocabularios/ot')
+    expect(resourceRouteFromUri(`${BASE}vocab/corp/trl/trl-1`)).toBe('/vocabularios/corp/trl?concepto=trl-1')
+    expect(resourceRouteFromUri(`${BASE}catalogo/x`)).toBeNull()
   })
 
   it('elige el destino de cada tarjeta: ficha, navegador o IRI oficial', () => {

@@ -45,7 +45,7 @@ from app import audit, bajas, ingest, owl_metrics
 from app.config import Settings
 from app.ingest import IngestError, Issue, OtherCatalog
 from app.models import AuditAction, OntologyMetricsRecord, User, WithdrawnPrefix
-from app.sparql import iri_list, literal, render
+from app.sparql import iri, iri_list, literal, render
 from app.triplestore import TripleStore
 from app.uris import AUXILIARY_SCHEME_SLUGS, DCAT, DCT, SKOS, VANN, Uris, is_slug, version_key
 from app.write_lock import catalog_write_lock
@@ -147,6 +147,38 @@ def withdrawn_prefix_owner(session: Session, prefix: str | None) -> str | None:
     return record.resource_uri if record is not None else None
 
 
+# Recursos propios vivos (esquemas, también los auxiliares, y versiones de ontologías
+# propias) que declaran el prefijo VANN $prefix en su propio grafo (el del esquema o el de
+# una versión), salvo $resource. Las ontologías externas
+# (sujetos fuera de BASE_URI, en {BASE_URI}onto/externas) no cuentan.
+_PREFIX_OWNERS = """CONSTRUCT { ?r <http://purl.org/vocab/vann/preferredNamespacePrefix> ?p }
+WHERE {
+  GRAPH ?g { ?r <http://purl.org/vocab/vann/preferredNamespacePrefix> ?p }
+  FILTER(isIRI(?r) && ?r != $resource && STR(?p) = $prefix)
+  FILTER(STRSTARTS(STR(?g), $vocab_ns) || STRSTARTS(STR(?g), $onto_ns))
+  FILTER(STRSTARTS(STR(?r), $vocab_ns) || STRSTARTS(STR(?r), $onto_ns))
+  FILTER(?g = ?r || STRSTARTS(STR(?g), CONCAT(STR(?r), "/")))
+}"""
+
+
+def live_prefix_owners(
+    store: TripleStore, uris: Uris, prefix: str | None, resource: str
+) -> list[str]:
+    """Otros recursos vivos que usan ``prefix`` (QA-50-01)."""
+    if not prefix:
+        return []
+    graph = store.construct(
+        render(
+            _PREFIX_OWNERS,
+            resource=iri(resource),
+            prefix=literal(prefix),
+            vocab_ns=literal(uris.vocab_ns),
+            onto_ns=literal(uris.onto_ns),
+        )
+    )
+    return sorted({str(s) for s in graph.subjects() if isinstance(s, URIRef)})
+
+
 def check_resource_publication(
     store: TripleStore,
     session: Session,
@@ -162,6 +194,7 @@ def check_resource_publication(
 
     - Recurso dado de baja: 409 ``withdrawn`` (el slug no se reutiliza).
     - Prefijo VANN de un recurso dado de baja: 409 ``prefix_withdrawn``.
+    - Prefijo VANN que ya usa **otro** recurso vivo (QA-50-01): 409 ``prefix_in_use``.
     - Recurso ya en otro catálogo: 409 ``catalog_conflict`` (``other="conflict"``, la API;
       moverlo es ``PATCH``) o se conserva el actual (``"keep"``, ``load-semantic``).
     - Catálogo que no existe o está dado de baja: 422 ``catalog``.
@@ -184,6 +217,21 @@ def check_resource_publication(
                     path=str(VANN.preferredNamespacePrefix),
                     value=owner,
                 )
+            ],
+        )
+    owners = live_prefix_owners(store, uris, prefix, resource)
+    if owners:
+        raise IngestError(
+            "prefix_in_use",
+            f"El prefijo VANN «{prefix}» ya lo usa otro esquema u ontología: elige otro",
+            [
+                Issue(
+                    "Prefijo de otro recurso vivo",
+                    focus_node=resource,
+                    path=str(VANN.preferredNamespacePrefix),
+                    value=owner,
+                )
+                for owner in owners
             ],
         )
     current = bajas.resource_catalogs(store, uris, resource)
@@ -756,7 +804,7 @@ def check_scheme_concepts(current: Graph, prepared: PreparedScheme) -> None:
     - Decidido (2026-11-22): el conjunto de conceptos nuevo contiene todos los publicados;
       si falta alguno, 409 ``concepts_removed`` (un concepto se retira con
       ``owl:deprecated true``, sin perder su URI).
-    - [PROPUESTA] Reactivar un concepto retirado (quitarle ``owl:deprecated true``) queda
+    - Reactivar un concepto retirado (quitarle ``owl:deprecated true``) queda
       fuera del piloto: 409 ``concept_reactivated``.
     """
     if not len(current):

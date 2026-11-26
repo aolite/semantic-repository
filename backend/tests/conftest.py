@@ -163,6 +163,32 @@ def store() -> MemoryStore:
     return memory
 
 
+def seed_synthetic_themes(store: MemoryStore) -> set[str]:
+    """Solo los conceptos que usan como ``dcat:theme`` las series sintéticas
+    (``<concepto> a skos:Concept`` en el grafo de su esquema), sin el resto del esquema.
+    Para las pruebas que publican esas series en un triplestore sin vocabularios: desde
+    QA-50-03 un tema de ``{BASE_URI}vocab/`` tiene que ser un concepto vivo. Devuelve los
+    grafos sembrados."""
+    skos_concept = URIRef("http://www.w3.org/2004/02/skos/core#Concept")
+    rdf_type = URIRef("http://www.w3.org/1999/02/22-rdf-syntax-ns#type")
+    theme = URIRef("http://www.w3.org/ns/dcat#theme")
+    graphs: dict[str, Graph] = {}
+    for path in sorted((FIXTURE_DATA_DIR / "sintetico").glob("*.ttl")):
+        series = Graph().parse(path, format="turtle", publicID=BASE_URI)
+        for concept in series.objects(None, theme):
+            if isinstance(concept, URIRef) and str(concept).startswith(f"{BASE_URI}vocab/"):
+                scheme = str(concept).rsplit("/", 1)[0]
+                graphs.setdefault(scheme, Graph()).add((concept, rdf_type, skos_concept))
+    for scheme, graph in graphs.items():
+        store.append_graph(scheme, graph)
+    return set(graphs)
+
+
+@pytest.fixture
+def synthetic_themes(store: MemoryStore) -> set[str]:
+    return seed_synthetic_themes(store)
+
+
 def load_schemes(store: MemoryStore, semantic_dir: Path, uris: Uris) -> None:
     """Cada esquema SKOS de las fixtures en el grafo de su URI (como ``load-semantic``),
     también los auxiliares de ``data/vocab-minimo.ttl``."""

@@ -228,19 +228,7 @@ def _nullable(schema: dict) -> bool:
 # aquí, con su decisión, y se borran cuando frontend/src/api/types.ts los incorpore.
 # Tienen que ser opcionales en el contrato (no requeridos), para no romper al cliente que
 # aún no los conoce.
-# Decisión 50 (contrato del backend antes que el frontend): campos nuevos, todos opcionales
-# en el contrato, que frontend aún no tiene en types.ts.
-PENDING_FRONTEND: dict[str, set[str]] = {
-    "IngestIssue": {"replaced_by"},
-    "VocabularyCard": {"catalog"},
-    "OntologyDetail": {"catalog"},
-    "SchemeDetail": {"catalog"},
-    "ConceptNode": {"deprecated"},
-    "ConceptDetail": {"deprecated", "replaced_by"},
-    "CatalogSummary": {"scheme_count", "ontology_count"},
-    "CatalogDetail": {"scheme_count", "ontology_count", "schemes", "ontologies"},
-    "ConflictResponse": {"resources", "used_by"},
-}
+PENDING_FRONTEND: dict[str, set[str]] = {}
 
 
 def test_pending_frontend_fields_are_optional_in_the_contract() -> None:

@@ -292,3 +292,17 @@
   min-height: var(--touch-target);
   font-size: 14px;
 }
+
+/* Catálogo de una tarjeta o una ficha de esquema u ontología (decisión 50). */
+.catalog-link {
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.catalog-link a {
+  font-weight: 700;
+}
+
+.card .catalog-link {
+  margin: 0;
+}

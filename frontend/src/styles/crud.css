@@ -162,9 +162,15 @@
   gap: 8px;
 }
 
-/* Recuento de datasets en la tarjeta de catálogo. */
-.card__count {
+/* Recuentos de datasets, vocabularios y ontologías en la tarjeta de catálogo. */
+.card__counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
   margin-left: auto;
+}
+
+.card__count {
   font-size: 12px;
   font-weight: 700;
   color: var(--color-brand);
@@ -183,5 +189,108 @@
 }
 
 .fields--inline dd {
+  margin: 0;
+}
+
+/* Botones «Importar SKOS» y «Publicar recurso» de la pantalla Catálogo (prototipo, decisión 50 d). */
+.catalog__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.catalog__action {
+  padding: 0 18px;
+  border-radius: 8px;
+}
+
+.catalog__action--primary {
+  border-color: var(--color-brand);
+}
+
+/* Menú de «Publicar recurso» [PROPUESTA]: el prototipo no lo detalla. */
+.menu {
+  position: relative;
+}
+
+.menu__chevron {
+  margin-left: 8px;
+}
+
+.menu__list {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 5;
+  min-width: 220px;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgb(60 60 59 / 0.15);
+}
+
+.menu__item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: var(--touch-target);
+  padding: 0 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font: inherit;
+  color: var(--color-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.menu__item:hover,
+.menu__item:focus-visible {
+  background: var(--kind-own-bg);
+  color: var(--color-brand);
+}
+
+@media (max-width: 640px) {
+  .menu__list {
+    right: auto;
+    left: 0;
+  }
+}
+
+/* Concepto retirado (owl:deprecated) en el Navegador SKOS. */
+.tag--deprecated {
+  background: var(--status-draft-bg);
+  color: var(--status-draft-fg);
+}
+
+.tree__label--deprecated {
+  color: var(--color-text-muted);
+}
+
+.tree__deprecated {
+  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  background: var(--status-draft-bg);
+  color: var(--status-draft-fg);
+}
+
+.skos__deprecated {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-left: 4px solid var(--status-draft-fg);
+  border-radius: var(--radius);
+  background: var(--color-surface-muted);
+}
+
+.skos__deprecated p {
   margin: 0;
 }

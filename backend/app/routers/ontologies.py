@@ -80,7 +80,8 @@ def _not_found(store: StoreDep, uris: UrisDep, slug: str) -> HTTPException:
         "(`?catalog={slug}` o el triple «<catálogo> dcat:resource <ontología>» en el RDF), "
         "que se guarda en el grafo del catálogo y no en la versión; 409 `catalog_conflict` si "
         "ya está en otro catálogo (se mueve con PATCH), `withdrawn` si se dio de baja y "
-        "`prefix_withdrawn` si su prefijo VANN era de un recurso dado de baja; 422 `catalog` "
+        "`prefix_withdrawn` si su prefijo VANN era de un recurso dado de baja o "
+        "`prefix_in_use` si lo usa otro esquema u ontología propia vivo; 422 `catalog` "
         "si el catálogo no existe; 403 `not_managed` si describe una ontología externa. "
         "Antes de escribir calcula las métricas OWL (owlready2) y la "
         "consistencia (Pellet) **sin descargar los owl:imports**, y las guarda como "
@@ -106,7 +107,7 @@ def _not_found(store: StoreDep, uris: UrisDep, slug: str) -> HTTPException:
             "description": "La versionIRI ya está publicada con otro contenido "
             "(version_immutable), la ontología está en otro catálogo (catalog_conflict), se "
             "dio de baja (withdrawn) o su prefijo era de un recurso dado de baja "
-            "(prefix_withdrawn)",
+            "(prefix_withdrawn) o lo usa otro recurso vivo (prefix_in_use)",
         },
         status.HTTP_413_CONTENT_TOO_LARGE: {"model": schemas.ErrorResponse},
         status.HTTP_415_UNSUPPORTED_MEDIA_TYPE: {"model": schemas.ErrorResponse},
@@ -243,8 +244,10 @@ def update_ontology(
     "listados y de SPARQL (se borran los grafos de todas sus versiones); su URI y las de sus "
     "versiones responden 410 con una ficha mínima. Su slug y su prefijo VANN no se "
     "reutilizan. 409 `in_use` si la importa (`owl:imports`) o usa sus términos una versión "
-    "de otra ontología propia viva, con los usos en `used_by`. 403 `not_managed` con las "
-    "externas.",
+    "de otra ontología propia viva, o si una versión de dataset viva declara "
+    "`dct:conformsTo` hacia ella o una de sus versiones, con los usos en `used_by`. 403 "
+    "`not_managed` con las externas. Robusta ante un fallo a medias: lo del triplestore va "
+    "en una sola petición de Update; si falla (503), se reintenta.",
     responses={
         **EDIT_RESPONSES,
         status.HTTP_409_CONFLICT: {

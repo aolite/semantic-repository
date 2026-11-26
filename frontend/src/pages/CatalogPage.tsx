@@ -21,8 +21,11 @@ import { DatasetCardView } from '../components/DatasetCardView'
 import { Notice } from '../components/Notice'
 import { Pager } from '../components/Pager'
 import { VocabularyCardView } from '../components/VocabularyCardView'
+import { PublishActions } from '../crud/PublishActions'
 import { useApiLoad } from '../hooks/useApiLoad'
 import '../styles/catalog.css'
+import '../styles/crud.css'
+import '../styles/vocab.css'
 
 /** Espera tras la última pulsación antes de lanzar `q`. */
 export const SEARCH_DEBOUNCE_MS = 300
@@ -87,8 +90,8 @@ export function CatalogPage() {
   }
 
   const fetchesDatasets = type !== 'vocab'
-  // Los vocabularios no pertenecen a ningún catálogo: con un catálogo elegido solo se piden datasets.
-  const fetchesVocabularies = type !== 'dataset' && !(catalog && fetchesDatasets)
+  // Desde la decisión 50 los esquemas y las ontologías propias también están en un catálogo (`?catalog=`).
+  const fetchesVocabularies = type !== 'dataset'
 
   // Catálogos para el filtro (decisión 49). Si la lista falla, el filtro no se muestra.
   const catalogs = useApiLoad(listCatalogs)
@@ -97,11 +100,12 @@ export function CatalogPage() {
   const loader = useCallback(
     async (signal: AbortSignal): Promise<CatalogResult> => {
       const domainParam = domain === 'all' ? undefined : domain
+      const catalogParam = catalog ?? undefined
       const [datasets, vocabularies] = await Promise.all([
         fetchesDatasets
-          ? listDatasets({ q, domain: domainParam, catalog: catalog ?? undefined, page, pageSize: PAGE_SIZE }, signal)
+          ? listDatasets({ q, domain: domainParam, catalog: catalogParam, page, pageSize: PAGE_SIZE }, signal)
           : null,
-        fetchesVocabularies ? listVocabularies({ q, domain: domainParam }, signal) : null,
+        fetchesVocabularies ? listVocabularies({ q, domain: domainParam, catalog: catalogParam }, signal) : null,
       ])
       return { datasets, vocabularies }
     },
@@ -125,14 +129,16 @@ export function CatalogPage() {
 
   return (
     <div className="catalog">
-      <header className="catalog__header">
-        <span className="eyebrow mono">dcat:Catalog · itot-catalogo</span>
-        <h1 className="page-title catalog__title">Datasets y vocabularios controlados</h1>
-        <p className="catalog__intro">
-          Punto único para publicar, describir y enlazar los datos de la unidad. Cada recurso se describe con
-          DCAT-AP y se clasifica con los esquemas SKOS de IT, OT/ICS, PQC e identidad, e IA adversaria.
-        </p>
-      </header>
+      <PublishActions catalogs={catalogItems} catalogsLoading={catalogs.state.status === 'loading'}>
+        <header className="catalog__header">
+          <span className="eyebrow mono">dcat:Catalog · itot-catalogo</span>
+          <h1 className="page-title catalog__title">Datasets y vocabularios controlados</h1>
+          <p className="catalog__intro">
+            Punto único para publicar, describir y enlazar los datos de la unidad. Cada recurso se describe con
+            DCAT-AP y se clasifica con los esquemas SKOS de IT, OT/ICS, PQC e identidad, e IA adversaria.
+          </p>
+        </header>
+      </PublishActions>
 
       <div className="catalog__filters">
         <label htmlFor="busqueda" className="catalog__search-label">
@@ -180,7 +186,7 @@ export function CatalogPage() {
             ))}
           </div>
         </div>
-        {fetchesDatasets && (catalogItems.length > 0 || catalog) && (
+        {(catalogItems.length > 0 || catalog) && (
           <div className="catalog__catalog-row">
             <label htmlFor="filtro-catalogo" className="catalog__search-label">
               Catálogo
