@@ -77,6 +77,9 @@ export interface IngestErrorResponse {
    * y `deprecated_theme` (422, temas retirados, con `issues[].replaced_by`). Segunda ronda:
    * `prefix_in_use` (409, prefijo VANN de otro recurso vivo, en `issues[].value`) y
    * `unknown_theme` (422, tema de `{BASE_URI}vocab/` que no es un concepto de un esquema vivo).
+   * Decisión 51 (sustituir una ontología externa): `structure` (422) también si un campo del
+   * formulario no es válido (su nombre en `issues[].path`) y `version_exists` (409, otra
+   * sustitución se ha adelantado; no se escribe nada).
    */
   kind: IngestErrorKind
   issues: IngestIssue[]
@@ -85,7 +88,7 @@ export interface IngestErrorResponse {
 }
 
 /** Valores de `IngestErrorResponse.kind`. */
-export type IngestErrorKind = 'syntax' | 'structure' | 'uri' | 'shacl' | 'limit' | 'catalog' | 'version_removed' | 'version_immutable' | 'withdrawn' | 'catalog_conflict' | 'prefix_withdrawn' | 'prefix_in_use' | 'concepts_removed' | 'concept_reactivated' | 'replacement' | 'deprecated_theme' | 'unknown_theme'
+export type IngestErrorKind = 'syntax' | 'structure' | 'uri' | 'shacl' | 'limit' | 'catalog' | 'version_removed' | 'version_immutable' | 'withdrawn' | 'catalog_conflict' | 'prefix_withdrawn' | 'prefix_in_use' | 'concepts_removed' | 'concept_reactivated' | 'replacement' | 'deprecated_theme' | 'unknown_theme' | 'version_exists'
 
 /** Esquema `IngestIssue`. */
 export interface IngestIssue {
@@ -325,7 +328,10 @@ export interface MetricsSummary {
 /** Esquema `VocabularyCard`. */
 export interface VocabularyCard {
   kind: VocabularyKind
-  /** Slug de la ontología o del esquema (sin `corp/`); null en las externas. */
+  /**
+   * Slug de la ontología o del esquema (sin `corp/`). En las externas
+   * (decisión 51), el de sus versiones (su prefijo VANN); null si no tiene prefijo.
+   */
   slug: string | null
   uri: string
   rdf_type: 'owl:Ontology' | 'skos:ConceptScheme'
@@ -336,7 +342,7 @@ export interface VocabularyCard {
   description: string | null
   status: VocabularyStatus
   version: string | null
-  /** Ontologías propias con métricas calculadas; null en el resto. */
+  /** Ontologías propias con métricas calculadas y externas con versión actual (decisión 51); null en el resto. */
   metrics: MetricsSummary | null
   /** Número de conceptos (solo esquemas). */
   concepts: number | null
@@ -875,6 +881,70 @@ export interface SchemeUpdate {
   publisher_name?: string | null
   /** Slug del catálogo de destino (mover el esquema). */
   catalog?: string | null
+}
+
+/** Esquema `ExternalVersionRead`: versión `{BASE_URI}onto/externas/{slug}/{n}` de una ontología externa (decisión 51). */
+export interface ExternalVersionRead {
+  /** n: número de sustitución (1, 2, 3…). */
+  number: number
+  /** dcat:version: n como texto. */
+  version: string
+  uri: string
+  /** owl:versionInfo: la versión del publicador. */
+  version_info: string | null
+  /** prov:generatedAtTime (hora del servidor). */
+  generated_at: string | null
+  /** dcat:previousVersion (la n-1). */
+  previous_version: string | null
+  /** adms:versionNotes (es). */
+  notes: string | null
+  /** Es la versión actual (dcat:hasCurrentVersion). */
+  current: boolean
+  /** null si no se han calculado. */
+  metrics: OntologyMetricsRead | null
+  profile: OwlProfile | null
+  consistency: ConsistencyRead | null
+  documentation: DocumentationCoverageRead | null
+  metrics_computed_at: string | null
+  metrics_tool: string | null
+}
+
+/** Esquema `ExternalOntologyDetail`: respuesta de `GET /ontologies/externas/{slug}` (decisión 51). */
+export interface ExternalOntologyDetail {
+  slug: string
+  /** IRI oficial de la ontología. */
+  uri: string
+  kind: 'external'
+  status: 'referenced'
+  title: string | null
+  description: string | null
+  prefix: string | null
+  namespace: string | null
+  /** owl:versionInfo de la referencia (la actual). */
+  version: string | null
+  /** foaf:name del dct:publisher. */
+  publisher: string | null
+  /** null si nunca se ha sustituido (solo referencia, sin métricas). */
+  current_version: ExternalVersionRead | null
+  /** De la más reciente a la más antigua. */
+  versions: ExternalVersionRead[]
+}
+
+/** Esquema `ExternalReplaceResult`: respuesta 201 de `POST /ontologies/externas/{slug}/versions`. */
+export interface ExternalReplaceResult {
+  slug: string
+  uri: string
+  number: number
+  version: string
+  version_uri: string
+  graph: string
+  previous_version: string | null
+  generated_at: string
+  triples: number
+  metrics: OntologyMetricsRead
+  profile: OwlProfile
+  consistency: ConsistencyRead
+  documentation: DocumentationCoverageRead
 }
 
 /** Esquema `OntologyUpdate`: cuerpo de `PATCH /ontologies/{slug}` (solo mueve de catálogo). */
