@@ -243,13 +243,17 @@ itsh:Catalog-catalog
 # catálogo. Solo se comprueba el final de la URI (las formas no conocen
 # BASE_URI); el lado del recurso lo comprueban itsh:OwnOntology-catalog e
 # itsh:ConceptSchemeCatalogShape (ontologias-vocabularios.ttl).
+# {BASE_URI}onto/externas es el grafo de las ontologías externas, no una
+# ontología propia («externas» está reservado como slug de ontología), y sus
+# versiones ({BASE_URI}onto/externas/{slug}/{n}, decisión 50, 2026-11-26) no
+# terminan en /onto/{slug}: ninguno de los dos entra en un catálogo.
 itsh:Catalog-resource
     a sh:PropertyShape ;
     sh:path dcat:resource ;
     sh:nodeKind sh:IRI ;
     sh:pattern "/(onto|vocab(/corp)?)/[a-z0-9]+(-[a-z0-9]+)*$" ;
-    sh:not [ sh:pattern "/vocab/(corp|dominio|tipo-dataset)$" ] ;
-    sh:message "Regla IT&OT: cada dcat:resource de un catálogo es la IRI de un esquema SKOS ({BASE_URI}vocab/{slug} o {BASE_URI}vocab/corp/{slug}, no auxiliar) o de una ontología propia ({BASE_URI}onto/{slug}, no una versión)."@es .
+    sh:not [ sh:pattern "/(vocab/(corp|dominio|tipo-dataset)|onto/externas)$" ] ;
+    sh:message "Regla IT&OT: cada dcat:resource de un catálogo es la IRI de un esquema SKOS ({BASE_URI}vocab/{slug} o {BASE_URI}vocab/corp/{slug}, no auxiliar) o de una ontología propia ({BASE_URI}onto/{slug}, no una versión ni el grafo onto/externas)."@es .
 
 # Regla propia (Decidido (2026-11-21, decisión 49)): «Withdrawn» solo lo lleva una lápida
 # (itsh:BajaShape), nunca un recurso DCAT vivo. Así nadie marca como
@@ -338,15 +342,17 @@ itsh:Baja-title
 # un dataset). Los esquemas auxiliares (vocab/dominio, vocab/tipo-dataset) y el
 # segmento reservado vocab/corp no se dan de baja: no se gestionan desde la
 # aplicación. Las ontologías externas tienen la IRI oficial, fuera de
-# BASE_URI, y tampoco.
+# BASE_URI, y tampoco; ni sus versiones ({BASE_URI}onto/externas/{slug}/{n},
+# decisión 50, 2026-11-26), que no terminan en /onto/{slug}, ni el grafo
+# {BASE_URI}onto/externas («externas» está reservado como slug de ontología).
 itsh:BajaUriShape
     a sh:NodeShape ;
     rdfs:label "Unidad IT&OT · URI de un recurso dado de baja"@es ;
     sh:targetSubjectsOf prov:invalidatedAtTime ;
     sh:nodeKind sh:IRI ;
     sh:pattern "/(catalogo|dataset|onto|vocab(/corp)?)/[a-z0-9]+(-[a-z0-9]+)*$" ;
-    sh:not [ sh:pattern "/vocab/(corp|dominio|tipo-dataset)$" ] ;
-    sh:message "Regla IT&OT: solo tienen lápida un catálogo ({BASE_URI}catalogo/{slug}), un dataset ({BASE_URI}dataset/{slug}), un esquema SKOS ({BASE_URI}vocab/{slug} o {BASE_URI}vocab/corp/{slug}, no auxiliar) o una ontología propia ({BASE_URI}onto/{slug})."@es .
+    sh:not [ sh:pattern "/(vocab/(corp|dominio|tipo-dataset)|onto/externas)$" ] ;
+    sh:message "Regla IT&OT: solo tienen lápida un catálogo ({BASE_URI}catalogo/{slug}), un dataset ({BASE_URI}dataset/{slug}), un esquema SKOS ({BASE_URI}vocab/{slug} o {BASE_URI}vocab/corp/{slug}, no auxiliar) o una ontología propia ({BASE_URI}onto/{slug}, no onto/externas)."@es .
 
 # Decidido (2026-11-21, decisión 49): todo sujeto con adms:status Withdrawn es una lápida y lleva
 # fecha de baja. BajaShape se aplica a los sujetos de prov:invalidatedAtTime;

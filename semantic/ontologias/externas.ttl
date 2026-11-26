@@ -13,6 +13,17 @@
 # - NO lleva adms:status: su estado en la interfaz es siempre «Referenciada».
 # - No lleva la marca de sintético: son ontologías reales. Las descripciones
 #   son las del prototipo.
+# - Cada externa lleva exactamente un vann:preferredNamespacePrefix, único
+#   entre todos los esquemas y ontologías (regla 14 de semantic/uris.md).
+#
+# Sustitución desde la aplicación (decisión 50, 2026-11-26): las externas se
+# sustituyen enteras y cada sustitución crea una versión
+# {BASE_URI}onto/externas/{slug}/{n} con el fichero completo de la ontología.
+# Este fichero es solo la SEMILLA de las referencias y no lleva versiones
+# (ni dcat:hasVersion, ni dcat:hasCurrentVersion, ni dct:isVersionOf): las
+# crea la aplicación. Manda la aplicación: load-semantic no toca una externa
+# que ya tiene versiones [PROPUESTA pendiente de validar]. Ver
+# semantic/uris.md, «Versiones de las ontologías externas».
 #
 # Qué queda fuera:
 # - D3FEND: versión [VERSIÓN] en el prototipo. Se OMITE owl:versionInfo.

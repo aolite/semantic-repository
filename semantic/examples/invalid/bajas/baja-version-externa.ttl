@@ -1,0 +1,23 @@
+# Ejemplo INVÁLIDO (decisión 50): lápida de una versión de ontología externa:
+# las ontologías externas y sus versiones no se dan de baja.
+# Todo lo demás es válido, así que solo deben fallar las formas indicadas.
+# validate.py lee las líneas «expect-violation» (nombre local en {BASE_URI}shapes#).
+# expect-violation: BajaUriShape
+
+# BASE_URI: el fichero no declara @base; las URIs propias son relativas. La
+# IRI oficial de la ontología es ficticia (example.org) y la fecha, también.
+
+@prefix dct:  <http://purl.org/dc/terms/> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix adms: <http://www.w3.org/ns/adms#> .
+@prefix vann: <http://purl.org/vocab/vann/> .
+@prefix dcat: <http://www.w3.org/ns/dcat#> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+
+<onto/externas/ejemplo/1>
+    a prov:Entity ;
+    dct:title "Ontología externa de ejemplo"@es ;
+    adms:status <http://purl.org/adms/status/Withdrawn> ;
+    prov:invalidatedAtTime "2026-01-01T00:00:00Z"^^xsd:dateTime .
