@@ -23,6 +23,15 @@ export const PUBLISH_OPTIONS: MenuItem<PublishOption>[] = [
   { id: 'ontology', label: 'Nueva ontología' },
 ]
 
+/**
+ * Opciones del menú según el contexto: en la ficha de un catálogo (`fixed`)
+ * no hay «Nuevo catálogo», porque los catálogos no agrupan otros catálogos
+ * (solo el raíz lleva `dcat:catalog`; `semantic/uris.md`).
+ */
+export function publishOptions(fixed: boolean): MenuItem<PublishOption>[] {
+  return fixed ? PUBLISH_OPTIONS.filter((option) => option.id !== 'catalog') : PUBLISH_OPTIONS
+}
+
 export const PUBLISH_TEXT = {
   catalogRequired: 'Elige el catálogo en el que se publica.',
   noCatalogs: 'Todavía no hay catálogos: crea uno antes de publicar.',

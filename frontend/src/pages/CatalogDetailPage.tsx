@@ -1,7 +1,6 @@
 import { useCallback, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import {
-  createDatasetInCatalog,
   fetchCatalog,
   listDatasets,
   updateCatalog,
@@ -21,12 +20,12 @@ import { GoneView } from '../components/GoneView'
 import { Notice } from '../components/Notice'
 import { Pager } from '../components/Pager'
 import { TypeTag } from '../components/Tags'
-import { getBaseUri } from '../config'
 import { conflictDatasets, conflictResources, describeError } from '../crud/errors'
 import { datasetCount, ontologyCount, schemeCount } from '../crud/labels'
 import { datasetRoute, noticeState } from '../crud/navigation'
 import { ResourceForm, type ResourceFormValues } from '../crud/ResourceForm'
 import { ResourceList } from '../crud/UsageList'
+import { usePublishActions } from '../crud/usePublishActions'
 import { useApiLoad } from '../hooks/useApiLoad'
 import { ontologyRoute, schemeRoute } from '../vocab/routes'
 import { PAGE_SIZE } from './CatalogPage'
@@ -35,7 +34,7 @@ import '../styles/dataset.css'
 import '../styles/crud.css'
 import '../styles/vocab.css'
 
-type Panel = 'none' | 'edit' | 'new-dataset'
+type Panel = 'none' | 'edit'
 
 /** Error de la baja: con 409 `catalog_not_empty`, lo que sigue en el catálogo. */
 interface WithdrawError {
@@ -53,8 +52,10 @@ function pageCount(page: DatasetPage | null): number {
 /**
  * Ficha de un catálogo (`/catalogos/:slug`, destino del 303 de
  * `catalogo/{slug}`): metadatos y sus datasets (`GET /datasets?catalog=`).
- * El editor y el admin pueden editarlo, crear un dataset en él y darlo de
- * baja. Un 410 muestra la ficha mínima de la baja.
+ * El editor y el admin pueden editarlo, darlo de baja y publicar en él con
+ * los botones «Importar SKOS» y «Publicar recurso» de la pantalla Catálogo
+ * (nuevo dataset, vocabulario u ontología, con el catálogo fijado). Un 410
+ * muestra la ficha mínima de la baja, sin acciones.
  */
 export function CatalogDetailPage() {
   const { slug = '' } = useParams()
@@ -158,10 +159,16 @@ function CatalogView({ catalog, onChanged, datasets, datasetsStatus, retryDatase
   const [withdrawing, setWithdrawing] = useState(false)
   const [withdrawError, setWithdrawError] = useState<WithdrawError | null>(null)
   const editButton = useRef<HTMLButtonElement>(null)
-  const newButton = useRef<HTMLButtonElement>(null)
+  // «Importar SKOS» y «Publicar recurso» con este catálogo fijado (decisión 50). Abrir uno cierra «Editar».
+  const publish = usePublishActions({
+    catalog: { slug: catalog.slug, uri: catalog.uri, title: catalog.title },
+    onOpen: () => {
+      setSaved(null)
+      setPanel('none')
+    },
+  })
 
   const title = catalog.title ?? catalog.slug
-  const base = getBaseUri()
   const totalPages = pageCount(datasets)
   const initial: ResourceFormValues = {
     slug: catalog.slug,
@@ -185,22 +192,6 @@ function CatalogView({ catalog, onChanged, datasets, datasetsStatus, retryDatase
     setSaved(Object.keys(body).length > 0 ? 'Cambios guardados.' : 'No había cambios que guardar.')
     closePanel(editButton.current)
     onChanged()
-  }
-
-  async function handleNewDataset(values: ResourceFormValues) {
-    const created = await createDatasetInCatalog(
-      catalog.slug,
-      {
-        slug: values.slug.trim(),
-        title: values.title.trim(),
-        description: values.description.trim(),
-        publisher_name: values.publisher_name.trim() || null,
-      },
-      token ?? '',
-    )
-    navigate(datasetRoute(created.slug), {
-      state: noticeState('Dataset creado. Publica su primera versión con «Nueva versión».'),
-    })
   }
 
   async function handleWithdraw() {
@@ -242,6 +233,7 @@ function CatalogView({ catalog, onChanged, datasets, datasetsStatus, retryDatase
             </div>
           </dl>
         </div>
+        {publish.buttons}
         {editor && (
           <div className="crud-actions" role="group" aria-label="Acciones del catálogo">
             <button
@@ -251,22 +243,11 @@ function CatalogView({ catalog, onChanged, datasets, datasetsStatus, retryDatase
               aria-expanded={panel === 'edit'}
               onClick={() => {
                 setSaved(null)
+                publish.dismiss()
                 setPanel(panel === 'edit' ? 'none' : 'edit')
               }}
             >
               Editar catálogo
-            </button>
-            <button
-              ref={newButton}
-              type="button"
-              className="button button--primary"
-              aria-expanded={panel === 'new-dataset'}
-              onClick={() => {
-                setSaved(null)
-                setPanel(panel === 'new-dataset' ? 'none' : 'new-dataset')
-              }}
-            >
-              Nuevo dataset
             </button>
             <button
               type="button"
@@ -302,19 +283,7 @@ function CatalogView({ catalog, onChanged, datasets, datasetsStatus, retryDatase
         />
       )}
 
-      {editor && panel === 'new-dataset' && (
-        <ResourceForm
-          heading="Nuevo dataset en este catálogo"
-          mode="create"
-          initial={{ ...initial, slug: '', title: '', description: '', publisher_name: '' }}
-          requirePublisher={false}
-          uriPrefix={base ? `${base}dataset/` : ''}
-          submitLabel="Crear dataset"
-          errorContext={{ notFound: 'El catálogo no existe.', fallback: 'No se ha podido crear el dataset.' }}
-          onSubmit={handleNewDataset}
-          onCancel={() => closePanel(newButton.current)}
-        />
-      )}
+      {publish.panels}
 
       <div className="section-bar">
         <h2 className="section-bar__title">Datasets</h2>

@@ -80,7 +80,7 @@ describe('Ficha de catálogo (/catalogos/:slug)', () => {
     if (role) await renderLoggedIn(ROUTE)
     else renderApp(ROUTE)
     await screen.findByRole('heading', { level: 1, name: 'Catálogo de prueba' })
-    for (const name of ['Editar catálogo', 'Nuevo dataset', 'Dar de baja']) {
+    for (const name of ['Editar catálogo', 'Dar de baja', 'Importar SKOS', 'Publicar recurso']) {
       expect(screen.queryByRole('button', { name })).not.toBeInTheDocument()
     }
   })
@@ -120,7 +120,11 @@ describe('Ficha de catálogo (/catalogos/:slug)', () => {
         '/datasets/nuevo': () => jsonResponse(detailFixture({ slug: 'nuevo', title: 'Nuevo', version: null, versions: [], current_version: null })),
       },
     })
-    await user.click(screen.getByRole('button', { name: 'Nuevo dataset' }))
+    await user.click(screen.getByRole('button', { name: 'Publicar recurso' }))
+    await user.click(screen.getByRole('menuitem', { name: 'Nuevo dataset' }))
+    const form = screen.getByRole('region', { name: 'Nuevo dataset en este catálogo' })
+    expect(form).toHaveTextContent('Catálogo: Catálogo de prueba')
+    expect(within(form).queryByLabelText('Catálogo')).not.toBeInTheDocument()
     await user.type(screen.getByLabelText('Slug'), 'nuevo')
     await user.type(screen.getByLabelText('Título (en español)'), 'Nuevo')
     await user.type(screen.getByLabelText('Descripción (en español)'), 'Descripción')
