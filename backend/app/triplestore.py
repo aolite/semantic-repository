@@ -15,11 +15,15 @@
 Las consultas no dependen de ``tdb2:unionDefaultGraph``: siempre usan ``GRAPH ?g``.
 """
 
+from functools import lru_cache
 from threading import Lock
 from typing import Protocol
 
 import httpx
 from rdflib import Dataset, Graph, URIRef
+from rdflib.plugins.sparql import prepareQuery
+from rdflib.plugins.sparql.processor import prepareUpdate
+from rdflib.plugins.sparql.sparql import Query, Update
 
 from app.config import Settings
 from app.sparql import iri
@@ -214,6 +218,28 @@ class FusekiStore:
             raise TriplestoreError("Respuesta de Fuseki no válida") from exc
 
 
+# rdflib analiza cada consulta con pyparsing, y eso cuesta más que evaluarla sobre los
+# grafos pequeños de ``MemoryStore``. Las plantillas se repiten mucho (las mismas consultas
+# con los mismos términos), así que se guarda la consulta ya analizada, que rdflib evalúa
+# de nuevo contra el estado actual del ``Dataset`` en cada llamada. La clave incluye los
+# prefijos del ``Dataset``, que rdflib usa como ``initNs`` al analizar un texto.
+_Namespaces = tuple[tuple[str, str], ...]
+
+
+@lru_cache(maxsize=4096)
+def _prepared_query(query: str, namespaces: _Namespaces) -> Query:
+    return prepareQuery(query, initNs=dict(namespaces))
+
+
+@lru_cache(maxsize=256)  # las actualizaciones se repiten menos y pueden ser grandes
+def _prepared_update(request: str, namespaces: _Namespaces) -> Update:
+    return prepareUpdate(request, initNs=dict(namespaces))
+
+
+def _namespaces(dataset: Dataset) -> _Namespaces:
+    return tuple(sorted((prefix, str(uri)) for prefix, uri in dataset.namespaces()))
+
+
 class MemoryStore:
     """Doble en memoria de Fuseki (rdflib). Mismo contrato que ``FusekiStore``."""
 
@@ -226,7 +252,7 @@ class MemoryStore:
     def construct(self, query: str) -> Graph:
         with self._lock:
             self.queries.append(query)
-            result = self.dataset.query(query)
+            result = self.dataset.query(_prepared_query(query, _namespaces(self.dataset)))
             graph = Graph()
             if result.graph is not None:
                 for triple in result.graph:
@@ -234,7 +260,17 @@ class MemoryStore:
             return graph
 
     def get_graph(self, graph_uri: str) -> Graph:
-        return self.construct(_graph_query(graph_uri))
+        # Mismo resultado que evaluar _graph_query (CONSTRUCT de todo el grafo, que conserva
+        # los nodos en blanco), sin pasar por el motor SPARQL de rdflib: es la lectura más
+        # frecuente. La consulta se registra igual que en ``construct``.
+        query = _graph_query(graph_uri)
+        with self._lock:
+            self.queries.append(query)
+            graph = Graph()
+            # Vista del grafo sobre el mismo almacén, sin darlo de alta si no existe.
+            for triple in Graph(store=self.dataset.store, identifier=URIRef(graph_uri)):
+                graph.add(triple)
+            return graph
 
     def ensure_writable(self) -> None:
         return None
@@ -262,7 +298,7 @@ class MemoryStore:
     def update(self, request: str) -> None:
         with self._lock:
             self.updates.append(request)
-            self.dataset.update(request)
+            self.dataset.update(_prepared_update(request, _namespaces(self.dataset)))
 
     def graph_names(self) -> set[str]:
         with self._lock:

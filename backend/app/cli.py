@@ -448,19 +448,20 @@ def _check_plan_prefixes(store: TripleStore | None, uris: Uris, plan: _Plan) -> 
     by_prefix: dict[str, list[str]] = {}
     for resource, (prefix, _name) in planned.items():
         by_prefix.setdefault(prefix, []).append(resource)
+    published = vocab_ingest.all_prefix_owners(store, uris) if store is not None else {}
     failed = False
     for resource, (prefix, name) in sorted(planned.items(), key=lambda item: item[1][1]):
         others = [r for r in by_prefix[prefix] if r != resource]
-        if store is not None:
-            # Lo publicado que también se carga ahora cuenta con su prefijo del fichero.
-            # Si se recarga externas.ttl, las externas publicadas se sustituyen por las del
-            # fichero (ya en planned).
-            others += [
-                owner
-                for owner in vocab_ingest.live_prefix_owners(store, uris, prefix, resource)
-                if owner not in planned
-                and not (reloads_externals and not owner.startswith(uris.base))
-            ]
+        # Lo publicado que también se carga ahora cuenta con su prefijo del fichero. Si se
+        # recarga externas.ttl, las externas publicadas se sustituyen por las del fichero
+        # (ya en planned).
+        others += [
+            owner
+            for owner in sorted(published.get(prefix, set()))
+            if owner != resource
+            and owner not in planned
+            and not (reloads_externals and not owner.startswith(uris.base))
+        ]
         if others:
             _print_ingest_error(
                 name,

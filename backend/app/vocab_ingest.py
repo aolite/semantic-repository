@@ -147,13 +147,15 @@ def withdrawn_prefix_owner(session: Session, prefix: str | None) -> str | None:
     return record.resource_uri if record is not None else None
 
 
-# Recursos vivos que declaran el prefijo VANN $prefix, salvo $resource:
+# Recursos vivos que declaran un prefijo VANN:
 # - propios (esquemas, también los auxiliares, y versiones de ontologías propias), en su
 #   propio grafo (el del esquema o el de una versión);
 # - ontologías externas (owl:Ontology fuera de BASE_URI, en el grafo $externas): su prefijo
 #   también cuenta como ocupado (regla 14, decidido el 2026-11-26).
 # Las versiones anteriores de una ontología propia siguen publicadas: el prefijo que una
 # versión posterior deja de usar queda reservado para esa ontología (QA-50-06).
+# La consulta es siempre la misma y devuelve todos de una vez: son pocos y load-semantic
+# comprueba muchos a la vez.
 _PREFIX_OWNERS = """CONSTRUCT { ?r <http://purl.org/vocab/vann/preferredNamespacePrefix> ?p }
 WHERE {
   {
@@ -167,8 +169,26 @@ WHERE {
          <http://purl.org/vocab/vann/preferredNamespacePrefix> ?p
     }
   }
-  FILTER(isIRI(?r) && ?r != $resource && STR(?p) = $prefix)
+  FILTER(isIRI(?r))
 }"""
+
+
+def all_prefix_owners(store: TripleStore, uris: Uris) -> dict[str, set[str]]:
+    """``{prefijo: recursos}`` de todos los recursos que cuentan para la regla 14 (los
+    mismos que ``live_prefix_owners``)."""
+    graph = store.construct(
+        render(
+            _PREFIX_OWNERS,
+            vocab_ns=literal(uris.vocab_ns),
+            onto_ns=literal(uris.onto_ns),
+            externas=iri(uris.external_ontologies_graph),
+        )
+    )
+    owners: dict[str, set[str]] = {}
+    for resource, _p, prefix in graph:
+        if isinstance(resource, URIRef) and str(prefix):
+            owners.setdefault(str(prefix), set()).add(str(resource))
+    return owners
 
 
 def live_prefix_owners(
@@ -178,17 +198,7 @@ def live_prefix_owners(
     propias vivos (con todas sus versiones publicadas) y ontologías externas."""
     if not prefix:
         return []
-    graph = store.construct(
-        render(
-            _PREFIX_OWNERS,
-            resource=iri(resource),
-            prefix=literal(prefix),
-            vocab_ns=literal(uris.vocab_ns),
-            onto_ns=literal(uris.onto_ns),
-            externas=iri(uris.external_ontologies_graph),
-        )
-    )
-    return sorted({str(s) for s in graph.subjects() if isinstance(s, URIRef)})
+    return sorted(all_prefix_owners(store, uris).get(prefix, set()) - {resource})
 
 
 def check_resource_publication(
