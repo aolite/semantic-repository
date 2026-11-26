@@ -234,6 +234,8 @@ def test_create_catalog(
         "detail": "Ya existe el catálogo con ese slug",
         "kind": "slug_in_use",
         "datasets": [],
+        "resources": [],
+        "used_by": [],
     }
 
 
@@ -772,13 +774,14 @@ def test_withdraw_dataset_removes_orphan_files_only_of_its_slug(
     assert events[0].details["files_not_deleted"] == []
 
 
-def test_load_semantic_holds_the_lock_only_while_writing_catalogs(
+def test_load_semantic_holds_the_lock_only_while_writing(
     loaded_store: MemoryStore,
     cli_doubles: CliRunner,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """QA-49-03: ni la validación (con el razonador) ni la publicación de ontologías y
-    esquemas retienen el bloqueo; solo la escritura de catálogos, series y ficheros."""
+    """QA-49-03: la validación (con el razonador) no retiene el bloqueo; solo la escritura.
+    Desde la decisión 50 la publicación de esquemas y ontologías va dentro (comparte con el
+    CRUD los grafos de los catálogos y las bajas)."""
     from app import write_lock
 
     seen: dict[str, list[int]] = {"validate": [], "ontology": [], "series": []}
@@ -803,5 +806,5 @@ def test_load_semantic_holds_the_lock_only_while_writing_catalogs(
     result = cli_doubles.invoke(cli_module.cli, ["load-semantic"])
     assert result.exit_code == 0, result.output
     assert seen["validate"] == [0]
-    assert seen["ontology"] and set(seen["ontology"]) == {0}
+    assert seen["ontology"] and set(seen["ontology"]) == {1}
     assert seen["series"] and set(seen["series"]) == {1}

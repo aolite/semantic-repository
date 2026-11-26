@@ -16,6 +16,11 @@
 
 Sin ``Accept`` o con ``*/*``: 303 al frontend, como con ``text/html`` (decisión 31). El RDF
 solo sale con un ``Accept`` de RDF. Un recurso que no existe da 404 en cualquier formato.
+
+Bajas (decisión 50): la URI de un esquema o una ontología dados de baja, y por el prefijo
+las de sus conceptos y versiones (los términos ``#…`` caen en la de la ontología), responden
+**410 Gone** con la ficha mínima, negociada como en ``app.routers.linked_data``: HTML (sin
+303, porque el frontend respondería 200) o el RDF de la lápida.
 """
 
 from typing import Annotated
@@ -25,10 +30,12 @@ from fastapi import APIRouter, HTTPException, Path, Request, Response, status
 from fastapi.responses import RedirectResponse
 from rdflib import Graph
 
-from app import catalog, schemas, vocabularies
+from app import bajas, catalog, schemas, vocabularies
 from app.deps import SettingsDep, StoreDep, UrisDep
 from app.negotiation import HTML, JSONLD, RDFXML, TURTLE, negotiate
 from app.routers.datasets import RDF_BODY_SCHEMA
+from app.routers.linked_data import RESPONSES as DATASET_RESPONSES
+from app.routers.linked_data import gone
 from app.routers.rdf_formats import graph_response
 from app.uris import SLUG_PATTERN, VERSION_PATTERN, Uris
 
@@ -51,6 +58,10 @@ RESPONSES = {
     },
     status.HTTP_404_NOT_FOUND: {"model": schemas.ErrorResponse},
     status.HTTP_406_NOT_ACCEPTABLE: {"model": schemas.ErrorResponse},
+    status.HTTP_410_GONE: {
+        **DATASET_RESPONSES[status.HTTP_410_GONE],
+        "description": "Dado de baja (decisión 50): ficha mínima en HTML o RDF de la lápida",
+    },
     status.HTTP_503_SERVICE_UNAVAILABLE: {"model": schemas.ErrorResponse},
 }
 
@@ -74,8 +85,11 @@ def _respond(media: str, graph: Graph, uris: Uris, html_url: str) -> Response:
     return graph_response(graph, uris, media)
 
 
-def _not_found(exc: Exception) -> HTTPException:
-    return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No existe")
+def _gone_or_404(request: Request, store: StoreDep, uris: Uris, uri: str) -> Response:
+    tombstone = bajas.get_tombstone(store, uris, uri)
+    if tombstone is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No existe")
+    return gone(request, tombstone, uris)
 
 
 # --- Ontologías ---------------------------------------------------------------------------
@@ -93,8 +107,8 @@ def resolve_ontology(
     media = _choose(request)
     try:
         graph = vocabularies.ontology_rdf(store, uris, slug, None)
-    except catalog.NotFoundError as exc:
-        raise _not_found(exc) from exc
+    except catalog.NotFoundError:
+        return _gone_or_404(request, store, uris, uris.ontology(slug))
     return _respond(media, graph, uris, f"{settings.frontend_base_url}/ontologias/{quote(slug)}")
 
 
@@ -115,8 +129,8 @@ def resolve_ontology_version(
     media = _choose(request)
     try:
         graph = vocabularies.ontology_rdf(store, uris, slug, version)
-    except catalog.NotFoundError as exc:
-        raise _not_found(exc) from exc
+    except catalog.NotFoundError:
+        return _gone_or_404(request, store, uris, uris.ontology(slug))
     url = f"{settings.frontend_base_url}/ontologias/{quote(slug)}?version={quote(version)}"
     return _respond(media, graph, uris, url)
 
@@ -145,8 +159,8 @@ def _scheme(
             graph = vocabularies.scheme_rdf(store, uris, slug, corp)
         else:
             graph = vocabularies.concept_rdf(store, uris, slug, corp, concept)
-    except catalog.NotFoundError as exc:
-        raise _not_found(exc) from exc
+    except catalog.NotFoundError:
+        return _gone_or_404(request, store, uris, uris.scheme(slug, corp=corp))
     return _respond(media, graph, uris, _scheme_url(settings, slug, corp, concept))
 
 

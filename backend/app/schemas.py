@@ -304,6 +304,11 @@ class IngestIssue(BaseModel):
     value: str | None
     severity: str
     source_shape: str | None
+    replaced_by: list[str] = Field(
+        default_factory=list,
+        description="Solo con kind=deprecated_theme: sustitutos (dct:isReplacedBy) del tema "
+        "retirado (value)",
+    )
 
 
 class IngestErrorResponse(BaseModel):
@@ -319,14 +324,36 @@ class IngestErrorResponse(BaseModel):
         "version_immutable",
         "withdrawn",
         "catalog_conflict",
+        "prefix_withdrawn",
+        "prefix_in_use",
+        "concepts_removed",
+        "concept_reactivated",
+        "replacement",
+        "deprecated_theme",
+        "unknown_theme",
     ] = Field(
         description="limit: se ha superado un límite de la ingesta (tripletas, tamaño "
         "expandido, IRI, profundidad o tiempo o memoria de la validación SHACL). "
         "catalog (422): el catálogo indicado no existe o está dado de baja. "
         "version_removed y version_immutable (409): falta una versión ya publicada o viene "
         "con otro contenido; las versiones afectadas van en issues (focus_node). "
-        "withdrawn (409): el slug es de un recurso dado de baja y no se reutiliza. "
-        "catalog_conflict (409): la serie ya está en otro catálogo (se mueve con PATCH)"
+        "withdrawn (409): el slug (la URI) es de un recurso dado de baja y no se reutiliza. "
+        "catalog_conflict (409): la serie, el esquema o la ontología ya está en otro "
+        "catálogo (se mueve con PATCH). "
+        "Decisión 50: prefix_withdrawn (409): el prefijo VANN era de un esquema o una "
+        "ontología dados de baja; prefix_in_use (409): el prefijo VANN ya lo usa otro "
+        "esquema vivo, una ontología externa o alguna versión publicada de otra ontología "
+        "propia, aunque su versión actual ya no lo use (en issues, value); "
+        "concepts_removed (409): al "
+        "republicar un esquema faltan "
+        "conceptos ya publicados (en issues); concept_reactivated (409): un concepto "
+        "retirado deja de estarlo (fuera del piloto); replacement (422): un sustituto "
+        "(dct:isReplacedBy) no es un concepto vivo; deprecated_theme (422): una versión "
+        "nueva de dataset usa temas retirados (en issues, con replaced_by); "
+        "unknown_theme (422): una versión nueva de dataset usa como tema una IRI de "
+        "{BASE_URI}vocab/ que no es un concepto de un esquema vivo, porque no existe o "
+        "porque su esquema se dio de baja (en issues, value); los temas externos no se "
+        "comprueban"
     )
     issues: list[IngestIssue]
     report: str | None = Field(description="Informe SHACL en texto (solo kind=shacl)")
@@ -334,6 +361,19 @@ class IngestErrorResponse(BaseModel):
 
 class ErrorResponse(BaseModel):
     detail: str
+
+
+ForbiddenKind = Literal["not_managed"]
+
+
+class ForbiddenResponse(BaseModel):
+    """403 de las escrituras. Sin ``kind``: el rol no basta (hace falta editor o admin).
+    Con ``kind=not_managed`` (decisión 50, regla 12): el recurso es una ontología externa
+    o un esquema auxiliar (``vocab/dominio``, ``vocab/tipo-dataset``), que no se gestionan
+    desde la aplicación con ningún rol: solo cambian con sus ficheros y ``load-semantic``."""
+
+    detail: str
+    kind: ForbiddenKind | None = None
 
 
 # --- Fase 4: ficheros, SPARQL público y consultas guardadas ----------------------------
@@ -431,6 +471,11 @@ class VocabularyCard(BaseModel):
         description="Ontologías propias con métricas calculadas; null en el resto"
     )
     concepts: int | None = Field(description="Número de conceptos (solo esquemas)")
+    catalog: CatalogRef | None = Field(
+        default=None,
+        description="Catálogo de la ontología propia o del esquema (decisión 50); null en las "
+        "externas (no están en ningún catálogo)",
+    )
     domain: DomainRef | None = Field(
         description="Dominio del esquema de dominio (su dct:subject). null en ontologías "
         "(propias y externas) y en esquemas corporativos: el RDF no les da dominio"
@@ -633,6 +678,9 @@ class OntologyDetail(BaseModel):
         "de sus versiones"
     )
     subjects: list[SubjectRef] = Field(description="Esquemas SKOS usados (dct:subject)")
+    catalog: CatalogRef | None = Field(
+        default=None, description="Catálogo de la ontología (decisión 50)"
+    )
 
 
 class ConceptNode(BaseModel):
@@ -641,6 +689,9 @@ class ConceptNode(BaseModel):
     label: str | None
     top_concept: bool = Field(description="skos:topConceptOf o skos:hasTopConcept")
     alt_labels: list[LangLiteral] = Field(description="skos:altLabel por idioma")
+    deprecated: bool = Field(
+        default=False, description="Concepto retirado (owl:deprecated true, decisión 50)"
+    )
     children: list[ConceptNode] = Field(description="skos:narrower e inversa de skos:broader")
 
 
@@ -679,6 +730,11 @@ class SchemeDetail(BaseModel):
         description="Conceptos raíz (los topConcept y los que no tienen broader dentro del "
         "esquema) con sus hijos"
     )
+    catalog: CatalogRef | None = Field(
+        default=None,
+        description="Catálogo del esquema (decisión 50); null en los auxiliares, que no "
+        "están en ningún catálogo",
+    )
 
 
 class ConceptUsage(BaseModel):
@@ -702,6 +758,13 @@ class ConceptDetail(BaseModel):
     exact_match: list[str]
     close_match: list[str]
     used_by: ConceptUsage
+    deprecated: bool = Field(
+        default=False, description="Concepto retirado (owl:deprecated true, decisión 50)"
+    )
+    replaced_by: list[ConceptRef] = Field(
+        default_factory=list,
+        description="Sustitutos de un concepto retirado (dct:isReplacedBy, decisión 50)",
+    )
 
 
 class OntologyIngestResult(BaseModel):
@@ -720,6 +783,7 @@ class OntologyIngestResult(BaseModel):
     profile: OwlProfile
     consistency: ConsistencyRead
     documentation: DocumentationCoverageRead
+    catalog: str | None = Field(default=None, description="URI del catálogo (decisión 50)")
 
 
 class SchemeIngestResult(BaseModel):
@@ -731,6 +795,7 @@ class SchemeIngestResult(BaseModel):
     triples: int
     created: bool
     changed: bool
+    catalog: str | None = Field(default=None, description="URI del catálogo (decisión 50)")
 
 
 # --- Decisión 49: catálogos, edición de datasets y bajas --------------------------------
@@ -824,6 +889,19 @@ class CatalogDatasetRef(BaseModel):
     title: str | None
 
 
+class CatalogSchemeRef(BaseModel):
+    slug: str
+    corp: bool
+    uri: str
+    title: str | None
+
+
+class CatalogOntologyRef(BaseModel):
+    slug: str
+    uri: str
+    title: str | None = Field(description="dct:title de su versión actual")
+
+
 class CatalogSummary(BaseModel):
     slug: str
     uri: str
@@ -831,6 +909,12 @@ class CatalogSummary(BaseModel):
     description: str | None
     publisher: ResourceRef | None
     dataset_count: int = Field(description="Número de datasets (series) del catálogo")
+    scheme_count: int = Field(
+        default=0, description="Número de esquemas SKOS del catálogo (decisión 50)"
+    )
+    ontology_count: int = Field(
+        default=0, description="Número de ontologías propias del catálogo (decisión 50)"
+    )
 
 
 class CatalogPage(BaseModel):
@@ -840,6 +924,13 @@ class CatalogPage(BaseModel):
 
 class CatalogDetail(CatalogSummary):
     datasets: list[CatalogDatasetRef] = Field(description="Series del catálogo, por título")
+    schemes: list[CatalogSchemeRef] = Field(
+        default_factory=list, description="Esquemas SKOS del catálogo, por título (decisión 50)"
+    )
+    ontologies: list[CatalogOntologyRef] = Field(
+        default_factory=list,
+        description="Ontologías propias del catálogo, por título (decisión 50)",
+    )
 
 
 class DatasetCreate(_FormModel):
@@ -871,31 +962,99 @@ class DatasetUpdate(_FormModel):
     )
 
 
+GoneResource = Literal["catalog", "dataset", "scheme", "ontology"]
+
+
 class GoneResponse(BaseModel):
     """410 Gone: ficha mínima de un recurso dado de baja (su lápida)."""
 
     detail: str
     uri: str = Field(description="URI del recurso dado de baja")
-    resource: Literal["catalog", "dataset"] = Field(
-        description="Qué era: se deduce de la URI (catalogo/{slug} o dataset/{slug})"
+    resource: GoneResource = Field(
+        description="Qué era: se deduce de la URI (catalogo/{slug}, dataset/{slug}, "
+        "vocab/{slug} o vocab/corp/{slug}, u onto/{slug})"
     )
     title: str | None
     withdrawn_at: str | None = Field(description="prov:invalidatedAtTime (xsd:dateTime)")
 
 
-ConflictKind = Literal["slug_in_use", "withdrawn", "catalog_not_empty"]
+ConflictKind = Literal["slug_in_use", "withdrawn", "catalog_not_empty", "in_use"]
+
+
+class UsageRef(BaseModel):
+    """Un uso vivo de un esquema o una ontología (decisión 50, regla 8)."""
+
+    uri: str = Field(
+        description="Quién lo usa: la versión de dataset (dataset), la versión de ontología "
+        "(owl:versionIRI, ontology) o el concepto de otro esquema (scheme)"
+    )
+    resource: Literal["dataset", "ontology", "scheme"]
+    via: str | None = Field(
+        description="Propiedad del uso (dcat:theme, dct:subject, skos:related, "
+        "skos:exactMatch…, dct:isReplacedBy, owl:imports, dct:conformsTo); null si la "
+        "versión usa un término de la ontología"
+    )
+    target: str = Field(
+        description="Concepto, esquema (dct:subject hacia el esquema mismo), ontología, "
+        "versión o término usado"
+    )
 
 
 class ConflictResponse(BaseModel):
-    """409 del CRUD de catálogos y datasets (decisión 49)."""
+    """409 del CRUD de catálogos, datasets, esquemas y ontologías (decisiones 49 y 50)."""
 
     detail: str
     kind: ConflictKind = Field(
         description="slug_in_use: ya existe un recurso con ese slug. withdrawn: el slug es de "
         "un recurso dado de baja y no se reutiliza. catalog_not_empty: el catálogo tiene "
-        "datasets (en datasets) y no se puede dar de baja"
+        "datasets (en datasets) o esquemas y ontologías (en resources) y no se puede dar de "
+        "baja. in_use (decisión 50): el esquema o la ontología lo usan recursos vivos (en "
+        "used_by) y no se puede dar de baja"
     )
     datasets: list[str] = Field(
         default_factory=list,
         description="Solo con catalog_not_empty: URIs de las series que siguen en el catálogo",
+    )
+    resources: list[str] = Field(
+        default_factory=list,
+        description="Solo con catalog_not_empty: URIs de los esquemas y ontologías que "
+        "siguen en el catálogo",
+    )
+    used_by: list[UsageRef] = Field(
+        default_factory=list, description="Solo con in_use: los recursos vivos que lo usan"
+    )
+
+
+class SchemeUpdate(_FormModel):
+    """Edición de un esquema SKOS (decisión 50): sus metadatos y su catálogo. Solo cambian
+    los campos presentes. Los conceptos se cambian republicando el esquema."""
+
+    title: str | None = Field(
+        default=None,
+        max_length=TITLE_MAX,
+        description="dct:title y skos:prefLabel del esquema en español (@es); los demás "
+        "idiomas no cambian",
+    )
+    description: str | None = Field(
+        default=None,
+        max_length=DESCRIPTION_MAX,
+        description="dct:description en español (@es); los demás idiomas no cambian",
+    )
+    publisher_name: str | None = _publisher_field(default=None)
+    catalog: str | None = Field(
+        default=None,
+        pattern=SLUG_PATTERN,
+        max_length=200,
+        description="Slug del catálogo de destino (mover el esquema); sus URIs no cambian",
+    )
+
+
+class OntologyUpdate(_FormModel):
+    """Edición de una ontología propia (decisión 50): solo su catálogo. Sus metadatos están
+    en cada versión, que es inmutable (decisión 28): se cambian publicando otra versión."""
+
+    catalog: str = Field(
+        pattern=SLUG_PATTERN,
+        max_length=200,
+        description="Slug del catálogo de destino (mover la ontología); sus URIs no cambian",
     )

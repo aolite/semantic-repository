@@ -56,6 +56,7 @@ MINIMAL = """
 # --- Permisos -----------------------------------------------------------------------
 
 
+@pytest.mark.usefixtures("synthetic_themes")
 @pytest.mark.parametrize(("role", "expected"), [(Role.EDITOR, 201), (Role.ADMIN, 201)])
 def test_editor_and_admin_can_publish(
     client: TestClient,
@@ -113,6 +114,7 @@ def editor_headers(
     return _editor(make_user, login, Role.EDITOR)
 
 
+@pytest.mark.usefixtures("synthetic_themes")
 def test_publish_stores_graph_with_base_uri(
     client: TestClient, editor_headers: dict[str, str], semantic_dir: Path, store: MemoryStore
 ) -> None:
@@ -129,6 +131,7 @@ def test_publish_stores_graph_with_base_uri(
     assert (URIRef(f"{BASE_URI}catalogo/sintetico"), DCAT.dataset, URIRef(SERIES)) in catalog
 
 
+@pytest.mark.usefixtures("synthetic_themes")
 def test_republish_same_content_is_idempotent(
     client: TestClient, editor_headers: dict[str, str], semantic_dir: Path
 ) -> None:
@@ -165,6 +168,7 @@ def test_publish_json_ld(
     assert isomorphic(store.get_graph(f"{BASE_URI}dataset/prueba"), without_membership(graph))
 
 
+@pytest.mark.usefixtures("synthetic_themes")
 def test_publish_is_audited(
     client: TestClient,
     editor_headers: dict[str, str],

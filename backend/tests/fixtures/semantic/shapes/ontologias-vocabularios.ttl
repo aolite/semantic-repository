@@ -42,6 +42,8 @@
 @prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix dcat: <http://www.w3.org/ns/dcat#> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
 
 # ============================================================================
 # owl:Ontology (propia y externa)
@@ -116,7 +118,8 @@ itsh:OwnOntologyShape
         itsh:OwnOntology-namespace ,
         itsh:OwnOntology-namespace-uri ,
         itsh:OwnOntology-status ,
-        itsh:OwnOntology-subject .
+        itsh:OwnOntology-subject ,
+        itsh:OwnOntology-catalog .
 
 # Exactamente un owl:versionIRI: cada fichero es una versión, se carga en el
 # grafo con nombre de su versionIRI y la ficha muestra esa IRI.
@@ -234,12 +237,14 @@ itsh:OwnOntology-status
     sh:message "Regla IT&OT: una ontología propia tiene exactamente un adms:status: Completed (Publicada) o UnderDevelopment (Borrador)."@es .
 
 # dct:subject: conceptos SKOS que usa la ontología («Recursos que usan este
-# concepto» del navegador SKOS). IRI; los conceptos están en otro grafo.
+# concepto» del navegador SKOS) o un esquema SKOS entero (decidido el
+# 2026-11-26: se permite dct:subject hacia un esquema). IRI; los conceptos y
+# los esquemas están en otro grafo.
 itsh:OwnOntology-subject
     a sh:PropertyShape ;
     sh:path dct:subject ;
     sh:nodeKind sh:IRI ;
-    sh:message "Regla IT&OT: dct:subject de una ontología es la IRI de un concepto SKOS."@es .
+    sh:message "Regla IT&OT: dct:subject de una ontología es la IRI de un concepto SKOS o de un esquema SKOS entero."@es .
 
 # ============================================================================
 # skos:ConceptScheme
@@ -415,7 +420,10 @@ itsh:ConceptShape
         itsh:Concept-broader ,
         itsh:Concept-broader-mismo-esquema ,
         itsh:Concept-related ,
-        itsh:Concept-mapping .
+        itsh:Concept-mapping ,
+        itsh:Concept-deprecated ,
+        itsh:Concept-isReplacedBy ,
+        itsh:Concept-isReplacedBy-retirado .
 
 # SKOS S14: como mucho un prefLabel por idioma. S13: prefLabel y altLabel
 # son disjuntas. Literales con idioma: el navegador muestra «prefLabel @es»,
@@ -566,3 +574,442 @@ itsh:Concept-mapping
     sh:path [ sh:alternativePath ( skos:exactMatch skos:closeMatch skos:broadMatch skos:narrowMatch skos:relatedMatch ) ] ;
     sh:nodeKind sh:IRI ;
     sh:message "Regla IT&OT: los mapeos SKOS (exactMatch, closeMatch…) apuntan a una IRI."@es .
+
+# Retirada de un concepto (decisión 50): un esquema no pierde conceptos al
+# republicarse (el backend responde 409 si falta alguno que ya estaba
+# publicado). Un concepto que ya no se usa se marca con owl:deprecated
+# "true"^^xsd:boolean y conserva su URI, su esquema y su lugar en el árbol.
+# owl:deprecated es la anotación estándar de OWL 2 para términos obsoletos y
+# la que recomiendan las buenas prácticas de SKOS. Aquí solo se exige que,
+# si aparece, sea una sola y booleana; «false» equivale a no ponerla.
+itsh:Concept-deprecated
+    a sh:PropertyShape ;
+    sh:path owl:deprecated ;
+    sh:maxCount 1 ;
+    sh:datatype xsd:boolean ;
+    sh:message "Regla IT&OT: owl:deprecated de un concepto, si aparece, es uno solo y de tipo xsd:boolean (\"true\"^^xsd:boolean para retirarlo sin perder su URI)."@es .
+
+# Sustitutos de un concepto retirado (decisión 50, 2026-11-25): un concepto
+# con owl:deprecated true indica con dct:isReplacedBy los conceptos que lo
+# sustituyen, cero o más. dct:isReplacedBy es la propiedad de Dublin Core
+# para «otro recurso que sustituye a este». Los sustitutos son IRIs; pueden
+# estar en otro esquema y otro grafo, así que no se exige sh:class
+# skos:Concept: que sean conceptos vivos lo comprueba el backend
+# (semantic/uris.md). Reactivar un concepto retirado queda fuera del piloto.
+itsh:Concept-isReplacedBy
+    a sh:PropertyShape ;
+    sh:path dct:isReplacedBy ;
+    sh:nodeKind sh:IRI ;
+    sh:message "Regla IT&OT: dct:isReplacedBy de un concepto apunta a la IRI de un skos:Concept."@es .
+
+# Solo un concepto retirado tiene sustitutos, y no se sustituye a sí mismo.
+itsh:Concept-isReplacedBy-retirado
+    a sh:PropertyShape ;
+    sh:path dct:isReplacedBy ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Regla IT&OT: dct:isReplacedBy solo aparece en un concepto retirado (owl:deprecated true) y no apunta al propio concepto."@es ;
+        sh:select """
+            SELECT $this ?value WHERE {
+                $this <http://purl.org/dc/terms/isReplacedBy> ?value .
+                FILTER (?value = $this || NOT EXISTS {
+                    $this <http://www.w3.org/2002/07/owl#deprecated> ?d .
+                    FILTER (?d = true)
+                })
+            }
+        """ ;
+    ] .
+
+# ============================================================================
+# Pertenencia a un catálogo (decisión 50)
+# ============================================================================
+# Decidido (2026-11-22, decisión 50): cada esquema SKOS (de dominio o
+# corporativo) y cada ontología propia pertenece a exactamente un catálogo
+# {BASE_URI}catalogo/{slug}, como los datasets (itsh:DatasetSeries-catalog).
+# Las ontologías externas y los esquemas auxiliares (vocab/dominio y
+# vocab/tipo-dataset) quedan fuera de los catálogos.
+#
+# Validado (2026-11-25). Se expresa con «<{BASE_URI}catalogo/{slug}> dcat:resource
+# <recurso>»: dcat:resource es la propiedad general de DCAT 3 para lo que
+# lista un catálogo, de la que dcat:dataset, dcat:service y dcat:catalog son
+# subpropiedades. No se usa dcat:dataset porque los esquemas y las
+# ontologías no son dcat:Dataset en este modelo y porque dcat:dataset ya
+# significa «serie de dataset» en los catálogos y en la API (justificación
+# y alternativas en semantic/uris.md, «Vocabularios y ontologías en los
+# catálogos»).
+#
+# El recurso que pertenece al catálogo es el esquema ({BASE_URI}vocab/…) o la
+# ontología ({BASE_URI}onto/{slug}), nunca una versión (owl:versionIRI). Como
+# en los datasets, el grafo que se valida en la ingesta lleva el triple de
+# pertenencia; el backend lo añade a partir del catálogo elegido y lo guarda
+# en el grafo del catálogo, no en el del esquema ni en el de la versión
+# (las versiones de ontología son inmutables, decisión 28). No se exige
+# sh:class dcat:Catalog porque el catálogo está descrito en otro grafo; que
+# el recurso no esté ya en otro catálogo del triplestore lo comprueba el
+# backend.
+
+# Ontología propia: exactamente un catálogo, identificado por IRI.
+itsh:OwnOntology-catalog
+    a sh:PropertyShape ;
+    sh:path [ sh:inversePath dcat:resource ] ;
+    sh:minCount 1 ;
+    sh:maxCount 1 ;
+    sh:nodeKind sh:IRI ;
+    sh:message "Regla IT&OT: cada ontología propia pertenece exactamente a un dcat:Catalog, identificado por IRI («<catálogo> dcat:resource <{BASE_URI}onto/{slug}>»)."@es .
+
+# Ontología externa (sin owl:versionIRI): fuera de los catálogos. Se cataloga
+# solo por referencia en {BASE_URI}onto/externas y no se gestiona desde la
+# aplicación.
+itsh:ExternalOntologyCatalogShape
+    a sh:NodeShape ;
+    rdfs:label "IT&OT · Ontología externa fuera de los catálogos"@es ;
+    sh:targetClass owl:Ontology ;
+    sh:or (
+        [ sh:path owl:versionIRI ; sh:minCount 1 ]
+        [ sh:path [ sh:inversePath dcat:resource ] ; sh:maxCount 0 ]
+    ) ;
+    sh:message "Regla IT&OT: una ontología externa (sin owl:versionIRI) no pertenece a ningún catálogo (sin dcat:resource hacia ella)."@es .
+
+# Esquema SKOS: los auxiliares ({BASE_URI}vocab/dominio y
+# {BASE_URI}vocab/tipo-dataset) no están en ningún catálogo; todos los demás,
+# de dominio o corporativos, en exactamente uno, identificado por IRI. Como
+# las formas no conocen BASE_URI, el esquema auxiliar se reconoce por el
+# final de su URI, igual que en itsh:CatalogUriShape; que empiece por
+# BASE_URI lo comprueba el backend. Un esquema corporativo
+# {BASE_URI}vocab/corp/dominio no es auxiliar: el patrón exige que «dominio»
+# siga directamente a «/vocab».
+itsh:ConceptSchemeCatalogShape
+    a sh:NodeShape ;
+    rdfs:label "IT&OT · Esquema SKOS en un catálogo"@es ;
+    sh:targetClass skos:ConceptScheme ;
+    sh:or (
+        [
+            sh:pattern "/vocab/(dominio|tipo-dataset)$" ;
+            sh:property [ sh:path [ sh:inversePath dcat:resource ] ; sh:maxCount 0 ]
+        ]
+        [
+            sh:not [ sh:pattern "/vocab/(dominio|tipo-dataset)$" ] ;
+            sh:property [
+                sh:path [ sh:inversePath dcat:resource ] ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:nodeKind sh:IRI
+            ]
+        ]
+    ) ;
+    sh:message "Regla IT&OT: cada esquema SKOS de dominio o corporativo pertenece exactamente a un dcat:Catalog, identificado por IRI («<catálogo> dcat:resource <esquema>»); los auxiliares vocab/dominio y vocab/tipo-dataset no pertenecen a ninguno."@es .
+
+# ============================================================================
+# Versiones de las ontologías externas (decisión 50, 2026-11-26)
+# ============================================================================
+# Decidido (2026-11-26): las ontologías externas se sustituyen enteras desde
+# la aplicación y cada sustitución genera una versión nueva. Su IRI oficial
+# no está bajo BASE_URI, así que no se acuñan versionIRIs en su dominio. El
+# resto del modelo es [PROPUESTA pendiente de validar] de `semantico`
+# (semantic/uris.md, «Versiones de las ontologías externas»):
+#
+# - Cada versión es {BASE_URI}onto/externas/{slug}/{n}, con {n} = 1, 2, 3…
+#   (número de sustitución, no la versión del publicador) y {slug} = el
+#   prefijo VANN de la ontología en su primera sustitución.
+# - Cada versión vive en el grafo con nombre de su URI. Ese grafo guarda el
+#   fichero completo de la ontología, tal como lo publica su organismo, y el
+#   registro de la versión (sujeto: la URI de la versión). Las formas se
+#   aplican al registro, NO al contenido: el fichero oficial es contenido
+#   ajeno (puede llevar su propio owl:versionIRI, títulos en inglés…), como
+#   el fichero de una distribución.
+# - El registro de referencia (título, descripción, owl:versionInfo, VANN,
+#   publicador) sigue en {BASE_URI}onto/externas, sin owl:versionIRI, y
+#   enlaza sus versiones con dcat:hasVersion y la actual con
+#   dcat:hasCurrentVersion (DCAT 3, versionado).
+#
+# No se usa owl:versionIRI ni se tipa la versión como owl:Ontology: con
+# cualquiera de los dos le aplicarían las formas de las ontologías propias
+# (catálogo, semver, adms:status…) y la pantalla la listaría como una
+# ontología más.
+
+# Registro de una versión: todo sujeto de dct:isVersionOf. El backend lo
+# construye en la sustitución; del editor solo vienen owl:versionInfo y
+# adms:versionNotes.
+itsh:ExternalVersionShape
+    a sh:NodeShape ;
+    rdfs:label "IT&OT · Versión de una ontología externa"@es ;
+    sh:targetSubjectsOf dct:isVersionOf ;
+    sh:nodeKind sh:IRI ;
+    sh:class prov:Entity ;
+    sh:pattern "/onto/externas/[a-z0-9]+(-[a-z0-9]+)*/[1-9][0-9]*$" ;
+    sh:message "Patrón de URIs: una versión de ontología externa es un prov:Entity con URI {BASE_URI}onto/externas/{slug}/{n} (n = 1, 2, 3…)."@es ;
+    sh:property
+        itsh:ExternalVersion-isVersionOf ,
+        itsh:ExternalVersion-version ,
+        itsh:ExternalVersion-version-uri ,
+        itsh:ExternalVersion-versionInfo ,
+        itsh:ExternalVersion-generatedAtTime ,
+        itsh:ExternalVersion-previousVersion ,
+        itsh:ExternalVersion-previousVersion-anterior ,
+        itsh:ExternalVersion-wasRevisionOf ,
+        itsh:ExternalVersion-versionNotes ,
+        itsh:ExternalVersion-listada ,
+        itsh:ExternalVersion-catalog .
+
+# La ontología de la que es versión: su IRI oficial, exactamente una.
+itsh:ExternalVersion-isVersionOf
+    a sh:PropertyShape ;
+    sh:path dct:isVersionOf ;
+    sh:minCount 1 ;
+    sh:maxCount 1 ;
+    sh:nodeKind sh:IRI ;
+    sh:message "Regla IT&OT: una versión de ontología externa es versión de exactamente una ontología (dct:isVersionOf), identificada por su IRI oficial."@es .
+
+# Número de sustitución: entero positivo sin ceros a la izquierda, igual que
+# el último segmento de la URI (como dcat:version en los datasets).
+itsh:ExternalVersion-version
+    a sh:PropertyShape ;
+    sh:path dcat:version ;
+    sh:minCount 1 ;
+    sh:maxCount 1 ;
+    sh:datatype xsd:string ;
+    sh:pattern "^[1-9][0-9]*$" ;
+    sh:message "Regla IT&OT: una versión de ontología externa tiene exactamente un dcat:version, el número de sustitución (1, 2, 3…)."@es .
+
+itsh:ExternalVersion-version-uri
+    a sh:PropertyShape ;
+    sh:path dcat:version ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Patrón de URIs: la URI de una versión de ontología externa termina en /{dcat:version}."@es ;
+        sh:select """
+            SELECT $this ?value WHERE {
+                $this <http://www.w3.org/ns/dcat#version> ?value .
+                FILTER (!STRENDS(STR($this), CONCAT("/", STR(?value))))
+            }
+        """ ;
+    ] .
+
+# Versión que da el publicador (la que muestra la tarjeta: «3.2.1», «W3C
+# REC»). Texto libre y opcional: si el publicador no la da o es un
+# placeholder ([VERSIÓN]), se omite.
+itsh:ExternalVersion-versionInfo
+    a sh:PropertyShape ;
+    sh:path owl:versionInfo ;
+    sh:maxCount 1 ;
+    sh:datatype xsd:string ;
+    sh:message "Regla IT&OT: una versión de ontología externa tiene como mucho un owl:versionInfo (la versión del publicador), como texto."@es .
+
+# Momento de la sustitución (PROV-O), con la hora del servidor.
+itsh:ExternalVersion-generatedAtTime
+    a sh:PropertyShape ;
+    sh:path prov:generatedAtTime ;
+    sh:minCount 1 ;
+    sh:maxCount 1 ;
+    sh:datatype xsd:dateTime ;
+    sh:message "Regla IT&OT: una versión de ontología externa tiene exactamente un prov:generatedAtTime (xsd:dateTime), el momento de la sustitución."@es .
+
+# Versión anterior (DCAT 3): como mucho una, IRI.
+itsh:ExternalVersion-previousVersion
+    a sh:PropertyShape ;
+    sh:path dcat:previousVersion ;
+    sh:maxCount 1 ;
+    sh:nodeKind sh:IRI ;
+    sh:message "Regla IT&OT: una versión de ontología externa tiene como mucho un dcat:previousVersion, identificado por IRI."@es .
+
+# Historial lineal: la versión 1 no tiene anterior y la n, la n-1 de la
+# misma ontología ({BASE_URI}onto/externas/{slug}/{n-1}).
+itsh:ExternalVersion-previousVersion-anterior
+    a sh:PropertyShape ;
+    sh:path dcat:previousVersion ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Regla IT&OT: la versión 1 de una ontología externa no tiene dcat:previousVersion y la versión n tiene exactamente la n-1 de la misma ontología ({BASE_URI}onto/externas/{slug}/{n-1})."@es ;
+        sh:select """
+            SELECT $this ?value WHERE {
+                $this <http://www.w3.org/ns/dcat#version> ?v .
+                FILTER (REGEX(STR(?v), "^[1-9][0-9]*$"))
+                BIND (<http://www.w3.org/2001/XMLSchema#integer>(STR(?v)) AS ?n)
+                BIND (SUBSTR(STR($this), 1, STRLEN(STR($this)) - STRLEN(STR(?v)) - 1) AS ?serie)
+                OPTIONAL { $this <http://www.w3.org/ns/dcat#previousVersion> ?value . }
+                FILTER (
+                    (?n = 1 && BOUND(?value))
+                    || (?n > 1 && (!BOUND(?value) || STR(?value) != CONCAT(?serie, "/", STR(?n - 1))))
+                )
+            }
+        """ ;
+    ] .
+
+# PROV-O: la versión es una revisión de la anterior; el mismo enlace que
+# dcat:previousVersion, para los consumidores de PROV.
+itsh:ExternalVersion-wasRevisionOf
+    a sh:PropertyShape ;
+    sh:path prov:wasRevisionOf ;
+    sh:equals dcat:previousVersion ;
+    sh:message "Regla IT&OT: prov:wasRevisionOf de una versión de ontología externa es exactamente su dcat:previousVersion."@es .
+
+# Notas de la sustitución, como en los datasets y las ontologías propias.
+itsh:ExternalVersion-versionNotes
+    a sh:PropertyShape ;
+    sh:path adms:versionNotes ;
+    sh:datatype rdf:langString ;
+    sh:uniqueLang true ;
+    sh:message "Regla IT&OT: adms:versionNotes de una versión de ontología externa es un literal con idioma, como mucho uno por idioma."@es .
+
+# Si la ontología lista sus versiones en el mismo grafo (en la ingesta se
+# valida el registro de referencia junto con el de la versión nueva), esta
+# versión está entre ellas.
+itsh:ExternalVersion-listada
+    a sh:PropertyShape ;
+    sh:path dct:isVersionOf ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Regla IT&OT: la ontología externa de la que es versión (dct:isVersionOf) la lista en dcat:hasVersion."@es ;
+        sh:select """
+            SELECT $this ?value WHERE {
+                $this <http://purl.org/dc/terms/isVersionOf> ?value .
+                ?value <http://www.w3.org/ns/dcat#hasVersion> ?otra .
+                FILTER NOT EXISTS { ?value <http://www.w3.org/ns/dcat#hasVersion> $this }
+            }
+        """ ;
+    ] .
+
+# Fuera de los catálogos, como la ontología externa.
+itsh:ExternalVersion-catalog
+    a sh:PropertyShape ;
+    sh:path [ sh:inversePath dcat:resource ] ;
+    sh:maxCount 0 ;
+    sh:message "Regla IT&OT: una versión de ontología externa no pertenece a ningún catálogo."@es .
+
+# Ontología externa con versiones: todo sujeto de dcat:hasCurrentVersion. Es
+# el registro de referencia de {BASE_URI}onto/externas.
+itsh:ExternalOntologyVersionedShape
+    a sh:NodeShape ;
+    rdfs:label "IT&OT · Ontología externa con versiones"@es ;
+    sh:targetSubjectsOf dcat:hasCurrentVersion ;
+    sh:class owl:Ontology ;
+    sh:message "Regla IT&OT: dcat:hasCurrentVersion solo lo lleva una ontología externa (owl:Ontology); las propias usan owl:versionIRI."@es ;
+    sh:property
+        itsh:ExternalOntologyVersioned-versionIRI ,
+        itsh:ExternalOntologyVersioned-prefix ,
+        itsh:ExternalOntologyVersioned-hasVersion ,
+        itsh:ExternalOntologyVersioned-hasVersion-serie ,
+        itsh:ExternalOntologyVersioned-hasVersion-consecutivas ,
+        itsh:ExternalOntologyVersioned-hasVersion-slug-unico ,
+        itsh:ExternalOntologyVersioned-current ,
+        itsh:ExternalOntologyVersioned-current-listada ,
+        itsh:ExternalOntologyVersioned-current-ultima .
+
+# Sigue siendo externa: sin owl:versionIRI (sus versiones se identifican
+# bajo BASE_URI, no en el dominio del publicador).
+itsh:ExternalOntologyVersioned-versionIRI
+    a sh:PropertyShape ;
+    sh:path owl:versionIRI ;
+    sh:maxCount 0 ;
+    sh:message "Regla IT&OT: una ontología externa no lleva owl:versionIRI; sus versiones son {BASE_URI}onto/externas/{slug}/{n} (dcat:hasVersion)."@es .
+
+# El slug de sus versiones sale del prefijo VANN: tiene que tenerlo.
+itsh:ExternalOntologyVersioned-prefix
+    a sh:PropertyShape ;
+    sh:path vann:preferredNamespacePrefix ;
+    sh:minCount 1 ;
+    sh:message "Regla IT&OT: una ontología externa con versiones necesita vann:preferredNamespacePrefix (el slug de sus versiones sale de él)."@es .
+
+itsh:ExternalOntologyVersioned-hasVersion
+    a sh:PropertyShape ;
+    sh:path dcat:hasVersion ;
+    sh:minCount 1 ;
+    sh:nodeKind sh:IRI ;
+    sh:pattern "/onto/externas/[a-z0-9]+(-[a-z0-9]+)*/[1-9][0-9]*$" ;
+    sh:message "Patrón de URIs: una ontología externa con versiones tiene al menos un dcat:hasVersion, y cada uno es {BASE_URI}onto/externas/{slug}/{n}."@es .
+
+# Todas sus versiones comparten {BASE_URI}onto/externas/{slug}/.
+itsh:ExternalOntologyVersioned-hasVersion-serie
+    a sh:PropertyShape ;
+    sh:path dcat:hasVersion ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Patrón de URIs: todas las versiones de una ontología externa comparten el mismo {BASE_URI}onto/externas/{slug}/."@es ;
+        sh:select """
+            SELECT $this ?value WHERE {
+                $this <http://www.w3.org/ns/dcat#hasVersion> ?value , ?otra .
+                FILTER (REPLACE(STR(?value), "/[^/]*$", "") != REPLACE(STR(?otra), "/[^/]*$", ""))
+            }
+        """ ;
+    ] .
+
+# Sin huecos: si está la n (n > 1), está la n-1. Con el patrón (empieza en
+# 1) quedan 1, 2, …, N.
+itsh:ExternalOntologyVersioned-hasVersion-consecutivas
+    a sh:PropertyShape ;
+    sh:path dcat:hasVersion ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Regla IT&OT: las versiones de una ontología externa son consecutivas: si está la n, está la n-1."@es ;
+        sh:select """
+            SELECT $this ?value WHERE {
+                $this <http://www.w3.org/ns/dcat#hasVersion> ?value .
+                FILTER (REGEX(STR(?value), "/[1-9][0-9]*$"))
+                BIND (<http://www.w3.org/2001/XMLSchema#integer>(REPLACE(STR(?value), "^.*/", "")) AS ?n)
+                FILTER (?n > 1 && NOT EXISTS {
+                    $this <http://www.w3.org/ns/dcat#hasVersion> ?p .
+                    FILTER (STR(?p) = CONCAT(REPLACE(STR(?value), "/[^/]*$", ""), "/", STR(?n - 1)))
+                })
+            }
+        """ ;
+    ] .
+
+# Un slug, una ontología: dos ontologías externas no comparten
+# {BASE_URI}onto/externas/{slug}/ (en el grafo {BASE_URI}onto/externas están
+# todas; el backend lo comprueba también contra el triplestore).
+itsh:ExternalOntologyVersioned-hasVersion-slug-unico
+    a sh:PropertyShape ;
+    sh:path dcat:hasVersion ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Regla IT&OT: dos ontologías externas no comparten el slug de sus versiones ({BASE_URI}onto/externas/{slug}/)."@es ;
+        sh:select """
+            SELECT $this ?value WHERE {
+                $this <http://www.w3.org/ns/dcat#hasVersion> ?value .
+                ?otra <http://www.w3.org/ns/dcat#hasVersion> ?w .
+                FILTER (?otra != $this && REPLACE(STR(?w), "/[^/]*$", "") = REPLACE(STR(?value), "/[^/]*$", ""))
+            }
+        """ ;
+    ] .
+
+# Versión actual: exactamente una, IRI.
+itsh:ExternalOntologyVersioned-current
+    a sh:PropertyShape ;
+    sh:path dcat:hasCurrentVersion ;
+    sh:minCount 1 ;
+    sh:maxCount 1 ;
+    sh:nodeKind sh:IRI ;
+    sh:message "Regla IT&OT: una ontología externa con versiones tiene exactamente un dcat:hasCurrentVersion, identificado por IRI."@es .
+
+# La actual es una de sus versiones.
+itsh:ExternalOntologyVersioned-current-listada
+    a sh:PropertyShape ;
+    sh:path dcat:hasCurrentVersion ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Regla IT&OT: dcat:hasCurrentVersion de una ontología externa es una de sus versiones (dcat:hasVersion)."@es ;
+        sh:select """
+            SELECT $this ?value WHERE {
+                $this <http://www.w3.org/ns/dcat#hasCurrentVersion> ?value .
+                FILTER NOT EXISTS { $this <http://www.w3.org/ns/dcat#hasVersion> ?value }
+            }
+        """ ;
+    ] .
+
+# La actual es la última sustitución: ninguna versión tiene un número mayor.
+itsh:ExternalOntologyVersioned-current-ultima
+    a sh:PropertyShape ;
+    sh:path dcat:hasCurrentVersion ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Regla IT&OT: la versión actual (dcat:hasCurrentVersion) de una ontología externa es la de número más alto: la última sustitución."@es ;
+        sh:select """
+            SELECT $this ?value WHERE {
+                $this <http://www.w3.org/ns/dcat#hasCurrentVersion> ?value ;
+                      <http://www.w3.org/ns/dcat#hasVersion> ?otra .
+                FILTER (REGEX(STR(?value), "/[1-9][0-9]*$") && REGEX(STR(?otra), "/[1-9][0-9]*$"))
+                FILTER (<http://www.w3.org/2001/XMLSchema#integer>(REPLACE(STR(?otra), "^.*/", ""))
+                        > <http://www.w3.org/2001/XMLSchema#integer>(REPLACE(STR(?value), "^.*/", "")))
+            }
+        """ ;
+    ] .

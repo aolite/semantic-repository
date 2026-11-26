@@ -34,6 +34,7 @@ from app.catalog import (
     NotFoundError,
     normalize,
     pick_literal,
+    resource_catalogs,
     resource_ref,
     sorted_nodes,
     uri_or_none,
@@ -42,7 +43,7 @@ from app.models import OntologyMetricsRecord
 from app.sparql import iri, iri_list, literal, render
 from app.triplestore import TripleStore
 from app.uris import ADMS, DCAT, DCT, FOAF, SKOS, VANN, Uris, is_slug, version_key
-from app.vocab_ingest import MAX_CONCEPT_DEPTH
+from app.vocab_ingest import MAX_CONCEPT_DEPTH, is_deprecated
 
 PREFIXES = """PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
 PREFIX owl: <http://www.w3.org/2002/07/owl#>
@@ -297,6 +298,7 @@ def list_vocabularies(
     q: str | None = None,
     kind: str | None = None,
     domain: str | None = None,
+    catalog: str | None = None,
 ) -> schemas.VocabularyPage:
     cards: list[schemas.VocabularyCard] = []
 
@@ -411,6 +413,12 @@ def list_vocabularies(
         if card.kind == "skos_domain":
             card.domain = _domain_ref(uris, labels, schemes, URIRef(card.uri))
 
+    # Catálogo de cada ontología propia y esquema (decisión 50), en una sola consulta.
+    memberships = resource_catalogs(store, uris, [c.uri for c in cards if c.kind != "external"])
+    for card in cards:
+        if card.kind != "external":
+            card.catalog = memberships.get(card.uri)
+
     counts = schemas.VocabularyCounts(
         own=sum(c.kind == "own" for c in cards),
         external=sum(c.kind == "external" for c in cards),
@@ -422,6 +430,7 @@ def list_vocabularies(
         for c in cards
         if (kind is None or c.kind == kind)
         and (domain is None or (c.domain is not None and c.domain.slug == domain))
+        and (catalog is None or (c.catalog is not None and c.catalog.slug == catalog))
         # Decisión 30: título, descripción, prefijo y URI del recurso (sin BASE_URI, que
         # comparten todos los recursos propios), pero ya no el espacio de nombres.
         and _matches(q, c.title, c.description, c.prefix, uris.searchable_uri(c.uri))
@@ -805,6 +814,7 @@ def get_ontology(
         alignments=_alignments(graph, uris, versions.uri, external, imports),
         used_by_datasets=_dataset_uses(usage, uris, DCT.conformsTo),
         subjects=_subjects(store, uris, graph, node),
+        catalog=resource_catalogs(store, uris, [versions.uri]).get(versions.uri),
     )
 
 
@@ -880,6 +890,7 @@ def _tree(graph: Graph, scheme: URIRef) -> list[schemas.ConceptNode]:
             label=pick_literal(graph.objects(concept, SKOS.prefLabel)),
             top_concept=_is_top(graph, scheme, concept),
             alt_labels=_lang_literals(graph.objects(concept, SKOS.altLabel)),
+            deprecated=is_deprecated(graph, concept),
             children=[],
         )
 
@@ -937,6 +948,7 @@ def get_scheme(store: TripleStore, uris: Uris, slug: str, corp: bool) -> schemas
         ),
         concept_count=len(_concepts(graph, node)),
         tree=_tree(graph, node),
+        catalog=resource_catalogs(store, uris, [str(node)]).get(str(node)),
     )
 
 
@@ -953,7 +965,8 @@ def get_concept(
     )
     narrower = set(_children(graph, concepts, concept)) | set(graph.objects(concept, SKOS.narrower))
     related = set(graph.objects(concept, SKOS.related)) | set(graph.subjects(SKOS.related, concept))
-    outside = [str(n) for n in broader | narrower | related if n not in concepts]
+    replaced_by = set(graph.objects(concept, DCT.isReplacedBy))
+    outside = [str(n) for n in broader | narrower | related | replaced_by if n not in concepts]
     labels = vocab_labels(store, uris, [*outside, str(scheme)])
     term = iri(str(concept))
     datasets = store.construct(
@@ -992,6 +1005,8 @@ def get_concept(
             datasets=_dataset_uses(datasets, uris, DCAT.theme),
             ontologies=_ontology_uses(ontologies, uris),
         ),
+        deprecated=is_deprecated(graph, concept),
+        replaced_by=refs(replaced_by),
     )
 
 

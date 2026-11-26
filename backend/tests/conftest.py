@@ -31,15 +31,18 @@ os.environ.pop("FRONTEND_BASE_URL", None)
 import shutil
 from collections.abc import Callable, Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
-from rdflib import Graph
+from pwdlib import PasswordHash
+from pwdlib.hashers.argon2 import Argon2Hasher
+from rdflib import Graph, URIRef
 from sqlalchemy import Engine, create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app import ingest, owl_metrics, vocab_ingest
+from app import bajas, ingest, owl_metrics, security, vocab_ingest
 from app.config import Settings, get_settings
 from app.db import Base, get_db
 from app.deps import get_storage, get_triplestore
@@ -55,6 +58,29 @@ from app.triplestore import MemoryStore
 from app.uris import Uris
 
 DEFAULT_PASSWORD = "contrasena-de-prueba-larga"
+
+# argon2id con los parámetros de producción (64 MiB, 3 pasadas, 4 hilos) cuesta decenas de
+# milisegundos por hash y por verificación, y casi todas las pruebas crean usuarios y
+# hacen login: era buena parte del tiempo de la batería. Las pruebas usan argon2id con
+# parámetros mínimos (mismo algoritmo, mismo formato «$argon2id$…»). Las que dependen del
+# coste real (parámetros de producción, tiempo de login) piden la fixture
+# ``production_password_hash``, y test_security.py comprueba los parámetros de producción.
+PRODUCTION_PASSWORD_HASH = security._password_hash
+PRODUCTION_DUMMY_HASH = security._DUMMY_HASH
+security._password_hash = PasswordHash(
+    (Argon2Hasher(time_cost=1, memory_cost=1024, parallelism=1),)
+)
+security._DUMMY_HASH = security._password_hash.hash("relleno-de-pruebas")
+
+
+@pytest.fixture
+def production_password_hash(monkeypatch: pytest.MonkeyPatch) -> None:
+    """argon2id con los parámetros de producción, para esta prueba."""
+    monkeypatch.setattr(security, "_password_hash", PRODUCTION_PASSWORD_HASH)
+    monkeypatch.setattr(security, "_DUMMY_HASH", PRODUCTION_DUMMY_HASH)
+
+
+DCAT_RESOURCE = URIRef("http://www.w3.org/ns/dcat#resource")
 BASE_URI = "https://semantic.example.org/itot/"  # valor por defecto del proyecto
 
 TESTS_DIR = Path(__file__).resolve().parent
@@ -162,6 +188,32 @@ def store() -> MemoryStore:
     return memory
 
 
+def seed_synthetic_themes(store: MemoryStore) -> set[str]:
+    """Solo los conceptos que usan como ``dcat:theme`` las series sintéticas
+    (``<concepto> a skos:Concept`` en el grafo de su esquema), sin el resto del esquema.
+    Para las pruebas que publican esas series en un triplestore sin vocabularios: desde
+    QA-50-03 un tema de ``{BASE_URI}vocab/`` tiene que ser un concepto vivo. Devuelve los
+    grafos sembrados."""
+    skos_concept = URIRef("http://www.w3.org/2004/02/skos/core#Concept")
+    rdf_type = URIRef("http://www.w3.org/1999/02/22-rdf-syntax-ns#type")
+    theme = URIRef("http://www.w3.org/ns/dcat#theme")
+    graphs: dict[str, Graph] = {}
+    for path in sorted((FIXTURE_DATA_DIR / "sintetico").glob("*.ttl")):
+        series = Graph().parse(path, format="turtle", publicID=BASE_URI)
+        for concept in series.objects(None, theme):
+            if isinstance(concept, URIRef) and str(concept).startswith(f"{BASE_URI}vocab/"):
+                scheme = str(concept).rsplit("/", 1)[0]
+                graphs.setdefault(scheme, Graph()).add((concept, rdf_type, skos_concept))
+    for scheme, graph in graphs.items():
+        store.append_graph(scheme, graph)
+    return set(graphs)
+
+
+@pytest.fixture
+def synthetic_themes(store: MemoryStore) -> set[str]:
+    return seed_synthetic_themes(store)
+
+
 def load_schemes(store: MemoryStore, semantic_dir: Path, uris: Uris) -> None:
     """Cada esquema SKOS de las fixtures en el grafo de su URI (como ``load-semantic``),
     también los auxiliares de ``data/vocab-minimo.ttl``."""
@@ -198,14 +250,61 @@ def load_fixture_data(store: MemoryStore, semantic_dir: Path, uris: Uris) -> Non
         uri = uris.catalog(path.stem)
         # Sin los dcat:dataset del fichero: la pertenencia la aporta cada serie.
         ingest.store_graph(store, uri, ingest.merge_catalog(Graph(), graph, uri))
+        # Decisión 50: los esquemas y las ontologías del fichero (dcat:resource), como los
+        # deja load-semantic al publicarlos.
+        for resource in graph.objects(URIRef(uri), DCAT_RESOURCE):
+            bajas.set_resource_membership(store, uris, str(resource), uri)
     for path in sorted((data / "sintetico").glob("*.ttl")):
         graph = ingest.parse_file(path, uris.base)
         ingest.publish(store, ingest.prepare_series(graph, uris, semantic_dir))
 
 
+# Contenido del triplestore tras cargar las fixtures, calculado una vez por sesión y por
+# carpeta ``semantic``. Cargarlo cuesta unos segundos por prueba (SHACL de cada serie en
+# un proceso hijo, consultas de pertenencia…) y lo usan cientos de pruebas: cada una
+# recibe un ``MemoryStore`` nuevo con una copia de las cuádruplas, idéntico al que dejaría
+# la carga. Solo se copia sobre un triplestore recién sembrado; si una prueba ya ha escrito
+# algo antes, se carga de verdad.
+Quad = tuple[Any, Any, Any, Any]
+_SNAPSHOTS: dict[tuple[str, Path], list[Quad]] = {}
+_ONTOLOGY_GRAPHS: dict[tuple[str, Path], list[tuple[str, Graph]]] = {}
+
+
+def _is_pristine(store: MemoryStore) -> bool:
+    if store.queries or store.updates or store.graph_names() != set(SEEDED_CATALOGS):
+        return False
+    fresh = MemoryStore()
+    seed_test_catalog(fresh)
+    return len(store.dataset) == len(fresh.dataset) and all(
+        len(store.dataset.graph(URIRef(uri))) == len(fresh.dataset.graph(URIRef(uri)))
+        for uri in SEEDED_CATALOGS
+    )
+
+
+def _load_cached(
+    store: MemoryStore, key: tuple[str, Path], load: Callable[[MemoryStore], None]
+) -> None:
+    if not _is_pristine(store):
+        load(store)
+        return
+    if key not in _SNAPSHOTS:
+        loaded = MemoryStore()
+        seed_test_catalog(loaded)
+        load(loaded)
+        _SNAPSHOTS[key] = list(loaded.dataset.quads((None, None, None, None)))
+    with store._lock:
+        for uri in SEEDED_CATALOGS:
+            store.dataset.remove_graph(URIRef(uri))
+        store.dataset.addN((s, p, o, store.dataset.graph(g)) for s, p, o, g in _SNAPSHOTS[key])
+
+
 @pytest.fixture
 def loaded_store(store: MemoryStore, semantic_dir: Path, uris: Uris) -> MemoryStore:
-    load_fixture_data(store, semantic_dir, uris)
+    _load_cached(
+        store,
+        ("loaded", semantic_dir),
+        lambda target: load_fixture_data(target, semantic_dir, uris),
+    )
     store.queries.clear()
     return store
 
@@ -229,7 +328,17 @@ def itot_metrics(semantic_dir: Path) -> tuple[dict, dict]:
 @pytest.fixture
 def vocab_store(loaded_store: MemoryStore, semantic_dir: Path, uris: Uris) -> MemoryStore:
     """Catálogo, esquemas, ontologías (todas las versiones) y externas cargados."""
-    load_ontology_graphs(loaded_store, semantic_dir, uris)
+    # load_ontology_graphs solo sustituye grafos enteros: basta con guardar cuáles y con
+    # qué tripletas, y volver a escribirlos en cada prueba.
+    key = ("vocab", semantic_dir)
+    if key not in _ONTOLOGY_GRAPHS:
+        recorder = MemoryStore()
+        load_ontology_graphs(recorder, semantic_dir, uris)
+        _ONTOLOGY_GRAPHS[key] = [
+            (uri, recorder.dataset.graph(URIRef(uri))) for uri in sorted(recorder.graph_names())
+        ]
+    for uri, graph in _ONTOLOGY_GRAPHS[key]:
+        loaded_store.put_graph(uri, graph)
     loaded_store.queries.clear()
     return loaded_store
 

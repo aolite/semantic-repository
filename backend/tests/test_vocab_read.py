@@ -5,6 +5,7 @@ semantico (ver ``tests/conftest.py``).
 """
 
 import json
+import re
 
 import pytest
 from fastapi.testclient import TestClient
@@ -58,11 +59,17 @@ def test_vocabularies_cards_and_counts(api: TestClient, itot_metrics: tuple[dict
         "concepts": None,
         "domain": None,
         "synthetic": True,
+        "catalog": {
+            "slug": "vocabularios-sinteticos",
+            "uri": f"{BASE_URI}catalogo/vocabularios-sinteticos",
+            "title": "Vocabularios y ontologías sintéticos de demostración",
+        },
     }
     pqcm = cards[f"{BASE_URI}onto/pqcm"]
     assert (pqcm["status"], pqcm["version"], pqcm["metrics"]) == ("draft", "0.4.0", None)
     saref = cards["https://saref.etsi.org/core/"]
     assert saref["kind"] == "external"
+    assert saref["catalog"] is None  # las externas no están en ningún catálogo
     assert saref["slug"] is None
     assert saref["status"] == "referenced"
     assert saref["prefix"] == "saref"
@@ -114,7 +121,8 @@ def test_vocabularies_filter_q(
     assert {c["uri"] for c in body["items"]} == expected
     assert body["total"] == len(expected)
     assert body["counts"]["skos_domain"] == 5  # los recuentos no dependen de q
-    assert all(q not in query for query in vocab_store.queries)
+    # q no llega a SPARQL (las IRIs de los recursos sí, en la consulta de sus catálogos).
+    assert all(q not in re.sub(r"<[^>]*>", "", query) for query in vocab_store.queries)
 
 
 def test_vocabularies_filter_kind(api: TestClient) -> None:

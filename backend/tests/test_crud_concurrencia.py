@@ -230,6 +230,112 @@ def test_withdraw_and_move_into_catalog_do_not_interleave(
         }
 
 
+# --- Decisión 50: esquemas y ontologías en los catálogos -----------------------------------
+
+VOCAB_CATALOG = f"{BASE_URI}catalogo/vocabularios-sinteticos"
+TRL = f"{BASE_URI}vocab/corp/trl"
+
+
+def _scheme_body(slug: str) -> bytes:
+    return f"""
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix dct: <http://purl.org/dc/terms/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix adms: <http://www.w3.org/ns/adms#> .
+@prefix vann: <http://purl.org/vocab/vann/> .
+<vocab/{slug}> a skos:ConceptScheme ; dct:title "Paralelo"@es ; skos:prefLabel "Paralelo"@es ;
+    dct:description "Esquema de prueba"@es ; dct:subject <vocab/dominio/ot> ;
+    owl:versionInfo "1.0" ; adms:status <http://purl.org/adms/status/Completed> ;
+    vann:preferredNamespacePrefix "{slug}" ; vann:preferredNamespaceUri <vocab/{slug}/> ;
+    skos:hasTopConcept <vocab/{slug}/a> .
+<vocab/{slug}/a> a skos:Concept ; skos:inScheme <vocab/{slug}> ;
+    skos:topConceptOf <vocab/{slug}> ; skos:prefLabel "A"@es .
+""".encode()
+
+
+def test_parallel_resource_memberships_are_not_lost(slow_store: SlowStore) -> None:
+    uris = Uris(BASE_URI)
+    target = uris.catalog("pruebas")
+    schemes = [uris.scheme(f"paralelo-{n}") for n in range(PARALLEL)]
+    puts: list[str] = []
+    original = slow_store.put_graph
+
+    def spy(uri: str, graph: Graph) -> None:
+        puts.append(uri)
+        original(uri, graph)
+
+    slow_store.put_graph = spy  # type: ignore[method-assign]
+    _parallel(lambda n: bajas.set_resource_membership(slow_store, uris, schemes[n], target))
+    members = set(slow_store.get_graph(target).objects(URIRef(target), DCAT.resource))
+    assert {URIRef(s) for s in schemes} <= members
+    # Mover cada uno a otro catálogo: una petición de Update, sin reescribir el grafo.
+    _parallel(lambda n: bajas.set_resource_membership(slow_store, uris, schemes[n], VOCAB_CATALOG))
+    assert not {URIRef(s) for s in schemes} & set(
+        slow_store.get_graph(target).objects(URIRef(target), DCAT.resource)
+    )
+    assert (
+        len(set(slow_store.get_graph(VOCAB_CATALOG).objects(URIRef(VOCAB_CATALOG), DCAT.resource)))
+        == 12 + PARALLEL
+    )
+    assert puts == []
+
+
+def test_withdraw_catalog_and_move_scheme_into_it_do_not_interleave(
+    api: TestClient, slow_store: SlowStore, editor: dict[str, str]
+) -> None:
+    """Nunca acaban con éxito las dos: un esquema colgado de un catálogo dado de baja."""
+    assert api.post("/catalogs", json=_catalog("carrera-vocab"), headers=editor).status_code == 201
+
+    def act(n: int):
+        if n % 2:
+            return api.delete("/catalogs/carrera-vocab", headers=editor)
+        return api.patch("/schemes/corp/trl", json={"catalog": "carrera-vocab"}, headers=editor)
+
+    responses = _parallel(act)
+    withdrawn = [r for r in responses if r.request.method == "DELETE" and r.status_code == 204]
+    moved = [r for r in responses if r.request.method == "PATCH" and r.status_code == 200]
+    assert not (withdrawn and moved)
+    uris = Uris(BASE_URI)
+    catalogs = bajas.resource_catalogs(slow_store, uris, TRL)
+    assert len(catalogs) == 1
+    if withdrawn:
+        assert catalogs == {VOCAB_CATALOG}
+
+
+def test_simultaneous_withdrawals_of_one_scheme_leave_one_tombstone(
+    api: TestClient, slow_store: SlowStore, editor: dict[str, str]
+) -> None:
+    responses = _parallel(lambda _n: api.delete("/schemes/corp/trl", headers=editor))
+    codes = sorted(r.status_code for r in responses)
+    assert codes == [204] + [410] * (PARALLEL - 1)
+    tombstones = list(
+        slow_store.get_graph(f"{BASE_URI}bajas").objects(
+            URIRef(TRL), URIRef("http://www.w3.org/ns/prov#invalidatedAtTime")
+        )
+    )
+    assert len(tombstones) == 1
+
+
+def test_same_scheme_published_in_two_catalogs_at_once_ends_in_one(
+    api: TestClient, slow_store: SlowStore, editor: dict[str, str]
+) -> None:
+    """Regla 3 con escrituras simultáneas: comprobar el catálogo y escribir van juntos."""
+    catalogs = ["pruebas", "sintetico"]
+    responses = _parallel(
+        lambda n: api.post(
+            f"/schemes?catalog={catalogs[n % 2]}",
+            content=_scheme_body("disputado"),
+            headers=editor | {"Content-Type": "text/turtle"},
+        )
+    )
+    codes = sorted(r.status_code for r in responses)
+    assert codes.count(201) == 1
+    assert set(codes) <= {200, 201, 409}
+    assert {r.json()["kind"] for r in responses if r.status_code == 409} <= {"catalog_conflict"}
+    uris = Uris(BASE_URI)
+    assert len(bajas.resource_catalogs(slow_store, uris, uris.scheme("disputado"))) == 1
+
+
 # --- QA-49-03: el bloqueo no agota el pool ni bloquea las lecturas -------------------------
 
 

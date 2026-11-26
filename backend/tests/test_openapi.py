@@ -120,6 +120,7 @@ def test_openapi_exposes_catalog_crud() -> None:
         "slug_in_use",
         "withdrawn",
         "catalog_not_empty",
+        "in_use",  # decisión 50
     ]
     for path, method in (
         ("/catalogs", "post"),
@@ -130,3 +131,43 @@ def test_openapi_exposes_catalog_crud() -> None:
         assert conflict["schema"]["$ref"].endswith("/ConflictResponse"), (path, method)
     kinds = components["IngestErrorResponse"]["properties"]["kind"]["enum"]
     assert {"catalog", "withdrawn", "catalog_conflict"} <= set(kinds)
+
+
+def test_openapi_exposes_vocabulary_crud() -> None:
+    """Decisión 50: CRUD de esquemas y ontologías en los catálogos, 403 not_managed y 410."""
+    schema = json.loads(OPENAPI_PATH.read_text(encoding="utf-8"))
+    paths = schema["paths"]
+    components = schema["components"]["schemas"]
+    for path in ("/schemes/{slug}", "/schemes/corp/{slug}"):
+        assert set(paths[path]) == {"get", "patch", "delete"}
+        assert {"401", "403", "404", "410", "422"} <= set(paths[path]["patch"]["responses"])
+        assert {"401", "403", "404", "409", "410"} <= set(paths[path]["delete"]["responses"])
+        assert "410" in paths[path]["get"]["responses"]
+    assert set(paths["/ontologies/{slug}"]) == {"get", "patch", "delete"}
+    for path in ("/schemes", "/ontologies"):
+        params = {p["name"] for p in paths[path]["post"].get("parameters", [])}
+        assert "catalog" in params, path
+        assert {"403", "409", "422"} <= set(paths[path]["post"]["responses"])
+    assert components["ForbiddenResponse"]["properties"]["kind"]["anyOf"][0]["const"] == (
+        "not_managed"
+    )
+    assert components["GoneResponse"]["properties"]["resource"]["enum"] == [
+        "catalog",
+        "dataset",
+        "scheme",
+        "ontology",
+    ]
+    for name in ("SchemeUpdate", "OntologyUpdate"):
+        assert components[name].get("additionalProperties") is False, name
+    assert components["OntologyUpdate"]["required"] == ["catalog"]
+    kinds = set(components["IngestErrorResponse"]["properties"]["kind"]["enum"])
+    assert {
+        "prefix_withdrawn",
+        "prefix_in_use",
+        "concepts_removed",
+        "concept_reactivated",
+        "replacement",
+        "deprecated_theme",
+        "unknown_theme",
+    } <= kinds
+    assert "used_by" in components["ConflictResponse"]["properties"]

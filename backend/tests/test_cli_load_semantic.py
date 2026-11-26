@@ -53,6 +53,7 @@ EXPECTED_GRAPHS = {
     *ONTOLOGY_VERSIONS,
     f"{BASE_URI}onto/externas",
     f"{BASE_URI}catalogo",
+    f"{BASE_URI}catalogo/vocabularios-sinteticos",  # decisión 50
     f"{BASE_URI}dataset/modbus-tcp-testbed",
     f"{BASE_URI}dataset/hallazgos-auditorias-intrusion",
     f"{BASE_URI}dataset/ejemplos-adversarios-vision",
@@ -118,8 +119,24 @@ def test_load_semantic_loads_everything(
     assert titles == {"Datasets sintéticos de demostración"}
     assert len(set(catalog.objects(URIRef(sintetico), DCAT.dataset))) == 3
     root = store.get_graph(f"{BASE_URI}catalogo")
-    assert set(root.objects(URIRef(f"{BASE_URI}catalogo"), DCAT.catalog)) == {URIRef(sintetico)}
+    vocab_catalog = f"{BASE_URI}catalogo/vocabularios-sinteticos"
+    assert set(root.objects(URIRef(f"{BASE_URI}catalogo"), DCAT.catalog)) == {
+        URIRef(sintetico),
+        URIRef(vocab_catalog),
+    }
     assert not list(root.objects(URIRef(f"{BASE_URI}catalogo"), DCAT.dataset))
+    # Decisión 50: los nueve esquemas y las tres ontologías, en «vocabularios-sinteticos»
+    # (en el grafo del catálogo, no en el del esquema ni en el de la versión).
+    resources = {
+        str(r) for r in store.get_graph(vocab_catalog).objects(URIRef(vocab_catalog), DCAT.resource)
+    }
+    expected_resources = {
+        uri for uri in SCHEMES if not uri.endswith(("/vocab/dominio", "/vocab/tipo-dataset"))
+    } | {uri.rsplit("/", 1)[0] for uri in ONTOLOGY_VERSIONS}
+    assert resources == expected_resources
+    assert len(resources) == 12
+    for graph_uri in (*SCHEMES, *ONTOLOGY_VERSIONS):
+        assert not list(store.get_graph(graph_uri).triples((None, DCAT.resource, None)))
     assert "modbus-tcp-testbed.ttl" in result.output
     assert "versiones 1.0.0, 2.0.0, 2.1.0" in result.output
     assert "data/vocab-minimo.ttl (dominio)" in result.output

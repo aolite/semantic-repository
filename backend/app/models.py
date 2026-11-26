@@ -61,6 +61,11 @@ class AuditAction(enum.StrEnum):
     DATASET_CREATED = "dataset_created"
     DATASET_UPDATED = "dataset_updated"
     DATASET_WITHDRAWN = "dataset_withdrawn"
+    # Decisión 50: esquemas SKOS y ontologías propias en los catálogos.
+    SCHEME_UPDATED = "scheme_updated"
+    SCHEME_WITHDRAWN = "scheme_withdrawn"
+    ONTOLOGY_UPDATED = "ontology_updated"
+    ONTOLOGY_WITHDRAWN = "ontology_withdrawn"
 
 
 class User(Base):
@@ -233,3 +238,18 @@ class RateLimitCounter(Base):
     key: Mapped[str] = mapped_column(String(160), primary_key=True)
     window: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     count: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class WithdrawnPrefix(Base):
+    """Prefijo VANN (``vann:preferredNamespacePrefix``) de un esquema SKOS o una ontología
+    propia dados de baja (decisión 50, regla 7 de ``semantic/uris.md``): no se reutiliza.
+
+    Va aquí porque la lápida del grafo ``{BASE_URI}bajas`` es cerrada (``itsh:BajaShape``)
+    y no guarda el prefijo. Lo escribe la baja y lo leen la ingesta y ``load-semantic``.
+    """
+
+    __tablename__ = "withdrawn_prefixes"
+
+    prefix: Mapped[str] = mapped_column(String(200), primary_key=True)
+    resource_uri: Mapped[str] = mapped_column(String(1024), index=True)
+    withdrawn_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

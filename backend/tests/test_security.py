@@ -37,6 +37,10 @@ from app.models import AuditAction, AuditEvent, Role, User
 from app.security import create_access_token
 from tests.conftest import DEFAULT_PASSWORD, FIXTURE_DATA_DIR, FIXTURE_SEMANTIC_DIR, TESTS_DIR
 
+# Decisión 50: esquemas y ontologías se publican en un catálogo (el de las pruebas).
+ONTOLOGIES = "/ontologies?catalog=pruebas"
+SCHEMES = "/schemes?catalog=pruebas"
+
 _SERIES_TTL = FIXTURE_DATA_DIR / "sintetico" / "modbus-tcp-testbed.ttl"
 _SCHEME_TTL = FIXTURE_SEMANTIC_DIR / "vocabularios" / "corp" / "trl.ttl"
 _ONTOLOGY_TTL = FIXTURE_SEMANTIC_DIR / "ontologias" / "pqcm" / "0.4.0.ttl"
@@ -641,7 +645,18 @@ def test_login_always_runs_the_password_hash(
         assert calls[0].startswith("$argon2id$"), username
 
 
-def test_dummy_hash_costs_the_same_as_a_real_one() -> None:
+def test_production_password_hash_is_argon2id_with_its_default_cost(
+    production_password_hash: None,
+) -> None:
+    """En producción, argon2id con 64 MiB, 3 pasadas y 4 hilos (las pruebas usan un coste
+    mínimo; ver ``conftest.py``)."""
+    password_hash = security.hash_password(DEFAULT_PASSWORD)
+    assert password_hash.startswith("$argon2id$v=19$m=65536,t=3,p=4$")
+    assert security.verify_password(DEFAULT_PASSWORD, password_hash)
+    assert not security.verify_password("otra-contrasena-larga", password_hash)
+
+
+def test_dummy_hash_costs_the_same_as_a_real_one(production_password_hash: None) -> None:
     """El hash de relleno usa los mismos parámetros argon2 que una contraseña real."""
 
     def params(password_hash: str) -> tuple[str, ...]:
@@ -652,7 +667,7 @@ def test_dummy_hash_costs_the_same_as_a_real_one() -> None:
 
 
 def test_login_timing_does_not_reveal_accounts(
-    client: TestClient, make_user: Callable[..., User]
+    client: TestClient, make_user: Callable[..., User], production_password_hash: None
 ) -> None:
     """Medición gruesa: el login de un usuario inexistente no es mucho más rápido.
 
@@ -902,6 +917,7 @@ def test_create_user_rejects_control_chars_in_username_and_password(
 # --- La auditoría no guarda contraseñas ni tokens ------------------------------------
 
 
+@pytest.mark.usefixtures("synthetic_themes")
 def test_audit_never_stores_passwords_tokens_or_hashes(
     no_pellet: None,
     client: TestClient,
@@ -947,13 +963,13 @@ def test_audit_never_stores_passwords_tokens_or_hashes(
     assert published.status_code == 201, published.text
     # Fase 3: publicación de un esquema SKOS y de una versión de ontología.
     scheme = client.post(
-        "/schemes",
+        SCHEMES,
         content=_SCHEME_TTL.read_bytes(),
         headers=headers | {"Content-Type": "text/turtle"},
     )
     assert scheme.status_code == 201, scheme.text
     ontology = client.post(
-        "/ontologies",
+        ONTOLOGIES,
         content=_ONTOLOGY_TTL.read_bytes(),
         headers=headers | {"Content-Type": "text/turtle"},
     )
@@ -976,6 +992,14 @@ def test_audit_never_stores_passwords_tokens_or_hashes(
         client.delete("/catalogs/auditado", headers=headers),
     ]
     assert [r.status_code for r in crud] == [201, 200, 201, 200, 204, 204]
+    # Decisión 50: edición, traslado y baja de un esquema y de una ontología.
+    vocab_crud = [
+        client.patch("/schemes/corp/trl", json={"title": "T2"}, headers=headers),
+        client.patch("/ontologies/pqcm", json={"catalog": "sintetico"}, headers=headers),
+        client.delete("/schemes/corp/trl", headers=headers),
+        client.delete("/ontologies/pqcm", headers=headers),
+    ]
+    assert [r.status_code for r in vocab_crud] == [200, 200, 204, 204], [r.text for r in vocab_crud]
     # Fase 4: fichero de distribución (subida y descarga restringida), evaluación FAIR,
     # consultas guardadas y bloqueo de login.
     member = _bearer(member_token)
@@ -1018,6 +1042,7 @@ def test_audit_never_stores_passwords_tokens_or_hashes(
     assert not re.search(r"pass|contrase|secret|token|bearer", without_reasons, re.IGNORECASE)
 
 
+@pytest.mark.usefixtures("synthetic_themes")
 def test_audit_details_have_only_the_expected_keys(
     no_pellet: None,
     client: TestClient,
@@ -1042,7 +1067,7 @@ def test_audit_details_have_only_the_expected_keys(
         content=_SERIES_TTL.read_bytes(),
         headers=headers | {"Content-Type": "text/turtle"},
     )
-    for path, ttl in (("/schemes", _SCHEME_TTL), ("/ontologies", _ONTOLOGY_TTL)):
+    for path, ttl in ((SCHEMES, _SCHEME_TTL), (ONTOLOGIES, _ONTOLOGY_TTL)):
         response = client.post(
             path, content=ttl.read_bytes(), headers=headers | {"Content-Type": "text/turtle"}
         )
@@ -1058,6 +1083,7 @@ def test_audit_details_have_only_the_expected_keys(
             "triples",
             "created",
             "changed",
+            "catalog",
             "via",
         },
         AuditAction.ONTOLOGY_PUBLISHED: {
@@ -1071,6 +1097,7 @@ def test_audit_details_have_only_the_expected_keys(
             "changed",
             "metrics_recomputed",
             "consistent",
+            "catalog",
             "via",
         },
         AuditAction.DATASET_PUBLISHED: {
@@ -1125,6 +1152,33 @@ def test_audit_details_have_only_the_expected_keys(
             "versions",
             "files_deleted",
             "files_not_deleted",
+            "via",
+        },
+        # Decisión 50.
+        AuditAction.SCHEME_UPDATED: {"scheme", "fields", "catalog", "moved_from", "changed", "via"},
+        AuditAction.ONTOLOGY_UPDATED: {
+            "ontology",
+            "fields",
+            "catalog",
+            "moved_from",
+            "changed",
+            "via",
+        },
+        AuditAction.SCHEME_WITHDRAWN: {
+            "scheme",
+            "slug",
+            "corp",
+            "catalogs",
+            "concepts",
+            "prefix",
+            "via",
+        },
+        AuditAction.ONTOLOGY_WITHDRAWN: {
+            "ontology",
+            "slug",
+            "catalogs",
+            "versions",
+            "prefix",
             "via",
         },
     }
@@ -1275,6 +1329,13 @@ def test_openapi_marks_every_private_operation_as_secured(client: TestClient) ->
         ("post", "/datasets"),
         ("post", "/ontologies"),
         ("post", "/schemes"),
+        # Decisión 50: edición y baja de esquemas y ontologías (editor; admin hereda).
+        ("patch", "/schemes/{slug}"),
+        ("delete", "/schemes/{slug}"),
+        ("patch", "/schemes/corp/{slug}"),
+        ("delete", "/schemes/corp/{slug}"),
+        ("patch", "/ontologies/{slug}"),
+        ("delete", "/ontologies/{slug}"),
         # Decisión 49: CRUD de catálogos y datasets (editor; admin hereda).
         ("post", "/catalogs"),
         ("patch", "/catalogs/{slug}"),

@@ -194,6 +194,22 @@ class Uris:
                 return rest, False
         return None
 
+    def is_auxiliary_scheme(self, uri: str) -> bool:
+        """``{BASE_URI}vocab/dominio`` o ``{BASE_URI}vocab/tipo-dataset`` (no se gestionan
+        desde la aplicación, decisión 50)."""
+        parts = self.scheme_parts(uri)
+        return parts is not None and not parts[1] and parts[0] in AUXILIARY_SCHEME_SLUGS
+
+    def managed_resource(self, uri: str) -> str | None:
+        """``"scheme"`` o ``"ontology"`` si ``uri`` es un esquema SKOS (de dominio o
+        corporativo, no auxiliar) o una ontología propia que puede estar en un catálogo con
+        ``dcat:resource`` (decisión 50); ``None`` en cualquier otro caso."""
+        if self.scheme_parts(uri) is not None and not self.is_auxiliary_scheme(uri):
+            return "scheme"
+        if self.ontology_slug(uri) is not None:
+            return "ontology"
+        return None
+
     def series_slug(self, uri: str) -> str | None:
         """Slug de una URI de serie, o ``None`` si no sigue el patrón."""
         if not uri.startswith(self.dataset_ns):

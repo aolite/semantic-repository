@@ -14,11 +14,15 @@ from collections.abc import Callable
 import pytest
 from fastapi.testclient import TestClient
 
-from app import bajas, catalog, vocabularies
+from app import bajas, catalog, ingest, vocab_crud, vocab_ingest, vocabularies
 from app.models import Role, User
 from app.triplestore import MemoryStore
 from tests.conftest import user_graphs
 from tests.test_security_fase2 import INJECTIONS
+
+# Decisión 50: esquemas y ontologías se publican en un catálogo (el de las pruebas).
+ONTOLOGIES = "/ontologies?catalog=pruebas"
+SCHEMES = "/schemes?catalog=pruebas"
 
 _IRI = r'<[^<>"{}|^`\\\x00-\x20]+>'
 _LITERAL = r'"(?:[^"\\]|\\.)*"'
@@ -41,6 +45,16 @@ TEMPLATES = [
     vocabularies.THEME_USAGE_QUERY,
     vocabularies.SUBJECT_USAGE_QUERY,
     "CONSTRUCT { ?s ?p ?o } WHERE { GRAPH $graph { ?s ?p ?o } }",  # triplestore.py
+    # Decisión 50: catálogo de esquemas y ontologías, temas retirados, sustitutos vivos y
+    # usos de un esquema o una ontología antes de darlos de baja.
+    catalog.RESOURCE_CATALOG_QUERY,
+    ingest._DEPRECATED_QUERY,
+    vocab_ingest._LIVE_CONCEPTS_QUERY,
+    vocab_crud._THEME_USES,
+    vocab_crud._SUBJECT_USES,
+    vocab_crud._MAPPING_USES,
+    vocab_crud._IMPORT_USES,
+    vocab_crud._TERM_USES,
 ]
 
 
@@ -181,7 +195,7 @@ def test_hostile_literals_in_scheme_are_stored_as_data(
     skos:topConceptOf <vocab/corp/hostil> ; skos:prefLabel "{escaped}"@es .
 """
     response = client.post(
-        "/schemes",
+        SCHEMES,
         content=body.encode(),
         headers=login("editora") | {"Content-Type": "text/turtle"},
     )

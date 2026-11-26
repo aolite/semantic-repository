@@ -126,7 +126,21 @@ def _schema_enum(schema: dict[str, Any]) -> list[str] | None:
 # Valores nuevos de un enum del contrato que el frontend todavía no tiene (el contrato
 # OpenAPI cambia en su propia PR y el frontend se adapta después). Se borran cuando
 # frontend/src/api/types.ts los incorpore.
-PENDING_FRONTEND_VALUES: dict[tuple[str, str], set[str]] = {}
+# Decisión 50 (contrato del backend antes que el frontend): valores nuevos que frontend
+# aún no tiene en types.ts.
+PENDING_FRONTEND_VALUES: dict[tuple[str, str], set[str]] = {
+    ("IngestErrorResponse", "kind"): {
+        "prefix_withdrawn",
+        "prefix_in_use",
+        "concepts_removed",
+        "concept_reactivated",
+        "replacement",
+        "deprecated_theme",
+        "unknown_theme",
+    },
+    ("ConflictResponse", "kind"): {"in_use"},
+    ("GoneResponse", "resource"): {"scheme", "ontology"},
+}
 
 
 def test_frontend_literal_types_match_the_contract_enums() -> None:
@@ -226,11 +240,24 @@ def _client_calls() -> dict[str, set[str]]:
     return calls
 
 
+# Llamadas del contrato que el frontend de esta rama todavía no hace (el backend va antes
+# que el frontend). Mientras estén aquí, la prueba admite que falten; si el frontend las
+# hace, tienen que llevar los parámetros de ``expected``. Se borran cuando el frontend
+# de la decisión 50 (publicar desde el catálogo) llegue a ``main``.
+PENDING_FRONTEND_CALLS: set[str] = {"/schemes", "/ontologies"}
+
+
 def test_frontend_calls_only_paths_and_parameters_of_the_contract() -> None:
+    # Parámetros de todas las operaciones de cada ruta: desde la decisión 50 el cliente
+    # también llama con `withQuery` a `POST /schemes?catalog=` y `POST /ontologies?catalog=`.
     contract = {
-        re.sub(r"\{[^}]*\}", "{}", path): {p["name"] for p in ops["get"].get("parameters", [])}
+        re.sub(r"\{[^}]*\}", "{}", path): {
+            p["name"]
+            for op in ops.values()
+            if isinstance(op, dict)
+            for p in op.get("parameters", [])
+        }
         for path, ops in _contract()["paths"].items()
-        if "get" in ops
     }
     calls = _client_calls()
     expected = {
@@ -243,8 +270,13 @@ def test_frontend_calls_only_paths_and_parameters_of_the_contract() -> None:
         "/schemes/corp/{}/rdf": {"format", "download"},
         "/schemes/{}/concepts/{}": set(),
         "/schemes/corp/{}/concepts/{}": set(),
+        # QA-50-08: publicar un esquema o una ontología siempre lleva `?catalog=`.
+        "/schemes": {"catalog"},
+        "/ontologies": {"catalog"},
     }
     for path, params in expected.items():
+        if path in PENDING_FRONTEND_CALLS and path not in calls:
+            continue
         assert path in calls, f"el frontend no llama a {path}"
         assert calls[path] == params, path
     for path, params in calls.items():
@@ -359,10 +391,10 @@ def test_semantic_has_the_twenty_files_load_semantic_reads() -> None:
 def test_load_semantic_plan_covers_every_file_and_graph(
     real_settings: Settings, db: Session
 ) -> None:
-    """``load-semantic`` valida los 21 ficheros reales y los reparte en 22 grafos: cada
+    """``load-semantic`` valida los 22 ficheros reales y los reparte en 23 grafos: cada
     esquema en su URI, cada versión de ontología en su ``owl:versionIRI``, las externas en
-    ``onto/externas``, el catálogo raíz, el catálogo «sintetico» (decisión 49) y las tres
-    series."""
+    ``onto/externas``, el catálogo raíz, el catálogo «sintetico» (decisión 49), el catálogo
+    «vocabularios-sinteticos» (decisión 50) y las tres series."""
     base = Uris(real_settings.base_uri)
     plan, failed = cli._validate_all(real_settings, base, db)
     assert failed is False
@@ -390,14 +422,25 @@ def test_load_semantic_plan_covers_every_file_and_graph(
         base.external_ontologies_graph,
         base.root_catalog,
         base.catalog("sintetico"),
+        base.catalog("vocabularios-sinteticos"),
         base.series("modbus-tcp-testbed"),
         base.series("hallazgos-auditorias-intrusion"),
         base.series("ejemplos-adversarios-vision"),
     }
     assert set(graphs) == expected
-    assert len(graphs) == 22
+    assert len(graphs) == 23
     files = {name.split(" (")[0] for name in graphs.values()}
-    assert len(files) == 21
+    assert len(files) == 22
+    # Decisión 50: cada esquema (no auxiliar) y cada ontología propia, en el catálogo
+    # «vocabularios-sinteticos», y el triple no se queda en su grafo.
+    catalog_uri = base.catalog("vocabularios-sinteticos")
+    for _name, prepared in plan.schemes:
+        expected_catalog = None if base.is_auxiliary_scheme(prepared.uri) else catalog_uri
+        assert prepared.catalog_uri == expected_catalog, prepared.uri
+        assert not list(prepared.graph.triples((None, uris.DCAT.resource, None)))
+    for _name, prepared_onto, _analysis in plan.ontologies:
+        assert prepared_onto.catalog_uri == catalog_uri, prepared_onto.uri
+        assert not list(prepared_onto.graph.triples((None, uris.DCAT.resource, None)))
 
 
 def test_every_domain_scheme_declares_one_catalog_domain(

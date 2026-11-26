@@ -1,0 +1,31 @@
+# Ejemplo INVÁLIDO (decisión 50): El catálogo lista la versión (owl:versionIRI) y no la ontología.
+# Todo lo demás es válido, así que solo deben fallar las formas indicadas.
+# validate.py lee las líneas «expect-violation» (nombre local en {BASE_URI}shapes#).
+# expect-violation: OwnOntology-catalog
+
+# BASE_URI: el fichero no declara @base; las URIs son relativas.
+
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix dct:  <http://purl.org/dc/terms/> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix adms: <http://www.w3.org/ns/adms#> .
+@prefix vann: <http://purl.org/vocab/vann/> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix dcat: <http://www.w3.org/ns/dcat#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+
+<onto/ejemplo>
+    a owl:Ontology ;
+    owl:versionIRI <onto/ejemplo/1.0.0> ;
+    owl:versionInfo "1.0.0" ;
+    dct:title "Ontología de ejemplo"@es ;
+    dct:description "Ontología mínima para un ejemplo."@es ;
+    adms:status <http://purl.org/adms/status/Completed> ;
+    vann:preferredNamespacePrefix "ejemplo" ;
+    vann:preferredNamespaceUri <onto/ejemplo#> .
+
+# Pertenencia a un catálogo (decisión 50): en la ingesta, el backend añade este
+# triple a partir del catálogo elegido.
+<catalogo/prueba> dcat:resource <onto/ejemplo/1.0.0> .

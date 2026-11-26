@@ -56,6 +56,10 @@ from tests.test_security_fase2 import INJECTIONS
 from tests.test_security_fase3 import _assert_only_fixed_queries
 from tests.test_vocab_ingest import _onto, _scheme
 
+# Decisión 50: esquemas y ontologías se publican en un catálogo (el de las pruebas).
+ONTOLOGIES = "/ontologies?catalog=pruebas"
+SCHEMES = "/schemes?catalog=pruebas"
+
 TTL = {"Content-Type": TURTLE}
 LD = {"Content-Type": JSONLD}
 PRUEBA = f"{BASE_URI}onto/prueba"
@@ -190,7 +194,7 @@ def test_hostile_iris_in_scheme_are_stored_as_data(
         + f"skos:related <{hostile}> ."
         + f"\n<vocab/prueba> dct:creator <{hostile}> ."
     )
-    response = client.post("/schemes", content=body, headers=editor | TTL)
+    response = client.post(SCHEMES, content=body, headers=editor | TTL)
     assert response.status_code == 201, response.text
     loaded_store.queries.clear()
     concept = client.get("/schemes/prueba/concepts/c")
@@ -214,7 +218,7 @@ def test_hostile_iris_in_ontology_are_stored_as_data(
         f"<onto/prueba> dct:subject <{hostile}> , <vocab/ot/modbus-tcp> ; owl:imports <{hostile}> ."
         f"\n:A a owl:Class ; rdfs:subClassOf <{hostile}> ; rdfs:seeAlso <{hostile}> ."
     )
-    response = client.post("/ontologies", content=body, headers=editor | TTL)
+    response = client.post(ONTOLOGIES, content=body, headers=editor | TTL)
     assert response.status_code == 201, response.text
     loaded_store.queries.clear()
     detail = client.get("/ontologies/prueba")
@@ -267,7 +271,7 @@ def test_ontology_ingest_cannot_describe_other_resources(
 ) -> None:
     before = _snapshot(vocab_store)
     body = _onto(f':A a owl:Class . <{subject}> rdfs:label "pisado"@es .')
-    response = client.post("/ontologies", content=body, headers=editor | TTL)
+    response = client.post(ONTOLOGIES, content=body, headers=editor | TTL)
     assert response.status_code == 422, response.text
     assert response.json()["kind"] == "uri"
     assert _snapshot(vocab_store) == before
@@ -295,7 +299,7 @@ def test_scheme_ingest_cannot_describe_other_resources(
 ) -> None:
     before = _snapshot(vocab_store)
     body = _scheme(CONCEPT + f'. <{subject}> skos:prefLabel "pisado"@es .')
-    response = client.post("/schemes", content=body, headers=editor | TTL)
+    response = client.post(SCHEMES, content=body, headers=editor | TTL)
     assert response.status_code == 422, response.text
     assert response.json()["kind"] == "uri"
     assert _snapshot(vocab_store) == before
@@ -306,7 +310,7 @@ def test_scheme_ingest_rejects_external_subjects(
     client: TestClient, editor: dict[str, str], store: MemoryStore
 ) -> None:
     body = _scheme(CONCEPT + '. <https://otro.example/vocab/x> skos:prefLabel "externo"@es .')
-    assert client.post("/schemes", content=body, headers=editor | TTL).status_code == 422
+    assert client.post(SCHEMES, content=body, headers=editor | TTL).status_code == 422
     assert user_graphs(store) == set()
 
 
@@ -352,7 +356,7 @@ def test_lookalike_iris_never_touch_other_graphs(
         b"@prefix : <onto/prueba#> . @prefix skos: <http://www.w3.org/2004/02/skos/core#> . "
         b"@prefix dcat: <http://www.w3.org/ns/dcat#> .",
     )
-    response = api.post("/ontologies", content=body, headers=editor | TTL)
+    response = api.post(ONTOLOGIES, content=body, headers=editor | TTL)
     assert response.status_code in (201, 422), response.text
     after = _snapshot(vocab_store)
     if response.status_code == 201:
@@ -378,7 +382,7 @@ def test_ontology_slug_rules(
     client: TestClient, editor: dict[str, str], store: MemoryStore, slug: str
 ) -> None:
     body = _onto(":A a owl:Class .", slug=slug)
-    response = client.post("/ontologies", content=body, headers=editor | TTL)
+    response = client.post(ONTOLOGIES, content=body, headers=editor | TTL)
     assert response.status_code == 422, response.text
     assert user_graphs(store) == set()
 
@@ -387,7 +391,7 @@ def test_ontology_slug_rules(
 def test_corp_is_a_reserved_scheme_slug(
     client: TestClient, editor: dict[str, str], store: MemoryStore, uri: str
 ) -> None:
-    response = client.post("/schemes", content=_scheme("", uri=uri), headers=editor | TTL)
+    response = client.post(SCHEMES, content=_scheme("", uri=uri), headers=editor | TTL)
     assert response.status_code == 422, response.text
     assert user_graphs(store) == set()
 
@@ -404,9 +408,11 @@ def test_auxiliary_scheme_slugs_are_reserved(
         f'skos:prefLabel "PISADO"@es .',
         uri=f"vocab/{slug}",
     )
-    response = client.post("/schemes", content=body, headers=editor | TTL)
+    response = client.post(SCHEMES, content=body, headers=editor | TTL)
     after = [d["label"] for i in client.get("/datasets").json()["items"] for d in i["domains"]]
-    assert response.status_code == 422, response.text
+    # Decisión 50 (regla 12): 403 not_managed (antes, 422).
+    assert response.status_code == 403, response.text
+    assert response.json()["kind"] == "not_managed"
     assert _snapshot(loaded_store) == before
     assert after == labels
 
@@ -449,7 +455,7 @@ def test_incoherent_versions_are_rejected(
     body: bytes,
 ) -> None:
     before = _snapshot(vocab_store)
-    response = client.post("/ontologies", content=body, headers=editor | TTL)
+    response = client.post(ONTOLOGIES, content=body, headers=editor | TTL)
     assert response.status_code == 422, response.text
     assert _snapshot(vocab_store) == before
     assert _events(session_factory, *PUBLISH_ACTIONS) == []
@@ -561,7 +567,7 @@ def test_no_process_fetches_urls_found_in_the_rdf(
         f"rdfs:isDefinedBy <{canary.url('defined-by')}> .\n"
         f":p a owl:DatatypeProperty ; rdfs:range <{canary.url('datatype')}> ."
     )
-    response = client.post("/ontologies", content=onto, headers=editor | TTL)
+    response = client.post(ONTOLOGIES, content=onto, headers=editor | TTL)
     assert response.status_code == 201, response.text
     assert response.json()["consistency"]["reasoner"] == "Pellet"
     scheme = _scheme(
@@ -570,10 +576,10 @@ def test_no_process_fetches_urls_found_in_the_rdf(
         f"skos:related <{canary.url('related')}> .\n"
         f"<vocab/prueba> dct:creator <{canary.url('creator')}> ."
     )
-    response = client.post("/schemes", content=scheme, headers=editor | TTL)
+    response = client.post(SCHEMES, content=scheme, headers=editor | TTL)
     assert response.status_code == 201, response.text
     remote = json.dumps({"@context": canary.url("context.jsonld"), "@id": "onto/prueba"}).encode()
-    assert client.post("/ontologies", content=remote, headers=editor | LD).status_code == 422
+    assert client.post(ONTOLOGIES, content=remote, headers=editor | LD).status_code == 422
     for path in (
         "/ontologies/prueba",
         "/ontologies/prueba/rdf?format=jsonld",
@@ -632,7 +638,7 @@ def test_remote_imports_cause_no_network_request(
     if rdf_format == "json-ld":
         graph = Graph().parse(data=body, format="turtle", publicID=BASE_URI)
         body, headers = graph.serialize(format="json-ld").encode(), LD
-    response = client.post("/ontologies", content=body, headers=editor | headers)
+    response = client.post(ONTOLOGIES, content=body, headers=editor | headers)
     assert response.status_code == 201, response.text
     result = response.json()
     assert result["metrics"]["imports"] == len(REMOTE_IMPORTS)
@@ -677,7 +683,7 @@ XXE = (
 )
 
 
-@pytest.mark.parametrize("path", ["/ontologies", "/schemes"])
+@pytest.mark.parametrize("path", [ONTOLOGIES, SCHEMES])
 @pytest.mark.parametrize(
     "content_type",
     ["application/rdf+xml", "application/xml", "text/xml", "application/owl+xml", "text/html"],
@@ -698,7 +704,7 @@ def test_xml_is_not_an_ingest_format(
     assert no_network == []
 
 
-@pytest.mark.parametrize("path", ["/ontologies", "/schemes"])
+@pytest.mark.parametrize("path", [ONTOLOGIES, SCHEMES])
 @pytest.mark.parametrize("headers", [TTL, LD])
 def test_xml_sent_as_turtle_or_jsonld_is_a_syntax_error(
     client: TestClient,
@@ -723,7 +729,7 @@ def test_rdfxml_output_escapes_stored_markup(
     hostile = '<!DOCTYPE x [<!ENTITY e SYSTEM "file:///etc/passwd">]>&e;</rdf:RDF><script>'
     escaped = hostile.replace('"', '\\"')
     body = _scheme(CONCEPT + f'; skos:definition "{escaped}"@es .')
-    assert client.post("/schemes", content=body, headers=editor | TTL).status_code == 201
+    assert client.post(SCHEMES, content=body, headers=editor | TTL).status_code == 201
     response = client.get("/schemes/prueba/rdf", params={"format": "rdfxml"})
     assert response.status_code == 200
     assert response.headers["content-type"].startswith(RDFXML)
@@ -771,7 +777,7 @@ def test_prefix_expansion_is_bounded(data: bytes, rdf_format: ingest.RdfFormat) 
     assert peak < 50 * len(data), f"{len(data)} bytes de entrada, {peak} bytes de pico"
 
 
-@pytest.mark.parametrize("path", ["/ontologies", "/schemes", "/datasets"])
+@pytest.mark.parametrize("path", [ONTOLOGIES, SCHEMES, "/datasets"])
 @pytest.mark.parametrize(
     ("data", "headers"), [(BOMB_TURTLE, TTL), (BOMB_JSONLD, LD)], ids=["turtle", "json-ld"]
 )
@@ -813,7 +819,7 @@ def test_body_over_the_limit_is_rejected_before_parsing(
 
     monkeypatch.setattr(ingest, "parse_rdf", fail)
     big = b"# " + b"a" * settings.ingest_max_bytes
-    for path in ("/ontologies", "/schemes"):
+    for path in (ONTOLOGIES, SCHEMES):
         for headers in (TTL, LD):
             response = client.post(path, content=big, headers=editor | headers)
             assert response.status_code == 413, response.text
@@ -837,7 +843,7 @@ def _claims(user: User, **extra: Any) -> dict[str, Any]:
 
 @pytest.mark.usefixtures("fake_reasoner")
 @pytest.mark.parametrize(
-    ("path", "body"), [("/ontologies", _onto("")), ("/schemes", _scheme(CONCEPT + "."))]
+    ("path", "body"), [(ONTOLOGIES, _onto("")), (SCHEMES, _scheme(CONCEPT + "."))]
 )
 def test_forged_tokens_cannot_publish(
     client: TestClient,
@@ -909,18 +915,14 @@ def test_publish_is_audited_without_content_or_secrets(
     marker = "CONTENIDO-QUE-NO-VA-A-LA-AUDITORIA"
     onto = _onto(f':A a owl:Class ; rdfs:comment "{marker}"@es .')
     scheme = _scheme(CONCEPT + f'; skos:definition "{marker}"@es .')
-    assert client.post("/ontologies", content=onto, headers=headers | TTL).status_code == 201
-    assert client.post("/schemes", content=scheme, headers=headers | TTL).status_code == 201
+    assert client.post(ONTOLOGIES, content=onto, headers=headers | TTL).status_code == 201
+    assert client.post(SCHEMES, content=scheme, headers=headers | TTL).status_code == 201
     # Un rechazo no se audita.
     assert (
-        client.post(
-            "/ontologies", content=_onto("", version="1.0"), headers=headers | TTL
-        ).status_code
+        client.post(ONTOLOGIES, content=_onto("", version="1.0"), headers=headers | TTL).status_code
         == 422
     )
-    assert (
-        client.post("/schemes", content=b"no es turtle", headers=headers | TTL).status_code == 422
-    )
+    assert client.post(SCHEMES, content=b"no es turtle", headers=headers | TTL).status_code == 422
     events = _events(session_factory, *PUBLISH_ACTIONS)
     assert sorted(e.action for e in events) == sorted(PUBLISH_ACTIONS)
     token = headers["Authorization"].removeprefix("Bearer ")
@@ -998,7 +1000,7 @@ def test_hung_reasoner_is_killed_and_the_service_keeps_working(
     body = hard_ontology()
     assert len(body) < 100_000
     start = time.monotonic()
-    response = client.post("/ontologies", content=body, headers=editor | TTL)
+    response = client.post(ONTOLOGIES, content=body, headers=editor | TTL)
     elapsed = time.monotonic() - start
     # La publicación no se bloquea: se guarda con la consistencia «no disponible».
     assert response.status_code == 201, response.text
@@ -1015,7 +1017,7 @@ def test_hung_reasoner_is_killed_and_the_service_keeps_working(
     assert detail.status_code == 200
     assert detail.json()["consistency"]["consistent"] is None
     simple = _onto(":A a owl:Class .", version="1.0.1")
-    after = client.post("/ontologies", content=simple, headers=editor | TTL)
+    after = client.post(ONTOLOGIES, content=simple, headers=editor | TTL)
     assert after.status_code == 201, after.text
     assert after.json()["consistency"]["consistent"] is True
     assert client.get("/health").status_code == 200
@@ -1086,7 +1088,7 @@ PELLET_CRASHES = {
 def test_reasoner_failure_does_not_break_the_service(
     quiet: TestClient, editor: dict[str, str], store: MemoryStore, name: str
 ) -> None:
-    response = quiet.post("/ontologies", content=_onto(PELLET_CRASHES[name]), headers=editor | TTL)
+    response = quiet.post(ONTOLOGIES, content=_onto(PELLET_CRASHES[name]), headers=editor | TTL)
     assert response.status_code == 201, response.text
     consistency = response.json()["consistency"]
     assert consistency["consistent"] in (None, True, False)
@@ -1094,7 +1096,7 @@ def test_reasoner_failure_does_not_break_the_service(
     assert quiet.get("/ontologies/prueba").status_code == 200
     assert quiet.get("/vocabularies").status_code == 200
     ok = quiet.post(
-        "/ontologies", content=_onto(":A a owl:Class .", version="1.0.1"), headers=editor | TTL
+        ONTOLOGIES, content=_onto(":A a owl:Class .", version="1.0.1"), headers=editor | TTL
     )
     assert ok.status_code == 201 and ok.json()["consistency"]["consistent"] is True
 
@@ -1122,7 +1124,7 @@ def _leaks(detail: str | None) -> list[str]:
 def test_reasoner_failure_detail_has_no_stack_trace(
     quiet: TestClient, editor: dict[str, str], name: str
 ) -> None:
-    response = quiet.post("/ontologies", content=_onto(PELLET_CRASHES[name]), headers=editor | TTL)
+    response = quiet.post(ONTOLOGIES, content=_onto(PELLET_CRASHES[name]), headers=editor | TTL)
     assert response.status_code == 201, response.text
     public = quiet.get("/ontologies/prueba").json()["consistency"]["detail"]
     assert _leaks(response.json()["consistency"]["detail"]) == []
@@ -1175,7 +1177,7 @@ def test_unexpected_reasoner_exception_is_not_a_500(
 
     monkeypatch.setattr(owl_metrics, "java_available", lambda: True)
     monkeypatch.setattr(owlready2, "sync_reasoner_pellet", boom)
-    response = quiet.post("/ontologies", content=_onto(":A a owl:Class ."), headers=editor | TTL)
+    response = quiet.post(ONTOLOGIES, content=_onto(":A a owl:Class ."), headers=editor | TTL)
     assert response.status_code == 201, response.text
     assert response.json()["consistency"]["consistent"] is None
     assert "/opt/venv" not in response.text
@@ -1198,7 +1200,7 @@ def test_ontology_that_owlready2_cannot_load_is_not_a_500(
     session_factory: sessionmaker[Session],
     name: str,
 ) -> None:
-    response = quiet.post("/ontologies", content=_onto(UNLOADABLE[name]), headers=editor | TTL)
+    response = quiet.post(ONTOLOGIES, content=_onto(UNLOADABLE[name]), headers=editor | TTL)
     assert response.status_code in (201, 422), f"{response.status_code}: {response.text}"
     if response.status_code == 422:
         assert user_graphs(store) == set()
@@ -1216,14 +1218,14 @@ def test_unloadable_ontology_leaves_nothing_behind(
 ) -> None:
     """Pase lo que pase con QA-G3-01: un fallo no deja ni grafo, ni métricas, ni auditoría a
     medias, no filtra la traza y la siguiente ingesta funciona."""
-    response = quiet.post("/ontologies", content=_onto(UNLOADABLE[name]), headers=editor | TTL)
+    response = quiet.post(ONTOLOGIES, content=_onto(UNLOADABLE[name]), headers=editor | TTL)
     if response.status_code != 201:
         assert user_graphs(store) == set()
         assert _metric_rows(session_factory) == []
         assert _events(session_factory, *PUBLISH_ACTIONS) == []
     assert "Traceback" not in response.text and "owlready2" not in response.text
     ok = quiet.post(
-        "/ontologies", content=_onto(":A a owl:Class .", version="1.0.1"), headers=editor | TTL
+        ONTOLOGIES, content=_onto(":A a owl:Class .", version="1.0.1"), headers=editor | TTL
     )
     assert ok.status_code == 201, ok.text
 
@@ -1559,11 +1561,11 @@ def test_deep_concept_hierarchy_does_not_break_the_scheme(
     """QA-G3-04 (corregido): la ingesta limita la profundidad de la jerarquía y el árbol
     se construye sin recursión."""
     for depth in (300, 1500):
-        response = quiet.post("/schemes", content=_chain(depth), headers=editor | TTL)
+        response = quiet.post(SCHEMES, content=_chain(depth), headers=editor | TTL)
         assert response.status_code == 422, f"{depth}: {response.status_code}"
         assert user_graphs(store) == set()
     # En el límite se admite y se sirve entero.
-    response = quiet.post("/schemes", content=_chain(64), headers=editor | TTL)
+    response = quiet.post(SCHEMES, content=_chain(64), headers=editor | TTL)
     assert response.status_code == 201, response.text
     scheme = quiet.get("/schemes/prueba")
     assert scheme.status_code == 200
@@ -1577,7 +1579,7 @@ def test_deep_concept_hierarchy_does_not_break_the_scheme(
 def test_moderate_concept_hierarchy_is_served(
     client: TestClient, editor: dict[str, str], store: MemoryStore
 ) -> None:
-    assert client.post("/schemes", content=_chain(40), headers=editor | TTL).status_code == 201
+    assert client.post(SCHEMES, content=_chain(40), headers=editor | TTL).status_code == 201
     tree = client.get("/schemes/prueba").json()["tree"]
     depth, node = 0, tree[0]
     while node["children"]:
@@ -1604,7 +1606,7 @@ def test_moderate_concept_hierarchy_is_served(
 def test_cyclic_hierarchies_do_not_hang_or_break_reads(
     quiet: TestClient, editor: dict[str, str], store: MemoryStore, body: str
 ) -> None:
-    response = quiet.post("/schemes", content=_scheme(body), headers=editor | TTL)
+    response = quiet.post(SCHEMES, content=_scheme(body), headers=editor | TTL)
     assert response.status_code in (201, 422), response.text
     if response.status_code == 201:
         assert quiet.get("/schemes/prueba").status_code == 200
@@ -1627,10 +1629,10 @@ def test_rdfxml_is_not_acceptable_when_a_predicate_cannot_be_abbreviated(
     ingesta lo admite (es RDF válido) y pedirlo en RDF/XML da 406, no 500; Turtle y
     JSON-LD siguen disponibles."""
     onto = quiet.post(
-        "/ontologies", content=_onto(f':A a owl:Class ; <{predicate}> "v" .'), headers=editor | TTL
+        ONTOLOGIES, content=_onto(f':A a owl:Class ; <{predicate}> "v" .'), headers=editor | TTL
     )
     scheme = quiet.post(
-        "/schemes", content=_scheme(CONCEPT + f'; <{predicate}> "v" .'), headers=editor | TTL
+        SCHEMES, content=_scheme(CONCEPT + f'; <{predicate}> "v" .'), headers=editor | TTL
     )
     assert (onto.status_code, scheme.status_code) == (201, 201), onto.text + scheme.text
     for path in ("/ontologies/prueba/rdf", "/schemes/prueba/rdf"):
@@ -1652,7 +1654,7 @@ def test_rdfxml_is_not_acceptable_when_a_predicate_cannot_be_abbreviated(
         assert both.status_code in (200, 406), path
     # Lo que sí se puede abreviar se sigue sirviendo en RDF/XML.
     ok = _onto(":A a owl:Class .", slug="otra")
-    assert quiet.post("/ontologies", content=ok, headers=editor | TTL).status_code == 201
+    assert quiet.post(ONTOLOGIES, content=ok, headers=editor | TTL).status_code == 201
     assert quiet.get("/ontologies/otra/rdf", params={"format": "rdfxml"}).status_code == 200
 
 
@@ -1662,7 +1664,7 @@ def test_unsplittable_predicates_are_served_in_turtle_and_jsonld(
     client: TestClient, editor: dict[str, str], store: MemoryStore, predicate: str
 ) -> None:
     body = _onto(f':A a owl:Class ; <{predicate}> "v" .')
-    assert client.post("/ontologies", content=body, headers=editor | TTL).status_code == 201
+    assert client.post(ONTOLOGIES, content=body, headers=editor | TTL).status_code == 201
     for fmt in ("turtle", "jsonld"):
         response = client.get("/ontologies/prueba/rdf", params={"format": fmt})
         assert response.status_code == 200
@@ -1681,7 +1683,7 @@ def test_non_http_iris_are_data_not_links_to_follow(
     body = _scheme(
         CONCEPT + "; skos:exactMatch <javascript:alert(1)> ; skos:closeMatch <file:///etc/passwd> ."
     )
-    assert client.post("/schemes", content=body, headers=editor | TTL).status_code == 201
+    assert client.post(SCHEMES, content=body, headers=editor | TTL).status_code == 201
     concept = client.get("/schemes/prueba/concepts/c").json()
     assert concept["exact_match"] == ["javascript:alert(1)"]
     assert concept["close_match"] == ["file:///etc/passwd"]
@@ -1701,7 +1703,7 @@ def test_scheme_subject_must_be_one_iri(
         "<vocab/prueba> dct:subject [ a skos:Concept ] .",
     ):
         response = client.post(
-            "/schemes", content=_scheme(CONCEPT + ". " + extra), headers=editor | TTL
+            SCHEMES, content=_scheme(CONCEPT + ". " + extra), headers=editor | TTL
         )
         assert response.status_code == 422, response.text
         assert response.json()["kind"] == "shacl"
@@ -1719,7 +1721,7 @@ def test_new_scheme_cannot_relabel_published_concepts(
         CONCEPT
         + "; skos:related <vocab/ot/modbus-tcp> . <vocab/prueba> dct:subject <vocab/dominio/ot> ."
     )
-    assert api.post("/schemes", content=body, headers=editor | TTL).status_code == 201
+    assert api.post(SCHEMES, content=body, headers=editor | TTL).status_code == 201
     assert api.get("/datasets").json() == datasets
     after = api.get("/schemes/ot/concepts/modbus-tcp").json()
     # skos:related es simétrica solo dentro del grafo del propio esquema.

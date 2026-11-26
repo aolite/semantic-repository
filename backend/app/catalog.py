@@ -10,8 +10,10 @@ memoria, y el texto de búsqueda (``q``) **no llega nunca a SPARQL**: se filtra 
 - Ficha: el grafo con nombre completo de la serie más las etiquetas de sus temas.
 - Catálogos (decisión 49): cada catálogo ``{BASE_URI}catalogo/{slug}`` en el grafo de su
   URI, con ``dcat:dataset`` hacia sus series. Las tarjetas y la ficha dicen a qué catálogo
-  pertenece cada serie. Las lápidas del grafo ``{BASE_URI}bajas`` no se leen aquí: no
-  tienen tipo DCAT y su grafo no casa con ningún patrón de estas consultas.
+  pertenece cada serie. Desde la decisión 50, los catálogos listan también sus esquemas
+  SKOS y ontologías propias (``dcat:resource``). Las lápidas del grafo
+  ``{BASE_URI}bajas`` no se leen aquí: no tienen tipo DCAT y su grafo no casa con ningún
+  patrón de estas consultas.
 """
 
 import unicodedata
@@ -23,7 +25,7 @@ from rdflib.namespace import RDF, RDFS
 from rdflib.term import Node
 
 from app import schemas
-from app.sparql import SparqlTerm, iri, literal, render
+from app.sparql import SparqlTerm, iri, iri_list, literal, render
 from app.triplestore import TripleStore
 from app.uris import (
     ADMS,
@@ -132,13 +134,20 @@ SERIES_CATALOG_QUERY = (
 }"""
 )
 
-# Catálogos: metadatos de cada catálogo {BASE_URI}catalogo/{slug} y sus series (con el
-# título de la serie, que está en el grafo de la serie).
+# Catálogos: metadatos de cada catálogo {BASE_URI}catalogo/{slug}, sus series (con el
+# título de la serie, que está en el grafo de la serie) y, desde la decisión 50, sus
+# esquemas SKOS y ontologías propias (dcat:resource). Solo cuentan los recursos vivos:
+# un esquema con su grafo (``GRAPH ?r { ?r a skos:ConceptScheme }``) y una ontología con
+# alguna versión (``GRAPH ?g { ?r a owl:Ontology ; owl:versionIRI ?g }``); el título de una
+# ontología es el de cada versión (se elige el de la actual en Python).
 CATALOGS_QUERY = (
     PREFIXES
     + """PREFIX foaf: <http://xmlns.com/foaf/0.1/>
+PREFIX owl: <http://www.w3.org/2002/07/owl#>
 CONSTRUCT {
   ?cat a dcat:Catalog . ?cat ?cp ?co . ?pub foaf:name ?pubn . ?ms dct:title ?mst .
+  ?cat dcat:resource ?sr . ?sr a skos:ConceptScheme . ?sr dct:title ?srt .
+  ?cat dcat:resource ?or . ?or a owl:Ontology ; owl:versionIRI ?og . ?og dct:title ?ort .
 } WHERE {
   {
     GRAPH ?cat { ?cat a dcat:Catalog ; ?cp ?co . }
@@ -151,7 +160,27 @@ CONSTRUCT {
     GRAPH ?cat { ?cat a dcat:Catalog ; dcat:dataset ?ms . }
     GRAPH ?ms { ?ms a dcat:DatasetSeries ; dct:title ?mst . }
     FILTER(STRSTARTS(STR(?cat), $catalog_ns))
+  } UNION {
+    GRAPH ?cat { ?cat a dcat:Catalog ; dcat:resource ?sr . }
+    GRAPH ?sr { ?sr a skos:ConceptScheme . OPTIONAL { ?sr dct:title ?srt } }
+    FILTER(STRSTARTS(STR(?cat), $catalog_ns) && STRSTARTS(STR(?sr), $vocab_ns))
+  } UNION {
+    GRAPH ?cat { ?cat a dcat:Catalog ; dcat:resource ?or . }
+    GRAPH ?og { ?or a owl:Ontology ; owl:versionIRI ?og . OPTIONAL { ?or dct:title ?ort } }
+    FILTER(STRSTARTS(STR(?cat), $catalog_ns) && STRSTARTS(STR(?og), $onto_ns))
+    FILTER(STRSTARTS(STR(?og), CONCAT(STR(?or), "/")))
   }
+}"""
+)
+
+# Catálogo de un esquema o una ontología (decisión 50): el triple está en el grafo del
+# catálogo.
+RESOURCE_CATALOG_QUERY = (
+    PREFIXES
+    + """CONSTRUCT { ?cat dcat:resource ?r . ?cat dct:title ?catl . } WHERE {
+  VALUES ?r { $values }
+  GRAPH ?cat { ?cat a dcat:Catalog ; dcat:resource ?r . OPTIONAL { ?cat dct:title ?catl } }
+  FILTER(STRSTARTS(STR(?cat), $catalog_ns))
 }"""
 )
 
@@ -532,7 +561,45 @@ def series_catalog_graph(store: TripleStore, uris: Uris, series_uri: str) -> Gra
 # --- Catálogos (decisión 49) ------------------------------------------------------------
 
 
-def _catalog_summary(graph: Graph, node: URIRef, slug: str) -> schemas.CatalogSummary:
+OWL_ONTOLOGY = URIRef("http://www.w3.org/2002/07/owl#Ontology")
+OWL_VERSION_IRI = URIRef("http://www.w3.org/2002/07/owl#versionIRI")
+
+
+def _catalog_schemes(graph: Graph, node: URIRef, uris: Uris) -> list[schemas.CatalogSchemeRef]:
+    refs = []
+    for resource in graph.objects(node, DCAT.resource):
+        parts = uris.scheme_parts(str(resource)) if isinstance(resource, URIRef) else None
+        if parts is None or (resource, RDF.type, SKOS.ConceptScheme) not in graph:
+            continue
+        refs.append(
+            schemas.CatalogSchemeRef(
+                slug=parts[0],
+                corp=parts[1],
+                uri=str(resource),
+                title=pick_literal(graph.objects(resource, DCT.title)),
+            )
+        )
+    return sorted(refs, key=lambda r: (normalize(r.title or ""), r.uri))
+
+
+def _catalog_ontologies(graph: Graph, node: URIRef, uris: Uris) -> list[schemas.CatalogOntologyRef]:
+    refs = []
+    for resource in graph.objects(node, DCAT.resource):
+        slug = uris.ontology_slug(str(resource)) if isinstance(resource, URIRef) else None
+        if slug is None or (resource, RDF.type, OWL_ONTOLOGY) not in graph:
+            continue
+        versions = [
+            v
+            for v in graph.objects(resource, OWL_VERSION_IRI)
+            if (parts := uris.ontology_version_parts(str(v))) is not None and parts[0] == slug
+        ]
+        current = max(versions, key=lambda v: version_key(str(v).rsplit("/", 1)[-1]), default=None)
+        title = pick_literal(graph.objects(current, DCT.title)) if current is not None else None
+        refs.append(schemas.CatalogOntologyRef(slug=slug, uri=str(resource), title=title))
+    return sorted(refs, key=lambda r: (normalize(r.title or ""), r.uri))
+
+
+def _catalog_summary(graph: Graph, node: URIRef, slug: str, uris: Uris) -> schemas.CatalogSummary:
     publisher = graph.value(node, DCT.publisher)
     return schemas.CatalogSummary(
         slug=slug,
@@ -541,11 +608,52 @@ def _catalog_summary(graph: Graph, node: URIRef, slug: str) -> schemas.CatalogSu
         description=pick_literal(graph.objects(node, DCT.description)),
         publisher=resource_ref(graph, publisher),
         dataset_count=len(set(graph.objects(node, DCAT.dataset))),
+        scheme_count=len(_catalog_schemes(graph, node, uris)),
+        ontology_count=len(_catalog_ontologies(graph, node, uris)),
     )
 
 
 def _catalogs_graph(store: TripleStore, uris: Uris) -> Graph:
-    return store.construct(render(CATALOGS_QUERY, catalog_ns=literal(uris.catalog_ns)))
+    return store.construct(
+        render(
+            CATALOGS_QUERY,
+            catalog_ns=literal(uris.catalog_ns),
+            vocab_ns=literal(uris.vocab_ns),
+            onto_ns=literal(uris.onto_ns),
+        )
+    )
+
+
+def resource_catalogs(
+    store: TripleStore, uris: Uris, resources: Iterable[str]
+) -> dict[str, schemas.CatalogRef]:
+    """Catálogo de cada esquema u ontología de ``resources`` (decisión 50). Si alguno
+    estuviera en varios (no debería), el primero por URI."""
+    values = sorted({r for r in resources if r.startswith(uris.base)})
+    if not values:
+        return {}
+    graph = store.construct(
+        render(
+            RESOURCE_CATALOG_QUERY,
+            values=iri_list(values),
+            catalog_ns=literal(uris.catalog_ns),
+        )
+    )
+    result: dict[str, schemas.CatalogRef] = {}
+    for catalog_node in sorted_nodes(graph.subjects(DCAT.resource, None)):
+        slug = uris.catalog_slug(str(catalog_node)) if isinstance(catalog_node, URIRef) else None
+        if slug is None:
+            continue
+        for resource in graph.objects(catalog_node, DCAT.resource):
+            result.setdefault(
+                str(resource),
+                schemas.CatalogRef(
+                    slug=slug,
+                    uri=str(catalog_node),
+                    title=pick_literal(graph.objects(catalog_node, DCT.title)),
+                ),
+            )
+    return result
 
 
 def list_catalogs(store: TripleStore, uris: Uris) -> schemas.CatalogPage:
@@ -555,7 +663,7 @@ def list_catalogs(store: TripleStore, uris: Uris) -> schemas.CatalogPage:
     for node in sorted_nodes(graph.subjects(RDF.type, DCAT.Catalog)):
         slug = uris.catalog_slug(str(node)) if isinstance(node, URIRef) else None
         if slug is not None:
-            items.append(_catalog_summary(graph, node, slug))
+            items.append(_catalog_summary(graph, node, slug, uris))
     items.sort(key=lambda c: (normalize(c.title or ""), c.slug))
     return schemas.CatalogPage(items=items, total=len(items))
 
@@ -565,7 +673,7 @@ def get_catalog(store: TripleStore, uris: Uris, slug: str) -> schemas.CatalogDet
     node = URIRef(uris.catalog(slug))
     if (node, RDF.type, DCAT.Catalog) not in graph:
         raise NotFoundError(slug)
-    summary = _catalog_summary(graph, node, slug)
+    summary = _catalog_summary(graph, node, slug, uris)
     datasets = []
     for series in sorted_nodes(graph.objects(node, DCAT.dataset)):
         series_slug = uris.series_slug(str(series)) if isinstance(series, URIRef) else None
@@ -578,7 +686,12 @@ def get_catalog(store: TripleStore, uris: Uris, slug: str) -> schemas.CatalogDet
                 )
             )
     datasets.sort(key=lambda d: (normalize(d.title or ""), d.slug))
-    return schemas.CatalogDetail(**summary.model_dump(), datasets=datasets)
+    return schemas.CatalogDetail(
+        **summary.model_dump(),
+        datasets=datasets,
+        schemes=_catalog_schemes(graph, node, uris),
+        ontologies=_catalog_ontologies(graph, node, uris),
+    )
 
 
 def catalog_rdf(store: TripleStore, uris: Uris, catalog_uri: str) -> Graph:

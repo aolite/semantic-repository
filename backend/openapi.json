@@ -304,7 +304,7 @@
           "catalogs"
         ],
         "summary": "Catálogos (lector anónimo)",
-        "description": "Los catálogos `{BASE_URI}catalogo/{slug}`, por título, con su número de datasets. No incluye el catálogo raíz ni los catálogos dados de baja.",
+        "description": "Los catálogos `{BASE_URI}catalogo/{slug}`, por título, con su número de datasets, esquemas SKOS y ontologías propias (decisión 50). No incluye el catálogo raíz ni los catálogos dados de baja.",
         "operationId": "list_catalogs_catalogs_get",
         "responses": {
           "200": {
@@ -420,7 +420,7 @@
         "tags": [
           "catalogs"
         ],
-        "summary": "Ficha de un catálogo con sus datasets (lector anónimo)",
+        "summary": "Ficha de un catálogo con sus datasets, esquemas y ontologías (lector anónimo)",
         "operationId": "get_catalog_catalogs__slug__get",
         "parameters": [
           {
@@ -605,7 +605,7 @@
           "catalogs"
         ],
         "summary": "Da de baja un catálogo vacío (editor o admin)",
-        "description": "Borrado lógico: el catálogo sale de los listados, de SPARQL y del raíz, y su URI responde 410 con una ficha mínima. 409 si todavía tiene datasets (en `datasets`): antes hay que moverlos o darlos de baja. Su slug no se reutiliza.",
+        "description": "Borrado lógico: el catálogo sale de los listados, de SPARQL y del raíz, y su URI responde 410 con una ficha mínima. 409 si todavía tiene datasets (en `datasets`) o, desde la decisión 50, esquemas u ontologías (en `resources`): antes hay que moverlos o darlos de baja. Su slug no se reutiliza.",
         "operationId": "withdraw_catalog_catalogs__slug__delete",
         "security": [
           {
@@ -662,7 +662,7 @@
             }
           },
           "409": {
-            "description": "El catálogo tiene datasets (kind=catalog_not_empty, con datasets)",
+            "description": "El catálogo tiene datasets, esquemas u ontologías (kind=catalog_not_empty, con datasets y resources)",
             "content": {
               "application/json": {
                 "schema": {
@@ -832,7 +832,7 @@
           "datasets"
         ],
         "summary": "Publica una serie de dataset (con sus versiones) validada con SHACL",
-        "description": "Recibe la serie completa (dcat:DatasetSeries con sus dcat:Dataset y dcat:Distribution) en Turtle o JSON-LD; las IRIs relativas se resuelven contra BASE_URI. Sustituye por completo el grafo con nombre `{BASE_URI}dataset/{slug}`. Decisión 49: el RDF lleva exactamente un `<{BASE_URI}catalogo/{slug}> dcat:dataset <serie>` (o se indica `?catalog={slug}` y el backend lo añade antes de validar); se guarda en el grafo del catálogo. 422 `catalog` si el catálogo no existe o está dado de baja; 409 `catalog_conflict` si la serie ya está en otro catálogo (se mueve con PATCH) y 409 `withdrawn` si el slug es de un dataset dado de baja. Las versiones ya publicadas son inmutables: tienen que venir todas y con el mismo contenido (409 `version_removed` o `version_immutable`, con las versiones en `issues`). Las versiones nuevas se encolan para evaluarlas con F-UJI en segundo plano. 201 si la serie es nueva; 200 si ya existía (con `changed=false` si el contenido era idéntico). Requiere rol editor (admin hereda los permisos de editor).",
+        "description": "Recibe la serie completa (dcat:DatasetSeries con sus dcat:Dataset y dcat:Distribution) en Turtle o JSON-LD; las IRIs relativas se resuelven contra BASE_URI. Sustituye por completo el grafo con nombre `{BASE_URI}dataset/{slug}`. Decisión 49: el RDF lleva exactamente un `<{BASE_URI}catalogo/{slug}> dcat:dataset <serie>` (o se indica `?catalog={slug}` y el backend lo añade antes de validar); se guarda en el grafo del catálogo. 422 `catalog` si el catálogo no existe o está dado de baja; 409 `catalog_conflict` si la serie ya está en otro catálogo (se mueve con PATCH) y 409 `withdrawn` si el slug es de un dataset dado de baja. Las versiones ya publicadas son inmutables: tienen que venir todas y con el mismo contenido (409 `version_removed` o `version_immutable`, con las versiones en `issues`). Decisión 50: una versión nueva cuyo `dcat:theme` apunta a un concepto retirado (`owl:deprecated true`) se rechaza con 422 `deprecated_theme`, con los temas y sus sustitutos (`dct:isReplacedBy`) en `issues[].replaced_by`; y una cuyo `dcat:theme` es una IRI de `{BASE_URI}vocab/` que no es un concepto de un esquema vivo (no existe o su esquema se dio de baja), con 422 `unknown_theme`. Las versiones nuevas se encolan para evaluarlas con F-UJI en segundo plano. 201 si la serie es nueva; 200 si ya existía (con `changed=false` si el contenido era idéntico). Requiere rol editor (admin hereda los permisos de editor).",
         "operationId": "create_dataset_datasets_post",
         "security": [
           {
@@ -919,7 +919,7 @@
             "description": "Unsupported Media Type"
           },
           "422": {
-            "description": "RDF no válido: sintaxis, estructura, URIs o informe SHACL",
+            "description": "RDF no válido: sintaxis, estructura, URIs o informe SHACL; catálogo inexistente (catalog); o una versión nueva con temas retirados (deprecated_theme, decisión 50: issues con los temas y sus sustitutos en replaced_by) o que no son conceptos de un esquema vivo (unknown_theme)",
             "content": {
               "application/json": {
                 "schema": {
@@ -3259,7 +3259,7 @@
           "vocabularies"
         ],
         "summary": "Tarjetas de ontologías propias y externas y de esquemas SKOS",
-        "description": "Una tarjeta por ontología propia (con su versión actual), por ontología externa (estado `referenced`) y por esquema SKOS (corporativo o de dominio). `counts` es el recuento por tipo de todo el repositorio, para las tarjetas de estadísticas.",
+        "description": "Una tarjeta por ontología propia (con su versión actual), por ontología externa (estado `referenced`) y por esquema SKOS (corporativo o de dominio). `counts` es el recuento por tipo de todo el repositorio, para las tarjetas de estadísticas. Cada ontología propia y cada esquema dice su catálogo (`catalog`, decisión 50); los dados de baja no aparecen.",
         "operationId": "list_vocabularies_vocabularies_get",
         "parameters": [
           {
@@ -3328,6 +3328,26 @@
               "title": "Domain"
             },
             "description": "Slug del dominio (it, ot, pqc, ia). Solo quedan las tarjetas con ese dominio: los esquemas de dominio cuyo dct:subject es el concepto del dominio"
+          },
+          {
+            "name": "catalog",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200,
+                  "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Solo las ontologías propias y los esquemas de este catálogo (catalogo/{slug}, decisión 50); las externas no están en ningún catálogo",
+              "title": "Catalog"
+            },
+            "description": "Solo las ontologías propias y los esquemas de este catálogo (catalogo/{slug}, decisión 50); las externas no están en ningún catálogo"
           }
         ],
         "responses": {
@@ -3370,25 +3390,35 @@
           "ontologies"
         ],
         "summary": "Publica una versión de ontología validada con SHACL y calcula sus métricas",
-        "description": "Recibe una versión de ontología (una owl:Ontology `{BASE_URI}onto/{slug}` con owl:versionIRI `{BASE_URI}onto/{slug}/{version}`) en Turtle o JSON-LD; las IRIs relativas se resuelven contra BASE_URI. Las versiones son inmutables: si el versionIRI ya está publicado con otro contenido, 409 `version_immutable`; con el mismo, la ingesta es idempotente. Antes de escribir calcula las métricas OWL (owlready2) y la consistencia (Pellet) **sin descargar los owl:imports**, y las guarda como metadatos de la versión. 201 si la versión es nueva; 200 si ya existía (`changed=false` si era idéntica). Requiere rol editor (admin hereda los permisos de editor).",
+        "description": "Recibe una versión de ontología (una owl:Ontology `{BASE_URI}onto/{slug}` con owl:versionIRI `{BASE_URI}onto/{slug}/{version}`) en Turtle o JSON-LD; las IRIs relativas se resuelven contra BASE_URI. Las versiones son inmutables: si el versionIRI ya está publicado con otro contenido, 409 `version_immutable`; con el mismo, la ingesta es idempotente. Decisión 50: la ontología pertenece a un catálogo (`?catalog={slug}` o el triple «<catálogo> dcat:resource <ontología>» en el RDF), que se guarda en el grafo del catálogo y no en la versión; 409 `catalog_conflict` si ya está en otro catálogo (se mueve con PATCH), `withdrawn` si se dio de baja y `prefix_withdrawn` si su prefijo VANN era de un recurso dado de baja o `prefix_in_use` si lo usa otro esquema, una ontología externa o alguna versión publicada de otra ontología propia (el prefijo que deja de usar una versión posterior sigue reservado para su ontología); 422 `catalog` si el catálogo no existe; 403 `not_managed` si describe una ontología externa. Antes de escribir calcula las métricas OWL (owlready2) y la consistencia (Pellet) **sin descargar los owl:imports**, y las guarda como metadatos de la versión. 201 si la versión es nueva; 200 si ya existía (`changed=false` si era idéntica). Requiere rol editor (admin hereda los permisos de editor).",
         "operationId": "create_ontology_ontologies_post",
-        "requestBody": {
-          "content": {
-            "text/turtle": {
-              "schema": {
-                "type": "string",
-                "description": "RDF serializado"
-              }
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "catalog",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200,
+                  "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Catálogo de la ontología (catalogo/{slug}, decisión 50): el backend añade «<catálogo> dcat:resource <ontología>» antes de validar (si el RDF ya declara otro, 422). Hace falta si el RDF no lo declara",
+              "title": "Catalog"
             },
-            "application/ld+json": {
-              "schema": {
-                "type": "string",
-                "description": "RDF serializado"
-              }
-            }
-          },
-          "required": true
-        },
+            "description": "Catálogo de la ontología (catalogo/{slug}, decisión 50): el backend añade «<catálogo> dcat:resource <ontología>» antes de validar (si el RDF ya declara otro, 422). Hace falta si el RDF no lo declara"
+          }
+        ],
         "responses": {
           "201": {
             "description": "Successful Response",
@@ -3414,10 +3444,17 @@
             "description": "No autenticado"
           },
           "403": {
-            "description": "Requiere rol editor o admin"
+            "description": "Requiere rol editor o admin; o kind=not_managed: las ontologías externas no se gestionan desde la aplicación",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForbiddenResponse"
+                }
+              }
+            }
           },
           "409": {
-            "description": "La versionIRI ya está publicada con otro contenido (version_immutable)",
+            "description": "La versionIRI ya está publicada con otro contenido (version_immutable), la ontología está en otro catálogo (catalog_conflict), se dio de baja (withdrawn) o su prefijo era de un recurso dado de baja (prefix_withdrawn) o lo usa otro recurso vivo (prefix_in_use)",
             "content": {
               "application/json": {
                 "schema": {
@@ -3427,24 +3464,24 @@
             }
           },
           "413": {
-            "description": "Content Too Large",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
-            }
+            },
+            "description": "Content Too Large"
           },
           "415": {
-            "description": "Unsupported Media Type",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
-            }
+            },
+            "description": "Unsupported Media Type"
           },
           "422": {
             "description": "RDF no válido: sintaxis, estructura, URIs o informe SHACL",
@@ -3467,14 +3504,239 @@
             }
           }
         },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "text/turtle": {
+              "schema": {
+                "type": "string",
+                "description": "RDF serializado"
+              }
+            },
+            "application/ld+json": {
+              "schema": {
+                "type": "string",
+                "description": "RDF serializado"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ontologies/{slug}": {
+      "patch": {
+        "tags": [
+          "ontologies"
+        ],
+        "summary": "Mueve una ontología propia de catálogo (editor o admin)",
+        "description": "Decisión 50: con `catalog`, la quita del catálogo de origen y la añade al de destino; ninguna URI ni ninguna versión cambia. Sus demás metadatos están en cada versión, que es inmutable (decisión 28): se cambian publicando una versión nueva con `POST /ontologies`. 422 `catalog` si el catálogo de destino no existe o está dado de baja; 403 `not_managed` con las externas.",
+        "operationId": "update_ontology_ontologies__slug__patch",
         "security": [
           {
             "OAuth2PasswordBearer": []
           }
-        ]
-      }
-    },
-    "/ontologies/{slug}": {
+        ],
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+              "description": "Slug de la ontología",
+              "title": "Slug"
+            },
+            "description": "Slug de la ontología"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OntologyUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OntologyDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No autenticado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Requiere rol editor o admin; o kind=not_managed: las ontologías externas no se gestionan desde la aplicación",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForbiddenResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "La ontología o la versión no existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Dado de baja: ficha mínima (lápida)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoneResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Triplestore no disponible o sin credenciales de escritura",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Cuerpo no válido, catálogo de destino inexistente o informe SHACL",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "ontologies"
+        ],
+        "summary": "Da de baja una ontología propia con todas sus versiones (editor o admin)",
+        "description": "Borrado lógico (decisión 50): la ontología sale de su catálogo, de los listados y de SPARQL (se borran los grafos de todas sus versiones); su URI y las de sus versiones responden 410 con una ficha mínima. Su slug y su prefijo VANN no se reutilizan. 409 `in_use` si la importa (`owl:imports`) o usa sus términos una versión de otra ontología propia viva, o si una versión de dataset viva declara `dct:conformsTo` hacia ella o una de sus versiones, con los usos en `used_by`. 403 `not_managed` con las externas. Robusta ante un fallo a medias: lo del triplestore va en una sola petición de Update; si falla (503), se reintenta.",
+        "operationId": "withdraw_ontology_ontologies__slug__delete",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+              "description": "Slug de la ontología",
+              "title": "Slug"
+            },
+            "description": "Slug de la ontología"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "No autenticado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Requiere rol editor o admin; o kind=not_managed: las ontologías externas no se gestionan desde la aplicación",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForbiddenResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "La ontología o la versión no existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Dado de baja: ficha mínima (lápida)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoneResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Triplestore no disponible o sin credenciales de escritura",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "La usan recursos vivos (kind=in_use, con used_by)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConflictResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
       "get": {
         "tags": [
           "ontologies"
@@ -3533,6 +3795,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Dado de baja: ficha mínima (lápida)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoneResponse"
                 }
               }
             }
@@ -3680,6 +3952,16 @@
             },
             "description": "Not Acceptable"
           },
+          "410": {
+            "description": "Dado de baja (decisión 50): ficha mínima (lápida)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoneResponse"
+                }
+              }
+            }
+          },
           "503": {
             "content": {
               "application/json": {
@@ -3709,25 +3991,35 @@
           "schemes"
         ],
         "summary": "Publica un esquema SKOS validado con SHACL",
-        "description": "Recibe un skos:ConceptScheme (`{BASE_URI}vocab/{slug}` o `{BASE_URI}vocab/corp/{slug}`) con sus conceptos (`{esquema}/{slug}`) en Turtle o JSON-LD; las IRIs relativas se resuelven contra BASE_URI. Sustituye por completo el grafo con nombre del esquema. 201 si es nuevo; 200 si ya existía (`changed=false` si era idéntico). Requiere rol editor (admin hereda los permisos de editor).",
+        "description": "Recibe un skos:ConceptScheme (`{BASE_URI}vocab/{slug}` o `{BASE_URI}vocab/corp/{slug}`) con sus conceptos (`{esquema}/{slug}`) en Turtle o JSON-LD; las IRIs relativas se resuelven contra BASE_URI (también sirve para «Importar SKOS»). Sustituye por completo el grafo con nombre del esquema. Decisión 50: el esquema pertenece a un catálogo (`?catalog={slug}` o el triple «<catálogo> dcat:resource <esquema>» en el RDF), que se guarda en el grafo del catálogo. 409 `catalog_conflict` si ya está en otro catálogo (se mueve con PATCH), `withdrawn` si se dio de baja, `prefix_withdrawn` si su prefijo VANN era de un recurso dado de baja, `prefix_in_use` si lo usa otro esquema, otra ontología externa o alguna versión publicada de otra ontología propia, `concepts_removed` si faltan conceptos ya publicados (un concepto se retira con owl:deprecated true) y `concept_reactivated` si un concepto retirado deja de estarlo; 422 `catalog` si el catálogo no existe y `replacement` si un sustituto (dct:isReplacedBy) no es un concepto vivo; 403 `not_managed` con un esquema auxiliar. 201 si es nuevo; 200 si ya existía (`changed=false` si era idéntico). Requiere rol editor (admin hereda los permisos de editor).",
         "operationId": "create_scheme_schemes_post",
-        "requestBody": {
-          "content": {
-            "text/turtle": {
-              "schema": {
-                "type": "string",
-                "description": "RDF serializado"
-              }
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "catalog",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200,
+                  "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Catálogo del esquema (catalogo/{slug}, decisión 50): el backend añade «<catálogo> dcat:resource <esquema>» antes de validar (si el RDF ya declara otro, 422). Hace falta si el RDF no lo declara",
+              "title": "Catalog"
             },
-            "application/ld+json": {
-              "schema": {
-                "type": "string",
-                "description": "RDF serializado"
-              }
-            }
-          },
-          "required": true
-        },
+            "description": "Catálogo del esquema (catalogo/{slug}, decisión 50): el backend añade «<catálogo> dcat:resource <esquema>» antes de validar (si el RDF ya declara otro, 422). Hace falta si el RDF no lo declara"
+          }
+        ],
         "responses": {
           "201": {
             "description": "Successful Response",
@@ -3753,27 +4045,44 @@
             "description": "No autenticado"
           },
           "403": {
-            "description": "Requiere rol editor o admin"
+            "description": "Requiere rol editor o admin; o kind=not_managed: un esquema auxiliar (vocab/dominio, vocab/tipo-dataset) no se gestiona desde la aplicación",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForbiddenResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "catalog_conflict, withdrawn, prefix_withdrawn, prefix_in_use, concepts_removed o concept_reactivated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestErrorResponse"
+                }
+              }
+            }
           },
           "413": {
-            "description": "Content Too Large",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
-            }
+            },
+            "description": "Content Too Large"
           },
           "415": {
-            "description": "Unsupported Media Type",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
-            }
+            },
+            "description": "Unsupported Media Type"
           },
           "422": {
             "description": "RDF no válido: sintaxis, estructura, URIs o informe SHACL",
@@ -3796,14 +4105,239 @@
             }
           }
         },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "text/turtle": {
+              "schema": {
+                "type": "string",
+                "description": "RDF serializado"
+              }
+            },
+            "application/ld+json": {
+              "schema": {
+                "type": "string",
+                "description": "RDF serializado"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/schemes/corp/{slug}": {
+      "patch": {
+        "tags": [
+          "schemes"
+        ],
+        "summary": "Edita un esquema corporativo y lo mueve de catálogo (editor o admin)",
+        "description": "Cambia solo los campos presentes: título (dct:title y skos:prefLabel en español), descripción y publicador del esquema y, con `catalog`, lo mueve a otro catálogo (se quita del de origen y se añade al de destino; ninguna URI cambia). Sus conceptos no cambian: se cambian republicando el esquema con `POST /schemes`. El resultado se valida con SHACL. 422 `catalog` si el catálogo de destino no existe o está dado de baja; 403 `not_managed` con un esquema auxiliar.",
+        "operationId": "update_corp_scheme_schemes_corp__slug__patch",
         "security": [
           {
             "OAuth2PasswordBearer": []
           }
-        ]
-      }
-    },
-    "/schemes/corp/{slug}": {
+        ],
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+              "description": "Slug del esquema",
+              "title": "Slug"
+            },
+            "description": "Slug del esquema"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SchemeUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SchemeDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No autenticado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Requiere rol editor o admin; o kind=not_managed: un esquema auxiliar (vocab/dominio, vocab/tipo-dataset) no se gestiona desde la aplicación",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForbiddenResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "El esquema o el concepto no existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Dado de baja: ficha mínima (lápida)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoneResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Triplestore no disponible o sin credenciales de escritura",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Cuerpo no válido, catálogo de destino inexistente o informe SHACL",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "schemes"
+        ],
+        "summary": "Da de baja un esquema corporativo (editor o admin)",
+        "description": "Borrado lógico (decisión 50): el esquema y sus conceptos salen de su catálogo, de los listados y de SPARQL; su URI y las de sus conceptos responden 410 con una ficha mínima. Su slug y su prefijo VANN no se reutilizan. 409 `in_use` si lo usan recursos vivos (un concepto suyo como `dcat:theme` de una versión de dataset, `dct:subject` de una versión de ontología hacia un concepto suyo o hacia el esquema, o un concepto suyo como destino de `skos:related`/`*Match`/`dct:isReplacedBy` desde otro esquema), con los usos en `used_by`. 403 `not_managed` con un esquema auxiliar. Robusta ante un fallo a medias: lo del triplestore va en una sola petición de Update; si falla (503), se reintenta.",
+        "operationId": "withdraw_corp_scheme_schemes_corp__slug__delete",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+              "description": "Slug del esquema",
+              "title": "Slug"
+            },
+            "description": "Slug del esquema"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "No autenticado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Requiere rol editor o admin; o kind=not_managed: un esquema auxiliar (vocab/dominio, vocab/tipo-dataset) no se gestiona desde la aplicación",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForbiddenResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "El esquema o el concepto no existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Dado de baja: ficha mínima (lápida)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoneResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Triplestore no disponible o sin credenciales de escritura",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Lo usan recursos vivos (kind=in_use, con used_by)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConflictResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
       "get": {
         "tags": [
           "schemes"
@@ -3842,6 +4376,305 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Dado de baja: ficha mínima (lápida)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoneResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/schemes/{slug}": {
+      "patch": {
+        "tags": [
+          "schemes"
+        ],
+        "summary": "Edita un esquema de dominio y lo mueve de catálogo (editor o admin)",
+        "description": "Cambia solo los campos presentes: título (dct:title y skos:prefLabel en español), descripción y publicador del esquema y, con `catalog`, lo mueve a otro catálogo (se quita del de origen y se añade al de destino; ninguna URI cambia). Sus conceptos no cambian: se cambian republicando el esquema con `POST /schemes`. El resultado se valida con SHACL. 422 `catalog` si el catálogo de destino no existe o está dado de baja; 403 `not_managed` con un esquema auxiliar.",
+        "operationId": "update_scheme_schemes__slug__patch",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+              "description": "Slug del esquema",
+              "title": "Slug"
+            },
+            "description": "Slug del esquema"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SchemeUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SchemeDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No autenticado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Requiere rol editor o admin; o kind=not_managed: un esquema auxiliar (vocab/dominio, vocab/tipo-dataset) no se gestiona desde la aplicación",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForbiddenResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "El esquema o el concepto no existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Dado de baja: ficha mínima (lápida)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoneResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Triplestore no disponible o sin credenciales de escritura",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Cuerpo no válido, catálogo de destino inexistente o informe SHACL",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "schemes"
+        ],
+        "summary": "Da de baja un esquema de dominio (editor o admin)",
+        "description": "Borrado lógico (decisión 50): el esquema y sus conceptos salen de su catálogo, de los listados y de SPARQL; su URI y las de sus conceptos responden 410 con una ficha mínima. Su slug y su prefijo VANN no se reutilizan. 409 `in_use` si lo usan recursos vivos (un concepto suyo como `dcat:theme` de una versión de dataset, `dct:subject` de una versión de ontología hacia un concepto suyo o hacia el esquema, o un concepto suyo como destino de `skos:related`/`*Match`/`dct:isReplacedBy` desde otro esquema), con los usos en `used_by`. 403 `not_managed` con un esquema auxiliar. Robusta ante un fallo a medias: lo del triplestore va en una sola petición de Update; si falla (503), se reintenta.",
+        "operationId": "withdraw_scheme_schemes__slug__delete",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+              "description": "Slug del esquema",
+              "title": "Slug"
+            },
+            "description": "Slug del esquema"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "No autenticado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Requiere rol editor o admin; o kind=not_managed: un esquema auxiliar (vocab/dominio, vocab/tipo-dataset) no se gestiona desde la aplicación",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForbiddenResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "El esquema o el concepto no existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Dado de baja: ficha mínima (lápida)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoneResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Triplestore no disponible o sin credenciales de escritura",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Lo usan recursos vivos (kind=in_use, con used_by)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConflictResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "schemes"
+        ],
+        "summary": "Esquema SKOS de dominio: metadatos, dominio y árbol de conceptos",
+        "operationId": "get_scheme_schemes__slug__get",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+              "description": "Slug del esquema",
+              "title": "Slug"
+            },
+            "description": "Slug del esquema"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SchemeDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "El esquema o el concepto no existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Dado de baja: ficha mínima (lápida)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoneResponse"
                 }
               }
             }
@@ -3968,6 +4801,16 @@
             },
             "description": "Not Acceptable"
           },
+          "410": {
+            "description": "Dado de baja (decisión 50): ficha mínima (lápida)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoneResponse"
+                }
+              }
+            }
+          },
           "503": {
             "content": {
               "application/json": {
@@ -4047,68 +4890,12 @@
               }
             }
           },
-          "503": {
+          "410": {
+            "description": "Dado de baja: ficha mínima (lápida)",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Service Unavailable"
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/schemes/{slug}": {
-      "get": {
-        "tags": [
-          "schemes"
-        ],
-        "summary": "Esquema SKOS de dominio: metadatos, dominio y árbol de conceptos",
-        "operationId": "get_scheme_schemes__slug__get",
-        "parameters": [
-          {
-            "name": "slug",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "maxLength": 200,
-              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
-              "description": "Slug del esquema",
-              "title": "Slug"
-            },
-            "description": "Slug del esquema"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SchemeDetail"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "El esquema o el concepto no existe",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "$ref": "#/components/schemas/GoneResponse"
                 }
               }
             }
@@ -4235,6 +5022,16 @@
             },
             "description": "Not Acceptable"
           },
+          "410": {
+            "description": "Dado de baja (decisión 50): ficha mínima (lápida)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoneResponse"
+                }
+              }
+            }
+          },
           "503": {
             "content": {
               "application/json": {
@@ -4310,6 +5107,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Dado de baja: ficha mínima (lápida)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoneResponse"
                 }
               }
             }
@@ -4403,6 +5210,34 @@
               }
             },
             "description": "Not Acceptable"
+          },
+          "410": {
+            "description": "Dado de baja (decisión 50): ficha mínima en HTML o RDF de la lápida",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "text/turtle": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              },
+              "application/ld+json": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              },
+              "application/rdf+xml": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              }
+            }
           },
           "503": {
             "content": {
@@ -4505,6 +5340,34 @@
             },
             "description": "Not Acceptable"
           },
+          "410": {
+            "description": "Dado de baja (decisión 50): ficha mínima en HTML o RDF de la lápida",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "text/turtle": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              },
+              "application/ld+json": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              },
+              "application/rdf+xml": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              }
+            }
+          },
           "503": {
             "content": {
               "application/json": {
@@ -4594,6 +5457,34 @@
               }
             },
             "description": "Not Acceptable"
+          },
+          "410": {
+            "description": "Dado de baja (decisión 50): ficha mínima en HTML o RDF de la lápida",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "text/turtle": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              },
+              "application/ld+json": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              },
+              "application/rdf+xml": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              }
+            }
           },
           "503": {
             "content": {
@@ -4696,6 +5587,34 @@
             },
             "description": "Not Acceptable"
           },
+          "410": {
+            "description": "Dado de baja (decisión 50): ficha mínima en HTML o RDF de la lápida",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "text/turtle": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              },
+              "application/ld+json": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              },
+              "application/rdf+xml": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              }
+            }
+          },
           "503": {
             "content": {
               "application/json": {
@@ -4785,6 +5704,34 @@
               }
             },
             "description": "Not Acceptable"
+          },
+          "410": {
+            "description": "Dado de baja (decisión 50): ficha mínima en HTML o RDF de la lápida",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "text/turtle": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              },
+              "application/ld+json": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              },
+              "application/rdf+xml": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              }
+            }
           },
           "503": {
             "content": {
@@ -4886,6 +5833,34 @@
               }
             },
             "description": "Not Acceptable"
+          },
+          "410": {
+            "description": "Dado de baja (decisión 50): ficha mínima en HTML o RDF de la lápida",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "text/turtle": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              },
+              "application/ld+json": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              },
+              "application/rdf+xml": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              }
+            }
           },
           "503": {
             "content": {
@@ -5224,6 +6199,18 @@
             "title": "Dataset Count",
             "description": "Número de datasets (series) del catálogo"
           },
+          "scheme_count": {
+            "type": "integer",
+            "title": "Scheme Count",
+            "description": "Número de esquemas SKOS del catálogo (decisión 50)",
+            "default": 0
+          },
+          "ontology_count": {
+            "type": "integer",
+            "title": "Ontology Count",
+            "description": "Número de ontologías propias del catálogo (decisión 50)",
+            "default": 0
+          },
           "datasets": {
             "items": {
               "$ref": "#/components/schemas/CatalogDatasetRef"
@@ -5231,6 +6218,22 @@
             "type": "array",
             "title": "Datasets",
             "description": "Series del catálogo, por título"
+          },
+          "schemes": {
+            "items": {
+              "$ref": "#/components/schemas/CatalogSchemeRef"
+            },
+            "type": "array",
+            "title": "Schemes",
+            "description": "Esquemas SKOS del catálogo, por título (decisión 50)"
+          },
+          "ontologies": {
+            "items": {
+              "$ref": "#/components/schemas/CatalogOntologyRef"
+            },
+            "type": "array",
+            "title": "Ontologies",
+            "description": "Ontologías propias del catálogo, por título (decisión 50)"
           }
         },
         "type": "object",
@@ -5244,6 +6247,37 @@
           "datasets"
         ],
         "title": "CatalogDetail"
+      },
+      "CatalogOntologyRef": {
+        "properties": {
+          "slug": {
+            "type": "string",
+            "title": "Slug"
+          },
+          "uri": {
+            "type": "string",
+            "title": "Uri"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title",
+            "description": "dct:title de su versión actual"
+          }
+        },
+        "type": "object",
+        "required": [
+          "slug",
+          "uri",
+          "title"
+        ],
+        "title": "CatalogOntologyRef"
       },
       "CatalogPage": {
         "properties": {
@@ -5297,6 +6331,41 @@
         "title": "CatalogRef",
         "description": "Catálogo ``{BASE_URI}catalogo/{slug}`` al que pertenece un dataset (decisión 49)."
       },
+      "CatalogSchemeRef": {
+        "properties": {
+          "slug": {
+            "type": "string",
+            "title": "Slug"
+          },
+          "corp": {
+            "type": "boolean",
+            "title": "Corp"
+          },
+          "uri": {
+            "type": "string",
+            "title": "Uri"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "type": "object",
+        "required": [
+          "slug",
+          "corp",
+          "uri",
+          "title"
+        ],
+        "title": "CatalogSchemeRef"
+      },
       "CatalogSummary": {
         "properties": {
           "slug": {
@@ -5343,6 +6412,18 @@
             "type": "integer",
             "title": "Dataset Count",
             "description": "Número de datasets (series) del catálogo"
+          },
+          "scheme_count": {
+            "type": "integer",
+            "title": "Scheme Count",
+            "description": "Número de esquemas SKOS del catálogo (decisión 50)",
+            "default": 0
+          },
+          "ontology_count": {
+            "type": "integer",
+            "title": "Ontology Count",
+            "description": "Número de ontologías propias del catálogo (decisión 50)",
+            "default": 0
           }
         },
         "type": "object",
@@ -5529,6 +6610,20 @@
           },
           "used_by": {
             "$ref": "#/components/schemas/ConceptUsage"
+          },
+          "deprecated": {
+            "type": "boolean",
+            "title": "Deprecated",
+            "description": "Concepto retirado (owl:deprecated true, decisión 50)",
+            "default": false
+          },
+          "replaced_by": {
+            "items": {
+              "$ref": "#/components/schemas/ConceptRef"
+            },
+            "type": "array",
+            "title": "Replaced By",
+            "description": "Sustitutos de un concepto retirado (dct:isReplacedBy, decisión 50)"
           }
         },
         "type": "object",
@@ -5591,6 +6686,12 @@
             "type": "array",
             "title": "Alt Labels",
             "description": "skos:altLabel por idioma"
+          },
+          "deprecated": {
+            "type": "boolean",
+            "title": "Deprecated",
+            "description": "Concepto retirado (owl:deprecated true, decisión 50)",
+            "default": false
           },
           "children": {
             "items": {
@@ -5688,10 +6789,11 @@
             "enum": [
               "slug_in_use",
               "withdrawn",
-              "catalog_not_empty"
+              "catalog_not_empty",
+              "in_use"
             ],
             "title": "Kind",
-            "description": "slug_in_use: ya existe un recurso con ese slug. withdrawn: el slug es de un recurso dado de baja y no se reutiliza. catalog_not_empty: el catálogo tiene datasets (en datasets) y no se puede dar de baja"
+            "description": "slug_in_use: ya existe un recurso con ese slug. withdrawn: el slug es de un recurso dado de baja y no se reutiliza. catalog_not_empty: el catálogo tiene datasets (en datasets) o esquemas y ontologías (en resources) y no se puede dar de baja. in_use (decisión 50): el esquema o la ontología lo usan recursos vivos (en used_by) y no se puede dar de baja"
           },
           "datasets": {
             "items": {
@@ -5700,6 +6802,22 @@
             "type": "array",
             "title": "Datasets",
             "description": "Solo con catalog_not_empty: URIs de las series que siguen en el catálogo"
+          },
+          "resources": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Resources",
+            "description": "Solo con catalog_not_empty: URIs de los esquemas y ontologías que siguen en el catálogo"
+          },
+          "used_by": {
+            "items": {
+              "$ref": "#/components/schemas/UsageRef"
+            },
+            "type": "array",
+            "title": "Used By",
+            "description": "Solo con in_use: los recursos vivos que lo usan"
           }
         },
         "type": "object",
@@ -5708,7 +6826,7 @@
           "kind"
         ],
         "title": "ConflictResponse",
-        "description": "409 del CRUD de catálogos y datasets (decisión 49)."
+        "description": "409 del CRUD de catálogos, datasets, esquemas y ontologías (decisiones 49 y 50)."
       },
       "ConsistencyRead": {
         "properties": {
@@ -6762,6 +7880,32 @@
         "title": "FairSummary",
         "description": "Evaluación FAIR de una versión con F-UJI (decisión 45).\n\n``status`` es el de la evaluación más reciente; las puntuaciones, el nivel, el\nevaluador y la fecha son los de la última evaluación ``done`` (pueden convivir: una\nreevaluación en curso muestra la anterior). Todo sale de la respuesta de F-UJI."
       },
+      "ForbiddenResponse": {
+        "properties": {
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "not_managed"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kind"
+          }
+        },
+        "type": "object",
+        "required": [
+          "detail"
+        ],
+        "title": "ForbiddenResponse",
+        "description": "403 de las escrituras. Sin ``kind``: el rol no basta (hace falta editor o admin).\nCon ``kind=not_managed`` (decisión 50, regla 12): el recurso es una ontología externa\no un esquema auxiliar (``vocab/dominio``, ``vocab/tipo-dataset``), que no se gestionan\ndesde la aplicación con ningún rol: solo cambian con sus ficheros y ``load-semantic``."
+      },
       "GoneResponse": {
         "properties": {
           "detail": {
@@ -6777,10 +7921,12 @@
             "type": "string",
             "enum": [
               "catalog",
-              "dataset"
+              "dataset",
+              "scheme",
+              "ontology"
             ],
             "title": "Resource",
-            "description": "Qué era: se deduce de la URI (catalogo/{slug} o dataset/{slug})"
+            "description": "Qué era: se deduce de la URI (catalogo/{slug}, dataset/{slug}, vocab/{slug} o vocab/corp/{slug}, u onto/{slug})"
           },
           "title": {
             "anyOf": [
@@ -6917,10 +8063,17 @@
               "version_removed",
               "version_immutable",
               "withdrawn",
-              "catalog_conflict"
+              "catalog_conflict",
+              "prefix_withdrawn",
+              "prefix_in_use",
+              "concepts_removed",
+              "concept_reactivated",
+              "replacement",
+              "deprecated_theme",
+              "unknown_theme"
             ],
             "title": "Kind",
-            "description": "limit: se ha superado un límite de la ingesta (tripletas, tamaño expandido, IRI, profundidad o tiempo o memoria de la validación SHACL). catalog (422): el catálogo indicado no existe o está dado de baja. version_removed y version_immutable (409): falta una versión ya publicada o viene con otro contenido; las versiones afectadas van en issues (focus_node). withdrawn (409): el slug es de un recurso dado de baja y no se reutiliza. catalog_conflict (409): la serie ya está en otro catálogo (se mueve con PATCH)"
+            "description": "limit: se ha superado un límite de la ingesta (tripletas, tamaño expandido, IRI, profundidad o tiempo o memoria de la validación SHACL). catalog (422): el catálogo indicado no existe o está dado de baja. version_removed y version_immutable (409): falta una versión ya publicada o viene con otro contenido; las versiones afectadas van en issues (focus_node). withdrawn (409): el slug (la URI) es de un recurso dado de baja y no se reutiliza. catalog_conflict (409): la serie, el esquema o la ontología ya está en otro catálogo (se mueve con PATCH). Decisión 50: prefix_withdrawn (409): el prefijo VANN era de un esquema o una ontología dados de baja; prefix_in_use (409): el prefijo VANN ya lo usa otro esquema vivo, una ontología externa o alguna versión publicada de otra ontología propia, aunque su versión actual ya no lo use (en issues, value); concepts_removed (409): al republicar un esquema faltan conceptos ya publicados (en issues); concept_reactivated (409): un concepto retirado deja de estarlo (fuera del piloto); replacement (422): un sustituto (dct:isReplacedBy) no es un concepto vivo; deprecated_theme (422): una versión nueva de dataset usa temas retirados (en issues, con replaced_by); unknown_theme (422): una versión nueva de dataset usa como tema una IRI de {BASE_URI}vocab/ que no es un concepto de un esquema vivo, porque no existe o porque su esquema se dio de baja (en issues, value); los temas externos no se comprueban"
           },
           "issues": {
             "items": {
@@ -7004,6 +8157,14 @@
               }
             ],
             "title": "Source Shape"
+          },
+          "replaced_by": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Replaced By",
+            "description": "Solo con kind=deprecated_theme: sustitutos (dct:isReplacedBy) del tema retirado (value)"
           }
         },
         "type": "object",
@@ -7262,6 +8423,17 @@
             "type": "array",
             "title": "Subjects",
             "description": "Esquemas SKOS usados (dct:subject)"
+          },
+          "catalog": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CatalogRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Catálogo de la ontología (decisión 50)"
           }
         },
         "type": "object",
@@ -7340,6 +8512,18 @@
           },
           "documentation": {
             "$ref": "#/components/schemas/DocumentationCoverageRead"
+          },
+          "catalog": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Catalog",
+            "description": "URI del catálogo (decisión 50)"
           }
         },
         "type": "object",
@@ -7552,6 +8736,24 @@
           "imports"
         ],
         "title": "OntologyMetricsRead"
+      },
+      "OntologyUpdate": {
+        "properties": {
+          "catalog": {
+            "type": "string",
+            "maxLength": 200,
+            "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+            "title": "Catalog",
+            "description": "Slug del catálogo de destino (mover la ontología); sus URIs no cambian"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "catalog"
+        ],
+        "title": "OntologyUpdate",
+        "description": "Edición de una ontología propia (decisión 50): solo su catálogo. Sus metadatos están\nen cada versión, que es inmutable (decisión 28): se cambian publicando otra versión."
       },
       "OntologyUse": {
         "properties": {
@@ -8123,6 +9325,17 @@
             "type": "array",
             "title": "Tree",
             "description": "Conceptos raíz (los topConcept y los que no tienen broader dentro del esquema) con sus hijos"
+          },
+          "catalog": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CatalogRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Catálogo del esquema (decisión 50); null en los auxiliares, que no están en ningún catálogo"
           }
         },
         "type": "object",
@@ -8178,6 +9391,18 @@
           "changed": {
             "type": "boolean",
             "title": "Changed"
+          },
+          "catalog": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Catalog",
+            "description": "URI del catálogo (decisión 50)"
           }
         },
         "type": "object",
@@ -8289,6 +9514,67 @@
           "label"
         ],
         "title": "SchemeRef"
+      },
+      "SchemeUpdate": {
+        "properties": {
+          "title": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 300
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title",
+            "description": "dct:title y skos:prefLabel del esquema en español (@es); los demás idiomas no cambian"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 5000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description",
+            "description": "dct:description en español (@es); los demás idiomas no cambian"
+          },
+          "publisher_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 300
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publisher Name",
+            "description": "Nombre del publicador (dct:publisher): un agente foaf:Agent con este foaf:name, sin URI (semantic/uris.md, «Pendiente»)"
+          },
+          "catalog": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Catalog",
+            "description": "Slug del catálogo de destino (mover el esquema); sus URIs no cambian"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "SchemeUpdate",
+        "description": "Edición de un esquema SKOS (decisión 50): sus metadatos y su catálogo. Solo cambian\nlos campos presentes. Los conceptos se cambian republicando el esquema."
       },
       "SubjectRef": {
         "properties": {
@@ -8404,6 +9690,50 @@
           "role"
         ],
         "title": "Token"
+      },
+      "UsageRef": {
+        "properties": {
+          "uri": {
+            "type": "string",
+            "title": "Uri",
+            "description": "Quién lo usa: la versión de dataset (dataset), la versión de ontología (owl:versionIRI, ontology) o el concepto de otro esquema (scheme)"
+          },
+          "resource": {
+            "type": "string",
+            "enum": [
+              "dataset",
+              "ontology",
+              "scheme"
+            ],
+            "title": "Resource"
+          },
+          "via": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Via",
+            "description": "Propiedad del uso (dcat:theme, dct:subject, skos:related, skos:exactMatch…, dct:isReplacedBy, owl:imports, dct:conformsTo); null si la versión usa un término de la ontología"
+          },
+          "target": {
+            "type": "string",
+            "title": "Target",
+            "description": "Concepto, esquema (dct:subject hacia el esquema mismo), ontología, versión o término usado"
+          }
+        },
+        "type": "object",
+        "required": [
+          "uri",
+          "resource",
+          "via",
+          "target"
+        ],
+        "title": "UsageRef",
+        "description": "Un uso vivo de un esquema o una ontología (decisión 50, regla 8)."
       },
       "UserCreate": {
         "properties": {
@@ -8885,6 +10215,17 @@
             ],
             "title": "Concepts",
             "description": "Número de conceptos (solo esquemas)"
+          },
+          "catalog": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CatalogRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Catálogo de la ontología propia o del esquema (decisión 50); null en las externas (no están en ningún catálogo)"
           },
           "domain": {
             "anyOf": [

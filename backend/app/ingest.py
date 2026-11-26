@@ -34,6 +34,11 @@ Reglas de la fase 4:
   (409 ``catalog_conflict``; moverla es ``PATCH /datasets/{slug}``).
 - **Bajas (decisión 49).** Un slug dado de baja no se reutiliza: publicar una serie con
   lápida en ``{BASE_URI}bajas`` da 409 ``withdrawn``.
+- **Temas retirados (decisión 50, regla 11).** Una versión nueva cuyo ``dcat:theme``
+  apunta a un concepto con ``owl:deprecated true`` se rechaza (422 ``deprecated_theme``),
+  avisando de sus sustitutos (``dct:isReplacedBy``). Un ``dcat:theme`` de
+  ``{BASE_URI}vocab/`` que no es un concepto de un esquema vivo (no existe o su esquema
+  se dio de baja) da 422 ``unknown_theme`` (QA-50-03).
 - **FAIR.** Las versiones nuevas (las que no estaban en el grafo publicado) se encolan
   para evaluarlas con F-UJI en segundo plano (``app.fair``).
 - **Segmento reservado.** ``fichero`` no puede ser el slug de una distribución: es la ruta
@@ -57,6 +62,7 @@ from sqlalchemy.orm import Session
 from app import audit, shacl_worker
 from app.config import ConfigurationError, get_settings
 from app.models import AuditAction, User
+from app.sparql import iri_list, literal, render
 from app.triplestore import TripleStore
 from app.uris import DCAT, Uris, is_slug
 from app.write_lock import catalog_write_lock
@@ -75,11 +81,31 @@ IngestErrorKind = Literal[
     "version_immutable",
     "withdrawn",
     "catalog_conflict",
+    # Decisión 50.
+    "prefix_withdrawn",
+    "prefix_in_use",
+    "concepts_removed",
+    "concept_reactivated",
+    "replacement",
+    "deprecated_theme",
+    "unknown_theme",
+    "not_managed",
 ]
 # Errores de ingesta que son un conflicto con lo publicado (409) y no un RDF inválido (422).
 CONFLICT_KINDS = frozenset(
-    {"version_removed", "version_immutable", "withdrawn", "catalog_conflict"}
+    {
+        "version_removed",
+        "version_immutable",
+        "withdrawn",
+        "catalog_conflict",
+        "prefix_withdrawn",
+        "prefix_in_use",
+        "concepts_removed",
+        "concept_reactivated",
+    }
 )
+# Recursos que no se gestionan desde la aplicación (decisión 50, regla 12): 403.
+FORBIDDEN_KINDS = frozenset({"not_managed"})
 # Qué hace ``publish`` si la serie ya está en otro catálogo: 409 (API), conservar el
 # catálogo actual (``load-semantic``) o moverla.
 OtherCatalog = Literal["conflict", "keep", "move"]
@@ -124,6 +150,8 @@ class Issue:
     value: str | None = None
     severity: str = "Violation"
     source_shape: str | None = None
+    # Decisión 50 (regla 11): sustitutos (dct:isReplacedBy) de un tema retirado.
+    replaced_by: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -827,6 +855,139 @@ def check_catalog(
     return target
 
 
+_DEPRECATED_QUERY = """CONSTRUCT { ?c <http://www.w3.org/2002/07/owl#deprecated> true .
+  ?c <http://purl.org/dc/terms/isReplacedBy> ?r . } WHERE {
+  VALUES ?c { $values }
+  GRAPH ?g { ?c <http://www.w3.org/2002/07/owl#deprecated> ?d .
+    OPTIONAL { ?c <http://purl.org/dc/terms/isReplacedBy> ?r } }
+  FILTER(?d = true && STRSTARTS(STR(?g), $vocab_ns))
+}"""
+
+
+def deprecated_concepts(store: TripleStore, uris: Uris, concepts: set[str]) -> dict[str, list[str]]:
+    """Conceptos retirados (``owl:deprecated true`` en el grafo de un esquema publicado)
+    de entre ``concepts``, con sus sustitutos (``dct:isReplacedBy``)."""
+    candidates = sorted(c for c in concepts if c.startswith(uris.vocab_ns))
+    if not candidates:
+        return {}
+    graph = store.construct(
+        render(_DEPRECATED_QUERY, values=iri_list(candidates), vocab_ns=literal(uris.vocab_ns))
+    )
+    deprecated_prop = URIRef("http://www.w3.org/2002/07/owl#deprecated")
+    replaced_prop = URIRef("http://purl.org/dc/terms/isReplacedBy")
+    return {
+        str(c): sorted(str(r) for r in graph.objects(c, replaced_prop))
+        for c in set(graph.subjects(deprecated_prop, None))
+    }
+
+
+_EXISTING_CONCEPTS_QUERY = """CONSTRUCT { ?c a <http://www.w3.org/2004/02/skos/core#Concept> }
+WHERE {
+  VALUES ?c { $values }
+  GRAPH ?g { ?c a <http://www.w3.org/2004/02/skos/core#Concept> }
+  FILTER(STRSTARTS(STR(?g), $vocab_ns))
+}"""
+
+
+def _new_version_themes(prepared: PreparedSeries, new_versions: list[str]) -> dict[str, set[str]]:
+    themes: dict[str, set[str]] = {}
+    for version in new_versions:
+        for theme in prepared.graph.objects(URIRef(version), DCAT.theme):
+            if isinstance(theme, URIRef):
+                themes.setdefault(str(theme), set()).add(version)
+    return themes
+
+
+def check_unknown_themes(
+    store: TripleStore,
+    prepared: PreparedSeries,
+    new_versions: list[str],
+    known: set[str] | frozenset[str] = frozenset(),
+) -> None:
+    """QA-50-03 (validado el 2026-11-26): una versión **nueva** cuyo ``dcat:theme`` es una
+    IRI de ``{BASE_URI}vocab/`` que no es un concepto de un esquema vivo (no existe, o su
+    esquema se dio de baja) se rechaza con 422 ``unknown_theme``. Los temas fuera de
+    ``{BASE_URI}vocab/`` (conceptos externos) no se comprueban: el backend no los conoce.
+    ``known``: conceptos que se publican en la misma ejecución de ``load-semantic``."""
+    if not new_versions or prepared.base_uri is None:
+        return
+    from app import bajas  # evita la importación circular
+
+    uris = Uris(prepared.base_uri)
+    themes = _new_version_themes(prepared, new_versions)
+    candidates = sorted(t for t in themes if t.startswith(uris.vocab_ns) and t not in known)
+    if not candidates:
+        return
+    found = store.construct(
+        render(
+            _EXISTING_CONCEPTS_QUERY, values=iri_list(candidates), vocab_ns=literal(uris.vocab_ns)
+        )
+    )
+    existing = {str(c) for c in found.subjects()}
+    missing = [t for t in candidates if t not in existing]
+    if not missing:
+        return
+    withdrawn: dict[str, bool] = {}
+    for theme in missing:
+        scheme = theme.rsplit("/", 1)[0]
+        if scheme not in withdrawn:
+            withdrawn[scheme] = (
+                uris.managed_resource(scheme) is not None
+                and bajas.get_tombstone(store, uris, scheme) is not None
+            )
+    issues = [
+        Issue(
+            "El tema es un concepto de un esquema dado de baja"
+            if withdrawn[theme.rsplit("/", 1)[0]]
+            else "El tema no es un concepto de ningún esquema publicado",
+            focus_node=version,
+            path=str(DCAT.theme),
+            value=theme,
+        )
+        for theme in missing
+        for version in sorted(themes[theme])
+    ]
+    raise IngestError(
+        "unknown_theme",
+        "La versión nueva usa temas que no son conceptos de un esquema vivo: usa conceptos "
+        "publicados",
+        issues,
+    )
+
+
+def check_deprecated_themes(
+    store: TripleStore, prepared: PreparedSeries, new_versions: list[str]
+) -> None:
+    """Decisión 50 (regla 11): una versión **nueva** cuyo ``dcat:theme`` apunta a un concepto
+    retirado se rechaza (422 ``deprecated_theme``), con los temas retirados y sus sustitutos
+    en ``issues``. Las versiones ya publicadas no se comprueban: son inmutables."""
+    if not new_versions or prepared.base_uri is None:
+        return
+    uris = Uris(prepared.base_uri)
+    themes = _new_version_themes(prepared, new_versions)
+    retired = deprecated_concepts(store, uris, set(themes))
+    if not retired:
+        return
+    issues = [
+        Issue(
+            "El tema está retirado (owl:deprecated)"
+            + (f"; usa en su lugar: {', '.join(retired[theme])}" if retired[theme] else ""),
+            focus_node=version,
+            path=str(DCAT.theme),
+            value=theme,
+            replaced_by=retired[theme],
+        )
+        for theme in sorted(retired)
+        for version in sorted(themes[theme])
+    ]
+    raise IngestError(
+        "deprecated_theme",
+        "La versión nueva usa temas retirados: sustitúyelos por los conceptos que los "
+        "reemplazan (dct:isReplacedBy) o por otros vigentes",
+        issues,
+    )
+
+
 def publish(
     store: TripleStore, prepared: PreparedSeries, *, other: OtherCatalog = "conflict"
 ) -> PublishResult:
@@ -838,6 +999,8 @@ def publish(
     current = store.get_graph(prepared.uri)
     new_versions = check_immutable(current, prepared)
     target = check_catalog(store, prepared, other=other)
+    check_unknown_themes(store, prepared, new_versions)
+    check_deprecated_themes(store, prepared, new_versions)
     created = len(current) == 0
     changed = created or not isomorphic(current, prepared.graph)
     if changed:
@@ -880,24 +1043,30 @@ def merge_root_catalog(
     return merged
 
 
+MEMBERSHIP_PROPERTIES = (DCAT.dataset, DCAT.resource)
+
+
 def merge_catalog(current: Graph, loaded: Graph, catalog_uri: str) -> Graph:
-    """Catálogo ``data/catalogos/{slug}.ttl`` para ``load-semantic``: sus metadatos y los
-    ``dcat:dataset`` ya publicados. Los ``dcat:dataset`` del fichero no se copian: la
-    pertenencia la aporta cada serie (su triple), y así ``load-semantic`` no deshace un
-    traslado hecho desde la aplicación."""
+    """Catálogo ``data/catalogos/{slug}.ttl`` para ``load-semantic``: sus metadatos y las
+    pertenencias ya publicadas (``dcat:dataset`` de las series y, desde la decisión 50,
+    ``dcat:resource`` de los esquemas y las ontologías). Las del fichero no se copian: la
+    pertenencia la escribe cada serie, esquema u ontología al publicarse, y así
+    ``load-semantic`` no deshace un traslado hecho desde la aplicación."""
     catalog = URIRef(catalog_uri)
     merged = Graph()
     for triple in loaded:
-        if triple[0] == catalog and triple[1] == DCAT.dataset:
+        if triple[0] == catalog and triple[1] in MEMBERSHIP_PROPERTIES:
             continue
         merged.add(triple)
-    for series in current.objects(catalog, DCAT.dataset):
-        merged.add((catalog, DCAT.dataset, series))
+    for prop in MEMBERSHIP_PROPERTIES:
+        for member in current.objects(catalog, prop):
+            merged.add((catalog, prop, member))
     return merged
 
 
 def check_catalog_structure(graph: Graph, uris: Uris, catalog_uri: str) -> None:
-    """Un catálogo ``{BASE_URI}catalogo/{slug}``: solo él (y nodos en blanco), un nivel."""
+    """Un catálogo ``{BASE_URI}catalogo/{slug}``: solo él (y nodos en blanco), un nivel,
+    con ``dcat:dataset`` hacia series y ``dcat:resource`` hacia esquemas u ontologías."""
     node = URIRef(catalog_uri)
     issues: list[Issue] = []
     found = set(graph.subjects(RDF.type, DCAT.Catalog))
@@ -919,6 +1088,18 @@ def check_catalog_structure(graph: Graph, uris: Uris, catalog_uri: str) -> None:
             issues.append(
                 Issue(
                     f"dcat:dataset tiene que ser una serie {uris.dataset_ns}{{slug}}",
+                    focus_node=catalog_uri,
+                    value=str(item),
+                )
+            )
+    # Decisión 50: dcat:resource lista esquemas SKOS (no auxiliares) y ontologías propias.
+    for item in graph.objects(node, DCAT.resource):
+        if not isinstance(item, URIRef) or uris.managed_resource(str(item)) is None:
+            issues.append(
+                Issue(
+                    f"dcat:resource tiene que ser un esquema SKOS {uris.vocab_ns}{{slug}} o "
+                    f"{uris.corp_vocab_ns}{{slug}} (no auxiliar) o una ontología propia "
+                    f"{uris.onto_ns}{{slug}}",
                     focus_node=catalog_uri,
                     value=str(item),
                 )
