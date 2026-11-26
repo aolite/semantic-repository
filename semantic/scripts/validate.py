@@ -728,7 +728,7 @@ def external_coherence(g: Graph, base: str, prefixes: dict[str, list[str]]) -> l
     externa ({BASE_URI}onto/externas/{slug}/{n}) las crea solo la aplicación
     al sustituirla (decisión 50, 2026-11-26): el fichero no las lleva. Cada
     externa tiene exactamente un prefijo VANN, que será el slug de sus
-    versiones [PROPUESTA pendiente de validar].
+    versiones (validado el 2026-11-26, decisión 51).
     """
     problems: list[str] = []
     short = short_of(base)
