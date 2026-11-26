@@ -92,7 +92,7 @@ export function ConceptTree({ nodes, selected, onSelect, label }: ConceptTreePro
   )
   const [prevSelected, setPrevSelected] = useState(selected)
   const [focusedKey, setFocusedKey] = useState<string | null>(null)
-  const itemRefs = useRef(new Map<string, HTMLLIElement>())
+  const itemRefs = useRef(new Map<string, HTMLDivElement>())
   const pendingFocus = useRef(false)
 
   // Si la selección cambia desde fuera (un enlace broader o related), se abre su rama.
@@ -192,26 +192,25 @@ export function ConceptTree({ nodes, selected, onSelect, label }: ConceptTreePro
       const open = isOpen(item)
       const isSelected = node.slug !== null && node.slug === selected
       return (
-        <li
-          key={key}
-          ref={(el) => {
-            if (el) itemRefs.current.set(key, el)
-            else itemRefs.current.delete(key)
-          }}
-          role="treeitem"
-          aria-level={level}
-          aria-expanded={item.hasChildren ? open : undefined}
-          aria-selected={isSelected}
-          aria-label={node.deprecated ? `${nodeLabel(node)} (retirado)` : nodeLabel(node)}
-          tabIndex={key === tabStop ? 0 : -1}
-          className="tree__item"
-          onFocus={(e) => {
-            if (e.target === e.currentTarget) setFocusedKey(key)
-          }}
-        >
+        // El `treeitem` es la fila y su grupo de hijos va al lado, dentro de un `li` sin rol: así su
+        // nombre accesible sale solo del texto visible de la fila (WCAG 2.5.3, QA-51-02), sin
+        // `aria-label` ni los nombres de los hijos. La jerarquía la dan `aria-level` y los `group`.
+        <li key={key} role="none" className="tree__item">
           <div
+            ref={(el) => {
+              if (el) itemRefs.current.set(key, el)
+              else itemRefs.current.delete(key)
+            }}
+            role="treeitem"
+            aria-level={level}
+            aria-expanded={item.hasChildren ? open : undefined}
+            aria-selected={isSelected}
+            tabIndex={key === tabStop ? 0 : -1}
             className={`tree__row${isSelected ? ' tree__row--selected' : ''}`}
             style={{ paddingLeft: `${(level - 1) * 22}px` }}
+            onFocus={(e) => {
+              if (e.target === e.currentTarget) setFocusedKey(key)
+            }}
             onClick={() => select(item)}
           >
             {item.hasChildren ? (
@@ -241,11 +240,14 @@ export function ConceptTree({ nodes, selected, onSelect, label }: ConceptTreePro
                 .join(' ')}
             >
               {nodeLabel(node)}
-              {/* Concepto retirado (owl:deprecated, decisión 50): el aria-label del treeitem ya lo dice. */}
+              {/* Concepto retirado (owl:deprecated, decisión 50): nombre accesible «{concepto} (retirado)». */}
               {node.deprecated && (
-                <span className="tree__deprecated" aria-hidden="true">
-                  Retirado
-                </span>
+                <>
+                  {' '}
+                  <span className="visually-hidden">(</span>
+                  <span className="tree__deprecated">retirado</span>
+                  <span className="visually-hidden">)</span>
+                </>
               )}
             </span>
           </div>

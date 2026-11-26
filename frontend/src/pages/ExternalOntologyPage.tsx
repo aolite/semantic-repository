@@ -167,7 +167,6 @@ function VersioningSection({ data, selected }: { data: ExternalOntologyDetail; s
           rows={data.versions.map((v) => ({
             key: v.uri,
             label: v.version_info ? `${v.number} · ${v.version_info}` : String(v.number),
-            ariaLabel: `Versión ${v.number}`,
             to: externalOntologyRoute(data.slug, v.current ? null : v.number),
             current: v.current,
             selected: selected?.number === v.number,
@@ -176,7 +175,7 @@ function VersioningSection({ data, selected }: { data: ExternalOntologyDetail; s
             download: {
               href: rdfUrl(data.slug, v, 'turtle'),
               label: 'Descargar RDF',
-              ariaLabel: `Descargar el RDF de la versión ${v.number} (Turtle)`,
+              hiddenSuffix: `de la versión ${v.number} (Turtle)`,
             },
           }))}
         />
