@@ -420,6 +420,45 @@ def _check_prefix(session: Session, graph: Graph, resource: str) -> None:
         )
 
 
+def _check_plan_prefixes(store: TripleStore | None, uris: Uris, plan: _Plan) -> bool:
+    """QA-50-01 (validado el 2026-11-26): dos recursos vivos no comparten prefijo VANN. Se
+    comprueba entre los ficheros de esta ejecución y contra los recursos ya publicados que
+    no se cargan ahora (los creados desde la aplicación). Devuelve si ha fallado."""
+    planned: dict[str, tuple[str, str]] = {}  # recurso -> (prefijo, fichero)
+    for name, prepared in plan.schemes:
+        prefix = vocab_ingest.resource_prefix(prepared.graph, prepared.uri)
+        if prefix:
+            planned[prepared.uri] = (prefix, name)
+    for name, prepared_onto, _analysis in plan.ontologies:
+        prefix = vocab_ingest.resource_prefix(prepared_onto.graph, prepared_onto.uri)
+        if prefix:
+            planned.setdefault(prepared_onto.uri, (prefix, name))
+    by_prefix: dict[str, list[str]] = {}
+    for resource, (prefix, _name) in planned.items():
+        by_prefix.setdefault(prefix, []).append(resource)
+    failed = False
+    for resource, (prefix, name) in sorted(planned.items(), key=lambda item: item[1][1]):
+        others = [r for r in by_prefix[prefix] if r != resource]
+        if store is not None:
+            # Lo publicado que también se carga ahora cuenta con su prefijo del fichero.
+            others += [
+                owner
+                for owner in vocab_ingest.live_prefix_owners(store, uris, prefix, resource)
+                if owner not in planned
+            ]
+        if others:
+            _print_ingest_error(
+                name,
+                ingest.IngestError(
+                    "prefix_in_use",
+                    f"El prefijo VANN «{prefix}» ya lo usa otro esquema u ontología",
+                    [ingest.Issue("Prefijo de otro recurso", focus_node=o) for o in sorted(others)],
+                ),
+            )
+            failed = True
+    return failed
+
+
 def _scheme_paths(semantic_dir: Path) -> list[Path]:
     root = semantic_dir / ingest.VOCABULARIES_DIR
     return sorted(root.glob("*.ttl")) + sorted((root / CORP_SEGMENT).glob("*.ttl"))
@@ -607,6 +646,9 @@ def _validate_all(
             _print_ingest_error(name, exc)
             failed = True
 
+    if _check_plan_prefixes(store, uris, plan):
+        failed = True
+
     plain_files: list[tuple[Path, str]] = []
     externas = semantic_dir / ingest.EXTERNAL_ONTOLOGIES_FILE
     if externas.is_file():
@@ -631,8 +673,15 @@ def _validate_all(
                 typer.echo(f"  {name}: se omite (dataset dado de baja)")
                 continue
             if store is not None:
-                ingest.check_immutable(store.get_graph(prepared_series.uri), prepared_series)
+                new_versions = ingest.check_immutable(
+                    store.get_graph(prepared_series.uri), prepared_series
+                )
                 _check_series_catalog(store, uris, prepared_series, loaded_catalogs)
+                # QA-50-03: temas de versiones nuevas, contra los esquemas de esta
+                # ejecución y los publicados (antes de escribir nada).
+                ingest.check_unknown_themes(
+                    store, prepared_series, new_versions, known=_known_concepts(plan)
+                )
             plan.series.append((name, prepared_series))
         except ingest.IngestError as exc:
             _print_ingest_error(name, exc)

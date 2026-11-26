@@ -325,10 +325,12 @@ class IngestErrorResponse(BaseModel):
         "withdrawn",
         "catalog_conflict",
         "prefix_withdrawn",
+        "prefix_in_use",
         "concepts_removed",
         "concept_reactivated",
         "replacement",
         "deprecated_theme",
+        "unknown_theme",
     ] = Field(
         description="limit: se ha superado un límite de la ingesta (tripletas, tamaño "
         "expandido, IRI, profundidad o tiempo o memoria de la validación SHACL). "
@@ -339,11 +341,17 @@ class IngestErrorResponse(BaseModel):
         "catalog_conflict (409): la serie, el esquema o la ontología ya está en otro "
         "catálogo (se mueve con PATCH). "
         "Decisión 50: prefix_withdrawn (409): el prefijo VANN era de un esquema o una "
-        "ontología dados de baja; concepts_removed (409): al republicar un esquema faltan "
+        "ontología dados de baja; prefix_in_use (409): el prefijo VANN ya lo usa otro "
+        "esquema u ontología propia vivo (en issues, value); concepts_removed (409): al "
+        "republicar un esquema faltan "
         "conceptos ya publicados (en issues); concept_reactivated (409): un concepto "
         "retirado deja de estarlo (fuera del piloto); replacement (422): un sustituto "
         "(dct:isReplacedBy) no es un concepto vivo; deprecated_theme (422): una versión "
-        "nueva de dataset usa temas retirados (en issues, con replaced_by)"
+        "nueva de dataset usa temas retirados (en issues, con replaced_by); "
+        "unknown_theme (422): una versión nueva de dataset usa como tema una IRI de "
+        "{BASE_URI}vocab/ que no es un concepto de un esquema vivo, porque no existe o "
+        "porque su esquema se dio de baja (en issues, value); los temas externos no se "
+        "comprueban"
     )
     issues: list[IngestIssue]
     report: str | None = Field(description="Informe SHACL en texto (solo kind=shacl)")
@@ -981,9 +989,13 @@ class UsageRef(BaseModel):
     resource: Literal["dataset", "ontology", "scheme"]
     via: str | None = Field(
         description="Propiedad del uso (dcat:theme, dct:subject, skos:related, "
-        "skos:exactMatch…, owl:imports); null si la versión usa un término de la ontología"
+        "skos:exactMatch…, dct:isReplacedBy, owl:imports, dct:conformsTo); null si la "
+        "versión usa un término de la ontología"
     )
-    target: str = Field(description="Concepto, ontología, versión o término usado")
+    target: str = Field(
+        description="Concepto, esquema (dct:subject hacia el esquema mismo), ontología, "
+        "versión o término usado"
+    )
 
 
 class ConflictResponse(BaseModel):

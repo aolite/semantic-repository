@@ -14,9 +14,11 @@ Contrato: ``semantic/uris.md``, «Vocabularios y ontologías en los catálogos»
   borran el grafo del esquema (con sus conceptos) o los de todas las versiones de la
   ontología y el triple de su catálogo, y el prefijo VANN queda en PostgreSQL
   (``withdrawn_prefixes``) para que no se reutilice. 409 ``in_use`` si lo usan recursos
-  vivos (regla 8). Sus conceptos y versiones responden 410 por el prefijo de su URI.
+  vivos (regla 8 y usos validados el 2026-11-26). Sus conceptos y versiones responden
+  410 por el prefijo de su URI. Robusta ante un fallo a medias (QA-50-04, ``_withdraw``):
+  lo de Fuseki va en una sola petición de Update.
 - Las ontologías externas y los esquemas auxiliares no se gestionan desde la aplicación
-  (regla 5): 403 ``not_managed`` (propuesta de ``backend``, regla 12).
+  (regla 5): 403 ``not_managed`` (propuesta de ``backend``, validada el 2026-11-26).
 
 Toda operación va con el bloqueo de las escrituras del catálogo (``app.write_lock``).
 """
@@ -45,6 +47,7 @@ MAPPING_RELATIONS = (
     SKOS.broadMatch,
     SKOS.narrowMatch,
     SKOS.relatedMatch,
+    DCT.isReplacedBy,
 )
 
 _PREFIXES = """PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
@@ -70,14 +73,16 @@ _SUBJECT_USES = (
     + """CONSTRUCT { ?g dct:subject ?c . } WHERE {
   GRAPH ?g { ?o a owl:Ontology ; owl:versionIRI ?g ; dct:subject ?c . }
   FILTER(STRSTARTS(STR(?g), $onto_ns) && STRSTARTS(STR(?g), CONCAT(STR(?o), "/")))
-  FILTER(STRSTARTS(STR(?c), $prefix))
+  FILTER(?c = $scheme || STRSTARTS(STR(?c), $prefix))
 }"""
 )
+# dct:isReplacedBy desde un concepto de otro esquema vivo (QA-50-02, validado el
+# 2026-11-26): dar de baja el sustituto dejaría al otro esquema sin poder republicarse.
 _MAPPING_USES = (
     _PREFIXES
     + """CONSTRUCT { ?x ?rel ?c . } WHERE {
   VALUES ?rel { skos:related skos:exactMatch skos:closeMatch skos:broadMatch
-                skos:narrowMatch skos:relatedMatch }
+                skos:narrowMatch skos:relatedMatch dct:isReplacedBy }
   GRAPH ?g { ?g a skos:ConceptScheme . ?x skos:inScheme ?g ; ?rel ?c . }
   FILTER(STRSTARTS(STR(?g), $vocab_ns) && ?g != $scheme && STRSTARTS(STR(?c), $prefix))
 }"""
@@ -92,6 +97,16 @@ _IMPORT_USES = (
   GRAPH ?g { ?o a owl:Ontology ; owl:versionIRI ?g ; owl:imports ?t . }
   FILTER(STRSTARTS(STR(?g), $onto_ns) && STRSTARTS(STR(?g), CONCAT(STR(?o), "/")))
   FILTER(!STRSTARTS(STR(?g), $own))
+  FILTER(?t = $onto || STRSTARTS(STR(?t), $own))
+}"""
+)
+# dct:conformsTo de una versión de un dataset vivo hacia la ontología o una de sus
+# versiones (validado el 2026-11-26).
+_CONFORMS_USES = (
+    _PREFIXES
+    + """CONSTRUCT { ?v dct:conformsTo ?t . } WHERE {
+  GRAPH ?s { ?s a dcat:DatasetSeries . ?v dcat:inSeries ?s ; dct:conformsTo ?t . }
+  FILTER(STRSTARTS(STR(?s), $dataset_ns))
   FILTER(?t = $onto || STRSTARTS(STR(?t), $own))
 }"""
 )
@@ -136,9 +151,11 @@ def scheme_uses(
                     uri=str(version), resource="dataset", via=str(DCAT.theme), target=str(concept)
                 )
             )
-    subjects = store.construct(render(_SUBJECT_USES, onto_ns=literal(uris.onto_ns), prefix=prefix))
+    subjects = store.construct(
+        render(_SUBJECT_USES, onto_ns=literal(uris.onto_ns), scheme=iri(scheme), prefix=prefix)
+    )
     for version, concept in subjects.subject_objects(DCT.subject):
-        if concept in concepts:
+        if concept in concepts or concept == URIRef(scheme):
             uses.append(
                 schemas.UsageRef(
                     uri=str(version),
@@ -173,6 +190,15 @@ def ontology_uses(store: TripleStore, uris: Uris, ontology: str) -> list[schemas
                 uri=str(version), resource="ontology", via=str(OWL.imports), target=str(target)
             )
         )
+    conforms = store.construct(
+        render(_CONFORMS_USES, dataset_ns=literal(uris.dataset_ns), onto=iri(ontology), own=own)
+    )
+    for version, target in conforms.subject_objects(DCT.conformsTo):
+        uses.append(
+            schemas.UsageRef(
+                uri=str(version), resource="dataset", via=str(DCT.conformsTo), target=str(target)
+            )
+        )
     terms = store.construct(
         render(
             _TERM_USES,
@@ -185,7 +211,7 @@ def ontology_uses(store: TripleStore, uris: Uris, ontology: str) -> list[schemas
         uses.append(
             schemas.UsageRef(uri=str(version), resource="ontology", via=None, target=str(term))
         )
-    return sorted(uses, key=lambda u: (u.uri, u.via or "", u.target))
+    return sorted(uses, key=lambda u: (u.resource, u.uri, u.via or "", u.target))
 
 
 def _in_use(uses: list[schemas.UsageRef], what: str) -> CrudError:
@@ -201,6 +227,34 @@ def _in_use(uses: list[schemas.UsageRef], what: str) -> CrudError:
 def _record_prefix(session: Session, prefix: str | None, resource: str) -> None:
     if prefix and session.get(WithdrawnPrefix, prefix) is None:
         session.add(WithdrawnPrefix(prefix=prefix, resource_uri=resource))
+
+
+def _withdraw(
+    store: TripleStore,
+    session: Session,
+    uris: Uris,
+    uri: str,
+    prefix: str | None,
+    tombstone: Graph,
+    graphs: list[str],
+) -> None:
+    """Baja robusta ante un fallo a medias (QA-50-04), en este orden:
+
+    1. **PostgreSQL**: se reserva el prefijo VANN (``withdrawn_prefixes``) y se confirma.
+       Si lo siguiente falla, el recurso sigue vivo y es el dueño del prefijo, así que
+       puede seguir publicando (``check_resource_publication`` deja pasar a su dueño) y
+       ningún otro recurso podía usarlo (QA-50-01). Un reintento no lo duplica.
+    2. **Fuseki**, en **una** petición de Update (una transacción): lápida, pertenencia y
+       grafos (``bajas.withdraw_resource_update``). O se aplica entera o no se aplica:
+       nunca queda una lápida con el grafo vivo. Si falla, la baja se puede reintentar
+       desde el principio.
+    3. Lo que queda (auditoría y métricas) lo confirma quien llama. Si falla, la baja ya
+       está hecha y es coherente; solo falta el evento de auditoría.
+    """
+    if prefix:
+        _record_prefix(session, prefix, uri)
+        session.commit()
+    store.update(bajas.withdraw_resource_update(uris, uri, tombstone, graphs))
 
 
 def _titles(graph: Graph, node: URIRef) -> list[Literal]:
@@ -305,12 +359,9 @@ def withdraw_scheme(
     if uses:
         raise _in_use(uses, "El esquema")
     prefix = vocab_ingest.resource_prefix(graph, uri)
-    catalogs.write_tombstone(store, uris, uri, _titles(graph, node), settings)
+    tombstone = catalogs.build_tombstone(uris, uri, _titles(graph, node), settings)
     from_catalogs = sorted(bajas.resource_catalogs(store, uris, uri))
-    for catalog_uri in from_catalogs:
-        bajas.remove_resource_membership(store, catalog_uri, uri)
-    store.delete_graph(uri)
-    _record_prefix(session, prefix, uri)
+    _withdraw(store, session, uris, uri, prefix, tombstone, [uri])
     audit.record(
         session,
         AuditAction.SCHEME_WITHDRAWN,
@@ -399,18 +450,15 @@ def withdraw_ontology(
     node = URIRef(uri)
     prefix = vocab_ingest.resource_prefix(header, uri)
     # Su dct:title es el de la última versión (semantic/uris.md).
-    catalogs.write_tombstone(store, uris, uri, _titles(header, node), settings)
+    tombstone = catalogs.build_tombstone(uris, uri, _titles(header, node), settings)
     from_catalogs = sorted(bajas.resource_catalogs(store, uris, uri))
-    for catalog_uri in from_catalogs:
-        bajas.remove_resource_membership(store, catalog_uri, uri)
     version_iris = sorted(str(n) for n in versions.nodes())
-    for version_iri in version_iris:
-        store.delete_graph(version_iri)
-    # Métricas de versiones que ya no existen: datos derivados, se borran.
+    _withdraw(store, session, uris, uri, prefix, tombstone, version_iris)
+    # Métricas de versiones que ya no existen: datos derivados, se borran (después de la
+    # baja en Fuseki: si esta falla, la ontología sigue viva con sus métricas).
     session.execute(
         delete(OntologyMetricsRecord).where(OntologyMetricsRecord.version_iri.in_(version_iris))
     )
-    _record_prefix(session, prefix, uri)
     audit.record(
         session,
         AuditAction.ONTOLOGY_WITHDRAWN,

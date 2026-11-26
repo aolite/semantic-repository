@@ -96,7 +96,8 @@ def _not_found() -> HTTPException:
         "«<catálogo> dcat:resource <esquema>» en el RDF), que se guarda en el grafo del "
         "catálogo. 409 `catalog_conflict` si ya está en otro catálogo (se mueve con PATCH), "
         "`withdrawn` si se dio de baja, `prefix_withdrawn` si su prefijo VANN era de un "
-        "recurso dado de baja, `concepts_removed` si faltan conceptos ya publicados (un "
+        "recurso dado de baja, `prefix_in_use` si lo usa otro esquema u ontología propia "
+        "vivo, `concepts_removed` si faltan conceptos ya publicados (un "
         "concepto se retira con owl:deprecated true) y `concept_reactivated` si un concepto "
         "retirado deja de estarlo; 422 `catalog` si el catálogo no existe y `replacement` si "
         "un sustituto (dct:isReplacedBy) no es un concepto vivo; 403 `not_managed` con un "
@@ -115,8 +116,8 @@ def _not_found() -> HTTPException:
         status.HTTP_403_FORBIDDEN: FORBIDDEN,
         status.HTTP_409_CONFLICT: {
             "model": schemas.IngestErrorResponse,
-            "description": "catalog_conflict, withdrawn, prefix_withdrawn, concepts_removed o "
-            "concept_reactivated",
+            "description": "catalog_conflict, withdrawn, prefix_withdrawn, prefix_in_use, "
+            "concepts_removed o concept_reactivated",
         },
         status.HTTP_413_CONTENT_TOO_LARGE: {"model": schemas.ErrorResponse},
         status.HTTP_415_UNSUPPORTED_MEDIA_TYPE: {"model": schemas.ErrorResponse},
@@ -186,10 +187,12 @@ PATCH_DESCRIPTION = (
 DELETE_DESCRIPTION = (
     "Borrado lógico (decisión 50): el esquema y sus conceptos salen de su catálogo, de los "
     "listados y de SPARQL; su URI y las de sus conceptos responden 410 con una ficha mínima. "
-    "Su slug y su prefijo VANN no se reutilizan. 409 `in_use` si algún concepto suyo lo usan "
-    "recursos vivos (`dcat:theme` de una versión de dataset, `dct:subject` de una versión de "
-    "ontología, o `skos:related`/`*Match` desde otro esquema), con los usos en `used_by`. 403 "
-    "`not_managed` con un esquema auxiliar."
+    "Su slug y su prefijo VANN no se reutilizan. 409 `in_use` si lo usan recursos vivos "
+    "(un concepto suyo como `dcat:theme` de una versión de dataset, `dct:subject` de una "
+    "versión de ontología hacia un concepto suyo o hacia el esquema, o un concepto suyo como "
+    "destino de `skos:related`/`*Match`/`dct:isReplacedBy` desde otro esquema), con los usos "
+    "en `used_by`. 403 `not_managed` con un esquema auxiliar. Robusta ante un fallo a medias: "
+    "lo del triplestore va en una sola petición de Update; si falla (503), se reintenta."
 )
 CONFLICT_IN_USE = {
     "model": schemas.ConflictResponse,

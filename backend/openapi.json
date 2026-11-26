@@ -832,7 +832,7 @@
           "datasets"
         ],
         "summary": "Publica una serie de dataset (con sus versiones) validada con SHACL",
-        "description": "Recibe la serie completa (dcat:DatasetSeries con sus dcat:Dataset y dcat:Distribution) en Turtle o JSON-LD; las IRIs relativas se resuelven contra BASE_URI. Sustituye por completo el grafo con nombre `{BASE_URI}dataset/{slug}`. Decisión 49: el RDF lleva exactamente un `<{BASE_URI}catalogo/{slug}> dcat:dataset <serie>` (o se indica `?catalog={slug}` y el backend lo añade antes de validar); se guarda en el grafo del catálogo. 422 `catalog` si el catálogo no existe o está dado de baja; 409 `catalog_conflict` si la serie ya está en otro catálogo (se mueve con PATCH) y 409 `withdrawn` si el slug es de un dataset dado de baja. Las versiones ya publicadas son inmutables: tienen que venir todas y con el mismo contenido (409 `version_removed` o `version_immutable`, con las versiones en `issues`). Decisión 50: una versión nueva cuyo `dcat:theme` apunta a un concepto retirado (`owl:deprecated true`) se rechaza con 422 `deprecated_theme`, con los temas y sus sustitutos (`dct:isReplacedBy`) en `issues[].replaced_by`. Las versiones nuevas se encolan para evaluarlas con F-UJI en segundo plano. 201 si la serie es nueva; 200 si ya existía (con `changed=false` si el contenido era idéntico). Requiere rol editor (admin hereda los permisos de editor).",
+        "description": "Recibe la serie completa (dcat:DatasetSeries con sus dcat:Dataset y dcat:Distribution) en Turtle o JSON-LD; las IRIs relativas se resuelven contra BASE_URI. Sustituye por completo el grafo con nombre `{BASE_URI}dataset/{slug}`. Decisión 49: el RDF lleva exactamente un `<{BASE_URI}catalogo/{slug}> dcat:dataset <serie>` (o se indica `?catalog={slug}` y el backend lo añade antes de validar); se guarda en el grafo del catálogo. 422 `catalog` si el catálogo no existe o está dado de baja; 409 `catalog_conflict` si la serie ya está en otro catálogo (se mueve con PATCH) y 409 `withdrawn` si el slug es de un dataset dado de baja. Las versiones ya publicadas son inmutables: tienen que venir todas y con el mismo contenido (409 `version_removed` o `version_immutable`, con las versiones en `issues`). Decisión 50: una versión nueva cuyo `dcat:theme` apunta a un concepto retirado (`owl:deprecated true`) se rechaza con 422 `deprecated_theme`, con los temas y sus sustitutos (`dct:isReplacedBy`) en `issues[].replaced_by`; y una cuyo `dcat:theme` es una IRI de `{BASE_URI}vocab/` que no es un concepto de un esquema vivo (no existe o su esquema se dio de baja), con 422 `unknown_theme`. Las versiones nuevas se encolan para evaluarlas con F-UJI en segundo plano. 201 si la serie es nueva; 200 si ya existía (con `changed=false` si el contenido era idéntico). Requiere rol editor (admin hereda los permisos de editor).",
         "operationId": "create_dataset_datasets_post",
         "security": [
           {
@@ -919,7 +919,7 @@
             "description": "Unsupported Media Type"
           },
           "422": {
-            "description": "RDF no válido: sintaxis, estructura, URIs o informe SHACL; catálogo inexistente (catalog); o una versión nueva con temas retirados (deprecated_theme, decisión 50: issues con los temas y sus sustitutos en replaced_by)",
+            "description": "RDF no válido: sintaxis, estructura, URIs o informe SHACL; catálogo inexistente (catalog); o una versión nueva con temas retirados (deprecated_theme, decisión 50: issues con los temas y sus sustitutos en replaced_by) o que no son conceptos de un esquema vivo (unknown_theme)",
             "content": {
               "application/json": {
                 "schema": {
@@ -3390,7 +3390,7 @@
           "ontologies"
         ],
         "summary": "Publica una versión de ontología validada con SHACL y calcula sus métricas",
-        "description": "Recibe una versión de ontología (una owl:Ontology `{BASE_URI}onto/{slug}` con owl:versionIRI `{BASE_URI}onto/{slug}/{version}`) en Turtle o JSON-LD; las IRIs relativas se resuelven contra BASE_URI. Las versiones son inmutables: si el versionIRI ya está publicado con otro contenido, 409 `version_immutable`; con el mismo, la ingesta es idempotente. Decisión 50: la ontología pertenece a un catálogo (`?catalog={slug}` o el triple «<catálogo> dcat:resource <ontología>» en el RDF), que se guarda en el grafo del catálogo y no en la versión; 409 `catalog_conflict` si ya está en otro catálogo (se mueve con PATCH), `withdrawn` si se dio de baja y `prefix_withdrawn` si su prefijo VANN era de un recurso dado de baja; 422 `catalog` si el catálogo no existe; 403 `not_managed` si describe una ontología externa. Antes de escribir calcula las métricas OWL (owlready2) y la consistencia (Pellet) **sin descargar los owl:imports**, y las guarda como metadatos de la versión. 201 si la versión es nueva; 200 si ya existía (`changed=false` si era idéntica). Requiere rol editor (admin hereda los permisos de editor).",
+        "description": "Recibe una versión de ontología (una owl:Ontology `{BASE_URI}onto/{slug}` con owl:versionIRI `{BASE_URI}onto/{slug}/{version}`) en Turtle o JSON-LD; las IRIs relativas se resuelven contra BASE_URI. Las versiones son inmutables: si el versionIRI ya está publicado con otro contenido, 409 `version_immutable`; con el mismo, la ingesta es idempotente. Decisión 50: la ontología pertenece a un catálogo (`?catalog={slug}` o el triple «<catálogo> dcat:resource <ontología>» en el RDF), que se guarda en el grafo del catálogo y no en la versión; 409 `catalog_conflict` si ya está en otro catálogo (se mueve con PATCH), `withdrawn` si se dio de baja y `prefix_withdrawn` si su prefijo VANN era de un recurso dado de baja o `prefix_in_use` si lo usa otro esquema u ontología propia vivo; 422 `catalog` si el catálogo no existe; 403 `not_managed` si describe una ontología externa. Antes de escribir calcula las métricas OWL (owlready2) y la consistencia (Pellet) **sin descargar los owl:imports**, y las guarda como metadatos de la versión. 201 si la versión es nueva; 200 si ya existía (`changed=false` si era idéntica). Requiere rol editor (admin hereda los permisos de editor).",
         "operationId": "create_ontology_ontologies_post",
         "security": [
           {
@@ -3454,7 +3454,7 @@
             }
           },
           "409": {
-            "description": "La versionIRI ya está publicada con otro contenido (version_immutable), la ontología está en otro catálogo (catalog_conflict), se dio de baja (withdrawn) o su prefijo era de un recurso dado de baja (prefix_withdrawn)",
+            "description": "La versionIRI ya está publicada con otro contenido (version_immutable), la ontología está en otro catálogo (catalog_conflict), se dio de baja (withdrawn) o su prefijo era de un recurso dado de baja (prefix_withdrawn) o lo usa otro recurso vivo (prefix_in_use)",
             "content": {
               "application/json": {
                 "schema": {
@@ -3639,7 +3639,7 @@
           "ontologies"
         ],
         "summary": "Da de baja una ontología propia con todas sus versiones (editor o admin)",
-        "description": "Borrado lógico (decisión 50): la ontología sale de su catálogo, de los listados y de SPARQL (se borran los grafos de todas sus versiones); su URI y las de sus versiones responden 410 con una ficha mínima. Su slug y su prefijo VANN no se reutilizan. 409 `in_use` si la importa (`owl:imports`) o usa sus términos una versión de otra ontología propia viva, con los usos en `used_by`. 403 `not_managed` con las externas.",
+        "description": "Borrado lógico (decisión 50): la ontología sale de su catálogo, de los listados y de SPARQL (se borran los grafos de todas sus versiones); su URI y las de sus versiones responden 410 con una ficha mínima. Su slug y su prefijo VANN no se reutilizan. 409 `in_use` si la importa (`owl:imports`) o usa sus términos una versión de otra ontología propia viva, o si una versión de dataset viva declara `dct:conformsTo` hacia ella o una de sus versiones, con los usos en `used_by`. 403 `not_managed` con las externas. Robusta ante un fallo a medias: lo del triplestore va en una sola petición de Update; si falla (503), se reintenta.",
         "operationId": "withdraw_ontology_ontologies__slug__delete",
         "security": [
           {
@@ -3991,7 +3991,7 @@
           "schemes"
         ],
         "summary": "Publica un esquema SKOS validado con SHACL",
-        "description": "Recibe un skos:ConceptScheme (`{BASE_URI}vocab/{slug}` o `{BASE_URI}vocab/corp/{slug}`) con sus conceptos (`{esquema}/{slug}`) en Turtle o JSON-LD; las IRIs relativas se resuelven contra BASE_URI (también sirve para «Importar SKOS»). Sustituye por completo el grafo con nombre del esquema. Decisión 50: el esquema pertenece a un catálogo (`?catalog={slug}` o el triple «<catálogo> dcat:resource <esquema>» en el RDF), que se guarda en el grafo del catálogo. 409 `catalog_conflict` si ya está en otro catálogo (se mueve con PATCH), `withdrawn` si se dio de baja, `prefix_withdrawn` si su prefijo VANN era de un recurso dado de baja, `concepts_removed` si faltan conceptos ya publicados (un concepto se retira con owl:deprecated true) y `concept_reactivated` si un concepto retirado deja de estarlo; 422 `catalog` si el catálogo no existe y `replacement` si un sustituto (dct:isReplacedBy) no es un concepto vivo; 403 `not_managed` con un esquema auxiliar. 201 si es nuevo; 200 si ya existía (`changed=false` si era idéntico). Requiere rol editor (admin hereda los permisos de editor).",
+        "description": "Recibe un skos:ConceptScheme (`{BASE_URI}vocab/{slug}` o `{BASE_URI}vocab/corp/{slug}`) con sus conceptos (`{esquema}/{slug}`) en Turtle o JSON-LD; las IRIs relativas se resuelven contra BASE_URI (también sirve para «Importar SKOS»). Sustituye por completo el grafo con nombre del esquema. Decisión 50: el esquema pertenece a un catálogo (`?catalog={slug}` o el triple «<catálogo> dcat:resource <esquema>» en el RDF), que se guarda en el grafo del catálogo. 409 `catalog_conflict` si ya está en otro catálogo (se mueve con PATCH), `withdrawn` si se dio de baja, `prefix_withdrawn` si su prefijo VANN era de un recurso dado de baja, `prefix_in_use` si lo usa otro esquema u ontología propia vivo, `concepts_removed` si faltan conceptos ya publicados (un concepto se retira con owl:deprecated true) y `concept_reactivated` si un concepto retirado deja de estarlo; 422 `catalog` si el catálogo no existe y `replacement` si un sustituto (dct:isReplacedBy) no es un concepto vivo; 403 `not_managed` con un esquema auxiliar. 201 si es nuevo; 200 si ya existía (`changed=false` si era idéntico). Requiere rol editor (admin hereda los permisos de editor).",
         "operationId": "create_scheme_schemes_post",
         "security": [
           {
@@ -4055,7 +4055,7 @@
             }
           },
           "409": {
-            "description": "catalog_conflict, withdrawn, prefix_withdrawn, concepts_removed o concept_reactivated",
+            "description": "catalog_conflict, withdrawn, prefix_withdrawn, prefix_in_use, concepts_removed o concept_reactivated",
             "content": {
               "application/json": {
                 "schema": {
@@ -4240,7 +4240,7 @@
           "schemes"
         ],
         "summary": "Da de baja un esquema corporativo (editor o admin)",
-        "description": "Borrado lógico (decisión 50): el esquema y sus conceptos salen de su catálogo, de los listados y de SPARQL; su URI y las de sus conceptos responden 410 con una ficha mínima. Su slug y su prefijo VANN no se reutilizan. 409 `in_use` si algún concepto suyo lo usan recursos vivos (`dcat:theme` de una versión de dataset, `dct:subject` de una versión de ontología, o `skos:related`/`*Match` desde otro esquema), con los usos en `used_by`. 403 `not_managed` con un esquema auxiliar.",
+        "description": "Borrado lógico (decisión 50): el esquema y sus conceptos salen de su catálogo, de los listados y de SPARQL; su URI y las de sus conceptos responden 410 con una ficha mínima. Su slug y su prefijo VANN no se reutilizan. 409 `in_use` si lo usan recursos vivos (un concepto suyo como `dcat:theme` de una versión de dataset, `dct:subject` de una versión de ontología hacia un concepto suyo o hacia el esquema, o un concepto suyo como destino de `skos:related`/`*Match`/`dct:isReplacedBy` desde otro esquema), con los usos en `used_by`. 403 `not_managed` con un esquema auxiliar. Robusta ante un fallo a medias: lo del triplestore va en una sola petición de Update; si falla (503), se reintenta.",
         "operationId": "withdraw_corp_scheme_schemes_corp__slug__delete",
         "security": [
           {
@@ -4529,7 +4529,7 @@
           "schemes"
         ],
         "summary": "Da de baja un esquema de dominio (editor o admin)",
-        "description": "Borrado lógico (decisión 50): el esquema y sus conceptos salen de su catálogo, de los listados y de SPARQL; su URI y las de sus conceptos responden 410 con una ficha mínima. Su slug y su prefijo VANN no se reutilizan. 409 `in_use` si algún concepto suyo lo usan recursos vivos (`dcat:theme` de una versión de dataset, `dct:subject` de una versión de ontología, o `skos:related`/`*Match` desde otro esquema), con los usos en `used_by`. 403 `not_managed` con un esquema auxiliar.",
+        "description": "Borrado lógico (decisión 50): el esquema y sus conceptos salen de su catálogo, de los listados y de SPARQL; su URI y las de sus conceptos responden 410 con una ficha mínima. Su slug y su prefijo VANN no se reutilizan. 409 `in_use` si lo usan recursos vivos (un concepto suyo como `dcat:theme` de una versión de dataset, `dct:subject` de una versión de ontología hacia un concepto suyo o hacia el esquema, o un concepto suyo como destino de `skos:related`/`*Match`/`dct:isReplacedBy` desde otro esquema), con los usos en `used_by`. 403 `not_managed` con un esquema auxiliar. Robusta ante un fallo a medias: lo del triplestore va en una sola petición de Update; si falla (503), se reintenta.",
         "operationId": "withdraw_scheme_schemes__slug__delete",
         "security": [
           {
@@ -8065,13 +8065,15 @@
               "withdrawn",
               "catalog_conflict",
               "prefix_withdrawn",
+              "prefix_in_use",
               "concepts_removed",
               "concept_reactivated",
               "replacement",
-              "deprecated_theme"
+              "deprecated_theme",
+              "unknown_theme"
             ],
             "title": "Kind",
-            "description": "limit: se ha superado un límite de la ingesta (tripletas, tamaño expandido, IRI, profundidad o tiempo o memoria de la validación SHACL). catalog (422): el catálogo indicado no existe o está dado de baja. version_removed y version_immutable (409): falta una versión ya publicada o viene con otro contenido; las versiones afectadas van en issues (focus_node). withdrawn (409): el slug (la URI) es de un recurso dado de baja y no se reutiliza. catalog_conflict (409): la serie, el esquema o la ontología ya está en otro catálogo (se mueve con PATCH). Decisión 50: prefix_withdrawn (409): el prefijo VANN era de un esquema o una ontología dados de baja; concepts_removed (409): al republicar un esquema faltan conceptos ya publicados (en issues); concept_reactivated (409): un concepto retirado deja de estarlo (fuera del piloto); replacement (422): un sustituto (dct:isReplacedBy) no es un concepto vivo; deprecated_theme (422): una versión nueva de dataset usa temas retirados (en issues, con replaced_by)"
+            "description": "limit: se ha superado un límite de la ingesta (tripletas, tamaño expandido, IRI, profundidad o tiempo o memoria de la validación SHACL). catalog (422): el catálogo indicado no existe o está dado de baja. version_removed y version_immutable (409): falta una versión ya publicada o viene con otro contenido; las versiones afectadas van en issues (focus_node). withdrawn (409): el slug (la URI) es de un recurso dado de baja y no se reutiliza. catalog_conflict (409): la serie, el esquema o la ontología ya está en otro catálogo (se mueve con PATCH). Decisión 50: prefix_withdrawn (409): el prefijo VANN era de un esquema o una ontología dados de baja; prefix_in_use (409): el prefijo VANN ya lo usa otro esquema u ontología propia vivo (en issues, value); concepts_removed (409): al republicar un esquema faltan conceptos ya publicados (en issues); concept_reactivated (409): un concepto retirado deja de estarlo (fuera del piloto); replacement (422): un sustituto (dct:isReplacedBy) no es un concepto vivo; deprecated_theme (422): una versión nueva de dataset usa temas retirados (en issues, con replaced_by); unknown_theme (422): una versión nueva de dataset usa como tema una IRI de {BASE_URI}vocab/ que no es un concepto de un esquema vivo, porque no existe o porque su esquema se dio de baja (en issues, value); los temas externos no se comprueban"
           },
           "issues": {
             "items": {
@@ -9715,12 +9717,12 @@
               }
             ],
             "title": "Via",
-            "description": "Propiedad del uso (dcat:theme, dct:subject, skos:related, skos:exactMatch…, owl:imports); null si la versión usa un término de la ontología"
+            "description": "Propiedad del uso (dcat:theme, dct:subject, skos:related, skos:exactMatch…, dct:isReplacedBy, owl:imports, dct:conformsTo); null si la versión usa un término de la ontología"
           },
           "target": {
             "type": "string",
             "title": "Target",
-            "description": "Concepto, ontología, versión o término usado"
+            "description": "Concepto, esquema (dct:subject hacia el esquema mismo), ontología, versión o término usado"
           }
         },
         "type": "object",

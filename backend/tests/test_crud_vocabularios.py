@@ -24,7 +24,7 @@ from app import ingest, owl_metrics, vocab_ingest
 from app.config import get_settings
 from app.models import AuditAction, AuditEvent, OntologyMetricsRecord, Role, User, WithdrawnPrefix
 from app.storage import DiskStorage
-from app.triplestore import MemoryStore
+from app.triplestore import MemoryStore, TriplestoreError
 from app.uris import ADMS, DCAT, DCT, PROV, SKOS, Uris
 from tests import fase4_data
 from tests.conftest import BASE_URI, FIXTURE_DATA_DIR, FIXTURE_SEMANTIC_DIR, TEST_CATALOG_URI
@@ -333,7 +333,7 @@ def test_retire_a_concept_with_replacements_and_no_reactivation(
         flat.append(node)
         stack.extend(node["children"])
     assert next(n for n in flat if n["uri"] == concept)["deprecated"] is True
-    # [PROPUESTA] Reactivarlo queda fuera del piloto: 409.
+    # Reactivarlo queda fuera del piloto: 409 (validado el 2026-11-26).
     again = _post(api, "/schemes", SCHEME_OT, editor, "vocabularios-sinteticos")
     assert again.status_code == 409
     assert again.json()["kind"] == "concept_reactivated"
@@ -861,3 +861,361 @@ def test_load_semantic_rejects_resources_outside_a_catalog(
     assert result.exit_code == 1, result.output
     assert message in result.output
     assert OT not in store.graph_names()
+
+
+# --- Segunda ronda de la PR #46 (validado el 2026-11-26) ---------------------------------
+
+
+def test_withdraw_scheme_used_as_subject_of_an_ontology_is_409(
+    api: TestClient, vocab_store: MemoryStore, editor: dict[str, str]
+) -> None:
+    """dct:subject de una ontología viva hacia el esquema mismo (no a un concepto)."""
+    onto = _onto("tema", prefix="tema", body=f"<onto/tema> dct:subject <{TRL}> .")
+    assert _post(api, "/ontologies", onto, editor, "pruebas").status_code == 201
+    response = api.delete("/schemes/corp/trl", headers=editor)
+    assert response.status_code == 409, response.text
+    assert response.json()["used_by"] == [
+        {
+            "uri": f"{BASE_URI}onto/tema/1.0.0",
+            "resource": "ontology",
+            "via": str(DCT.subject),
+            "target": TRL,
+        }
+    ]
+    assert api.delete("/ontologies/tema", headers=editor).status_code == 204
+    assert api.delete("/schemes/corp/trl", headers=editor).status_code == 204
+
+
+def test_withdraw_scheme_used_as_replacement_from_another_scheme_is_409(
+    api: TestClient, vocab_store: MemoryStore, editor: dict[str, str]
+) -> None:
+    """QA-50-02: un concepto de otro esquema vivo retirado con dct:isReplacedBy hacia él."""
+    concept, target = f"{OT}/modbus-tcp", f"{TRL}/trl-1"
+    retired = _with_deprecated(SCHEME_OT, concept, [target])
+    assert _post(api, "/schemes", retired, editor, "vocabularios-sinteticos").status_code == 200
+    response = api.delete("/schemes/corp/trl", headers=editor)
+    assert response.status_code == 409, response.text
+    assert {
+        "uri": concept,
+        "resource": "scheme",
+        "via": str(DCT.isReplacedBy),
+        "target": target,
+    } in response.json()["used_by"]
+    assert TRL in vocab_store.graph_names()
+    # El esquema que lo usa se puede seguir republicando igual.
+    assert _post(api, "/schemes", retired, editor, "vocabularios-sinteticos").status_code == 200
+
+
+def test_withdraw_ontology_conformed_to_by_a_dataset_version_is_409(
+    api: TestClient, vocab_store: MemoryStore, editor: dict[str, str]
+) -> None:
+    """dct:conformsTo de una versión de dataset viva hacia la ontología o una versión."""
+    response = api.delete("/ontologies/itot", headers=editor)
+    assert response.status_code == 409, response.text
+    assert {
+        "uri": f"{BASE_URI}dataset/modbus-tcp-testbed/2.1.0",
+        "resource": "dataset",
+        "via": str(DCT.conformsTo),
+        "target": f"{ITOT}/1.2.0",
+    } in response.json()["used_by"]
+    version = fase4_data.V1.replace(
+        'dcat:version "1.0.0" ;', f'dcat:version "1.0.0" ; dct:conformsTo <{DIDX}> ;'
+    )
+    assert fase4_data.publish(api, editor, fase4_data.series(version)).status_code == 201
+    used = api.delete("/ontologies/didx", headers=editor)
+    assert used.status_code == 409
+    assert used.json()["used_by"] == [
+        {
+            "uri": f"{BASE_URI}dataset/prueba/1.0.0",
+            "resource": "dataset",
+            "via": str(DCT.conformsTo),
+            "target": DIDX,
+        }
+    ]
+    assert api.delete("/datasets/prueba", headers=editor).status_code == 204
+    assert api.delete("/ontologies/didx", headers=editor).status_code == 204
+
+
+def _with_theme(theme: str) -> str:
+    return fase4_data.series(
+        fase4_data.V1.replace(
+            'dcat:version "1.0.0" ;', f'dcat:version "1.0.0" ; dcat:theme <{theme}> ;'
+        )
+    )
+
+
+def test_new_dataset_version_with_an_unknown_theme_is_422(
+    api: TestClient, vocab_store: MemoryStore, editor: dict[str, str]
+) -> None:
+    """QA-50-03: tema de {BASE_URI}vocab/ que no existe o cuyo esquema se dio de baja."""
+    for theme in (f"{OT}/no-existe", f"{BASE_URI}vocab/no-existe/x", OT):
+        response = fase4_data.publish(api, editor, _with_theme(theme))
+        assert response.status_code == 422, (theme, response.text)
+        body = response.json()
+        assert body["kind"] == "unknown_theme"
+        [issue] = body["issues"]
+        assert issue["value"] == theme
+        assert issue["focus_node"] == f"{BASE_URI}dataset/prueba/1.0.0"
+        assert issue["message"] == "El tema no es un concepto de ningún esquema publicado"
+    assert f"{BASE_URI}dataset/prueba" not in vocab_store.graph_names()
+    # Un concepto de un esquema dado de baja.
+    assert api.delete("/schemes/pqc", headers=editor).status_code == 204
+    gone = fase4_data.publish(api, editor, _with_theme(f"{PQC}/ml-kem"))
+    assert gone.status_code == 422
+    assert gone.json()["kind"] == "unknown_theme"
+    assert gone.json()["issues"][0]["message"] == (
+        "El tema es un concepto de un esquema dado de baja"
+    )
+    # Los temas externos no se comprueban.
+    assert fase4_data.publish(api, editor, _with_theme("https://otro.example/c")).status_code == 201
+    # La serie Modbus (versiones ya publicadas) se republica tal cual.
+    modbus = (FIXTURE_DATA_DIR / "sintetico" / "modbus-tcp-testbed.ttl").read_bytes()
+    assert api.post("/datasets", content=modbus, headers=editor | TTL).status_code == 200
+
+
+def test_a_vann_prefix_used_by_another_live_resource_is_409(
+    api: TestClient, vocab_store: MemoryStore, editor: dict[str, str]
+) -> None:
+    """QA-50-01: dos recursos vivos no comparten prefijo VANN."""
+    for path, body in (
+        ("/schemes", _scheme(prefix="ot")),  # el de vocab/ot
+        ("/schemes", _scheme(prefix="itot")),  # el de onto/itot
+        ("/ontologies", _onto(prefix="ectrl")),  # el de vocab/corp/trl
+        ("/ontologies", _onto(prefix="dominio")),  # el de un esquema auxiliar
+    ):
+        response = _post(api, path, body, editor, "pruebas")
+        assert response.status_code == 409, (path, response.text)
+        assert response.json()["kind"] == "prefix_in_use"
+    assert f"{BASE_URI}vocab/nuevo" not in vocab_store.graph_names()
+    # El escenario de qa: el segundo con el mismo prefijo ya no se publica, así que al dar
+    # de baja el primero no queda ningún recurso vivo bloqueado.
+    first = _post(api, "/schemes", _scheme(prefix="compartido"), editor, "pruebas")
+    assert first.status_code == 201
+    second = _post(api, "/ontologies", _onto(prefix="compartido"), editor, "pruebas")
+    assert second.status_code == 409 and second.json()["kind"] == "prefix_in_use"
+    assert second.json()["issues"][0]["value"] == f"{BASE_URI}vocab/nuevo"
+    # Los prefijos de las ontologías externas no cuentan.
+    assert _post(api, "/ontologies", _onto(prefix="sosa"), editor, "pruebas").status_code == 201
+    # El recurso que lo usa sigue publicando (sus versiones nuevas y su republicación).
+    newer = _onto(prefix="sosa", version="1.1.0")
+    assert _post(api, "/ontologies", newer, editor, "pruebas").status_code == 201
+    assert _post(api, "/schemes", SCHEME_OT, editor, "vocabularios-sinteticos").status_code == 200
+
+
+def _fail_on(store: MemoryStore, monkeypatch: pytest.MonkeyPatch, marker: str) -> None:
+    original = store.update
+
+    def update(request: str) -> None:
+        if marker in request:
+            raise TriplestoreError("Fuseki no responde (simulado)")
+        original(request)
+
+    monkeypatch.setattr(store, "update", update)
+
+
+def test_withdraw_scheme_survives_a_triplestore_failure_and_can_be_retried(
+    api: TestClient,
+    vocab_store: MemoryStore,
+    editor: dict[str, str],
+    session_factory: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """QA-50-04: la baja en Fuseki es una sola petición; si falla, nada a medias."""
+    _fail_on(vocab_store, monkeypatch, "DROP SILENT GRAPH")
+    response = api.delete("/schemes/corp/trl", headers=editor)
+    assert response.status_code == 503
+    # Ni lápida, ni grafo borrado, ni pertenencia quitada, ni auditoría.
+    assert (URIRef(TRL), PROV.invalidatedAtTime, None) not in vocab_store.get_graph(BAJAS)
+    assert TRL in vocab_store.graph_names()
+    assert TRL in _members(vocab_store, VOCAB_CATALOG)
+    assert api.get("/schemes/corp/trl").status_code == 200
+    assert _events(session_factory, AuditAction.SCHEME_WITHDRAWN) == []
+    # El prefijo ya está reservado, a su nombre: el esquema sigue publicando y nadie más
+    # puede usarlo.
+    with session_factory() as session:
+        assert session.get(WithdrawnPrefix, "ectrl").resource_uri == TRL
+    assert _post(api, "/schemes", SCHEME_TRL, editor, "vocabularios-sinteticos").status_code == 200
+    # El reintento completa la baja.
+    monkeypatch.undo()
+    assert api.delete("/schemes/corp/trl", headers=editor).status_code == 204
+    assert TRL not in vocab_store.graph_names()
+    assert TRL not in _members(vocab_store, VOCAB_CATALOG)
+    assert (URIRef(TRL), PROV.invalidatedAtTime, None) in vocab_store.get_graph(BAJAS)
+    assert len(_events(session_factory, AuditAction.SCHEME_WITHDRAWN)) == 1
+    with session_factory() as session:
+        assert session.get(WithdrawnPrefix, "ectrl").resource_uri == TRL
+
+
+def test_withdraw_ontology_survives_a_triplestore_failure_and_keeps_its_metrics(
+    api: TestClient,
+    vocab_store: MemoryStore,
+    editor: dict[str, str],
+    session_factory: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with session_factory() as session:
+        session.add(
+            OntologyMetricsRecord(
+                version_iri=f"{DIDX}/1.0.0",
+                ontology_iri=DIDX,
+                content_hash="0" * 64,
+                metrics={},
+                consistency={},
+                tool="pruebas",
+            )
+        )
+        session.commit()
+    _fail_on(vocab_store, monkeypatch, "DROP SILENT GRAPH")
+    assert api.delete("/ontologies/didx", headers=editor).status_code == 503
+    assert f"{DIDX}/1.0.0" in vocab_store.graph_names()
+    assert (URIRef(DIDX), PROV.invalidatedAtTime, None) not in vocab_store.get_graph(BAJAS)
+    assert DIDX in _members(vocab_store, VOCAB_CATALOG)
+    with session_factory() as session:
+        assert session.get(OntologyMetricsRecord, f"{DIDX}/1.0.0") is not None
+    monkeypatch.undo()
+    assert api.delete("/ontologies/didx", headers=editor).status_code == 204
+    assert f"{DIDX}/1.0.0" not in vocab_store.graph_names()
+    with session_factory() as session:
+        assert session.get(OntologyMetricsRecord, f"{DIDX}/1.0.0") is None
+
+
+def test_withdraw_after_fuseki_is_consistent_even_if_the_audit_fails(
+    vocab_store: MemoryStore,
+    editor: dict[str, str],
+    session_factory: sessionmaker[Session],
+    settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Si falla lo último (auditoría), la baja ya es coherente: lápida y grafo borrado."""
+    from app import audit, vocab_crud
+
+    def boom(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("PostgreSQL no responde (simulado)")
+
+    monkeypatch.setattr(audit, "record", boom)
+    with session_factory() as session:
+        actor = session.scalars(select(User).where(User.username == "editora")).one()
+        with pytest.raises(RuntimeError):
+            vocab_crud.withdraw_scheme(
+                vocab_store, session, Uris(BASE_URI), settings, "trl", True, actor
+            )
+    assert TRL not in vocab_store.graph_names()
+    assert (URIRef(TRL), PROV.invalidatedAtTime, None) in vocab_store.get_graph(BAJAS)
+    assert TRL not in _members(vocab_store, VOCAB_CATALOG)
+    with session_factory() as session:
+        assert session.get(WithdrawnPrefix, "ectrl").resource_uri == TRL
+
+
+def test_withdraw_update_keeps_hostile_titles_exactly(settings) -> None:
+    """La lápida va en la misma petición de Update con BIND: ni «\\u», ni «$», ni comillas
+    cambian el título ni inyectan nada."""
+    from app import bajas, catalogs
+
+    uris = Uris(BASE_URI)
+    store = MemoryStore()
+    scheme = f"{BASE_URI}vocab/hostil"
+    other = f"{BASE_URI}vocab/otro"
+    for uri in (scheme, other):
+        store.put_graph(uri, Graph().add((URIRef(uri), RDF.type, SKOS.ConceptScheme)))
+    store.append_graph(
+        TEST_CATALOG_URI, Graph().add((URIRef(TEST_CATALOG_URI), DCAT.resource, URIRef(scheme)))
+    )
+    titles = [
+        Literal('Título \\u0041 "x" $bajas } ; DROP ALL #', lang="es"),
+        Literal("Back\\slash\\\\ final\\", lang="en"),
+        Literal("Sin idioma \n con salto"),
+    ]
+    tombstone = catalogs.build_tombstone(uris, scheme, titles, settings)
+    store.update(bajas.withdraw_resource_update(uris, scheme, tombstone, [scheme]))
+    stored = store.get_graph(BAJAS)
+    assert set(stored.objects(URIRef(scheme), DCT.title)) == set(titles)
+    assert set(stored.subjects()) == {URIRef(scheme)}
+    assert scheme not in store.graph_names()
+    assert other in store.graph_names()  # nada más se ha tocado
+    assert not list(store.get_graph(TEST_CATALOG_URI).triples((None, DCAT.resource, None)))
+
+
+def _cli_on_copy(
+    monkeypatch: pytest.MonkeyPatch,
+    session_factory: sessionmaker[Session],
+    store: MemoryStore,
+    file_storage: DiskStorage,
+    copy: Path,
+) -> None:
+    monkeypatch.setenv("SEMANTIC_DIR", str(copy))
+    monkeypatch.setattr(cli_module, "get_sessionmaker", lambda: session_factory)
+    monkeypatch.setattr(cli_module, "get_store", lambda _settings: store)
+    monkeypatch.setattr(cli_module, "get_file_storage", lambda _settings: file_storage)
+    get_settings.cache_clear()
+    ingest.clear_caches()
+
+
+def test_load_semantic_rejects_duplicated_or_taken_prefixes(
+    store: MemoryStore,
+    session_factory: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+    file_storage: DiskStorage,
+    semantic_dir: Path,
+    tmp_path: Path,
+) -> None:
+    """QA-50-01 en load-semantic: entre ficheros y contra lo publicado desde la aplicación."""
+    import shutil
+
+    copy = tmp_path / "semantic"
+    shutil.copytree(semantic_dir, copy)
+    pqc = copy / "vocabularios" / "pqc.ttl"
+    original = pqc.read_text(encoding="utf-8")
+    pqc.write_text(
+        original.replace('preferredNamespacePrefix "pqc"', 'preferredNamespacePrefix "ot"'),
+        encoding="utf-8",
+    )
+    _cli_on_copy(monkeypatch, session_factory, store, file_storage, copy)
+    try:
+        result = CliRunner().invoke(cli_module.cli, ["load-semantic"])
+        assert result.exit_code == 1, result.output
+        assert "«ot» ya lo usa" in result.output
+        assert OT not in store.graph_names()
+        # Contra lo publicado: un esquema creado desde la aplicación con el prefijo «pqc».
+        pqc.write_text(original, encoding="utf-8")
+        taken = Graph().parse(
+            data=_scheme(prefix="pqc").decode(), format="turtle", publicID=BASE_URI
+        )
+        store.put_graph(f"{BASE_URI}vocab/nuevo", taken)
+        result = CliRunner().invoke(cli_module.cli, ["load-semantic"])
+        assert result.exit_code == 1, result.output
+        assert "«pqc» ya lo usa" in result.output
+        assert f"{BASE_URI}vocab/nuevo" in result.output
+        assert OT not in store.graph_names()
+    finally:
+        monkeypatch.undo()
+        get_settings.cache_clear()
+        ingest.clear_caches()
+
+
+def test_load_semantic_rejects_an_unknown_theme_before_writing(
+    store: MemoryStore,
+    session_factory: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+    file_storage: DiskStorage,
+    semantic_dir: Path,
+    tmp_path: Path,
+) -> None:
+    """QA-50-03 en load-semantic: se comprueba al validar, antes de escribir nada."""
+    import shutil
+
+    copy = tmp_path / "semantic"
+    shutil.copytree(semantic_dir, copy)
+    series = copy / "data" / "sintetico" / "modbus-tcp-testbed.ttl"
+    text = series.read_text(encoding="utf-8")
+    assert "ot:modbus-tcp ," in text
+    series.write_text(text.replace("ot:modbus-tcp ,", "ot:no-existe ,"), encoding="utf-8")
+    _cli_on_copy(monkeypatch, session_factory, store, file_storage, copy)
+    try:
+        result = CliRunner().invoke(cli_module.cli, ["load-semantic"])
+    finally:
+        monkeypatch.undo()
+        get_settings.cache_clear()
+        ingest.clear_caches()
+    assert result.exit_code == 1, result.output
+    assert "El tema no es un concepto de ningún esquema publicado" in result.output
+    assert OT not in store.graph_names()  # no se escribe nada
