@@ -270,7 +270,6 @@ function VersioningSection({ slug, versioning: v }: { slug: string; versioning: 
             return {
               key: h.version_iri,
               label,
-              ariaLabel: `Versión ${label}`,
               to: h.described ? ontologyRoute(slug, h.current ? null : h.version) : null,
               current: h.current,
               selected: h.version === shown,

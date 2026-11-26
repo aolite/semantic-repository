@@ -70,18 +70,36 @@ describe('Ficha de ontología externa (decisión 51)', () => {
     const versioning = screen.getByRole('region', { name: 'Versionado' })
     const rows = within(versioning).getAllByRole('listitem')
     expect(rows).toHaveLength(2)
-    expect(within(rows[0]).getByRole('link', { name: 'Versión 2' })).toHaveTextContent('2 · 2.0-prueba')
-    expect(within(rows[0]).getByRole('link', { name: 'Versión 2' })).toHaveAttribute('aria-current', 'page')
-    expect(within(rows[0]).getByRole('link', { name: 'Versión 2' })).toHaveAttribute('href', ROUTE)
+    expect(within(rows[0]).getByRole('link', { name: 'Versión 2 · 2.0-prueba' })).toHaveTextContent('2 · 2.0-prueba')
+    expect(within(rows[0]).getByRole('link', { name: 'Versión 2 · 2.0-prueba' })).toHaveAttribute('aria-current', 'page')
+    expect(within(rows[0]).getByRole('link', { name: 'Versión 2 · 2.0-prueba' })).toHaveAttribute('href', ROUTE)
     expect(within(rows[0]).getByText('Actual')).toBeInTheDocument()
     expect(within(rows[0]).getByText('Notas de prueba de la 2.')).toBeInTheDocument()
     expect(within(rows[0]).getByText(/20 feb 2000/)).toBeInTheDocument()
     expect(within(rows[1]).getByRole('link', { name: 'Versión 1' })).toHaveAttribute('href', `${ROUTE}?version=1`)
     expect(within(rows[1]).getByText('Sustituida')).toBeInTheDocument()
-    expect(within(rows[1]).getByRole('link', { name: 'Descargar el RDF de la versión 1 (Turtle)' })).toHaveAttribute(
+    expect(within(rows[1]).getByRole('link', { name: 'Descargar RDF de la versión 1 (Turtle)' })).toHaveAttribute(
       'href',
       'http://api.test/ontologies/externas/ext/rdf?format=turtle&version=1&download=1',
     )
+  })
+
+  it('QA-51-01: el nombre accesible de los enlaces del historial contiene su texto visible', async () => {
+    mockExternal()
+    renderApp(ROUTE)
+    await screen.findByRole('heading', { level: 1, name: TITLE })
+    const versioning = screen.getByRole('region', { name: 'Versionado' })
+    const links = within(versioning).getAllByRole('link')
+    expect(links.map((a) => a.textContent?.replace(/\s+/g, ' ').trim())).toEqual([
+      'Versión 2 · 2.0-prueba',
+      'Descargar RDF de la versión 2 (Turtle)',
+      'Versión 1',
+      'Descargar RDF de la versión 1 (Turtle)',
+    ])
+    for (const link of links) {
+      expect(link).not.toHaveAttribute('aria-label')
+      expect(link).toHaveAccessibleName(link.textContent!.replace(/\s+/g, ' ').trim())
+    }
   })
 
   it('?version=1 resalta esa versión y muestra sus métricas y descargas', async () => {
@@ -92,7 +110,7 @@ describe('Ficha de ontología externa (decisión 51)', () => {
     expect(within(screen.getByRole('list', { name: 'Métricas OWL' })).getByText('3')).toBeInTheDocument()
     expect(screen.getByText('Versión 1', { selector: '.tag' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Versión 1' })).toHaveAttribute('aria-current', 'page')
-    expect(screen.getByRole('link', { name: 'Versión 2' })).not.toHaveAttribute('aria-current')
+    expect(screen.getByRole('link', { name: 'Versión 2 · 2.0-prueba' })).not.toHaveAttribute('aria-current')
     expect(screen.getByRole('link', { name: 'Descargar Turtle' })).toHaveAttribute(
       'href',
       'http://api.test/ontologies/externas/ext/rdf?format=turtle&version=1&download=1',

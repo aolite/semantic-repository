@@ -212,10 +212,11 @@ function documentationLabel(d: DocumentationCoverageRead | null): string {
 /** Fila del historial de versiones. */
 export interface VersionRow {
   key: string
-  /** Número o etiqueta visible de la versión. */
+  /**
+   * Número o etiqueta visible de la versión. El nombre accesible del enlace
+   * es «Versión {label}» (con «Versión» oculto): contiene el texto visible (WCAG 2.5.3).
+   */
   label: string
-  /** Nombre accesible del enlace («Versión 1.2.0»). */
-  ariaLabel: string
   /** Ruta de la ficha de esa versión; null si no tiene ficha. */
   to: string | null
   current: boolean
@@ -223,8 +224,11 @@ export interface VersionRow {
   selected: boolean
   date: string
   note: string | null
-  /** Enlace de descarga del RDF de esa versión. */
-  download?: { href: string; label: string; ariaLabel: string }
+  /**
+   * Enlace de descarga del RDF de esa versión: `label` se ve y `hiddenSuffix`
+   * solo lo leen los lectores de pantalla (nombre «{label} {hiddenSuffix}»).
+   */
+  download?: { href: string; label: string; hiddenSuffix: string }
 }
 
 /** «Historial de versiones»: punto, número, fecha, nota y estado («Actual» o «Sustituida»). */
@@ -237,13 +241,8 @@ export function VersionHistory({ rows }: { rows: VersionRow[] }) {
           <li key={row.key} className={`history__item${row.selected ? ' history__item--selected' : ''}`}>
             <span className={`history__dot${row.current ? ' history__dot--current' : ''}`} aria-hidden="true" />
             {row.to ? (
-              <Link
-                className="mono history__num"
-                to={row.to}
-                aria-current={row.selected ? 'page' : undefined}
-                aria-label={row.ariaLabel}
-              >
-                {row.label}
+              <Link className="mono history__num" to={row.to} aria-current={row.selected ? 'page' : undefined}>
+                <span className="visually-hidden">Versión</span> {row.label}
               </Link>
             ) : (
               <span className="mono history__num">{row.label}</span>
@@ -252,8 +251,8 @@ export function VersionHistory({ rows }: { rows: VersionRow[] }) {
             <span className="history__note">{row.note ?? ''}</span>
             <span className={`badge${row.current ? ' badge--current' : ''}`}>{row.current ? 'Actual' : 'Sustituida'}</span>
             {row.download && (
-              <a className="history__download" href={row.download.href} download aria-label={row.download.ariaLabel}>
-                {row.download.label}
+              <a className="history__download" href={row.download.href} download>
+                {row.download.label} <span className="visually-hidden">{row.download.hiddenSuffix}</span>
               </a>
             )}
           </li>
