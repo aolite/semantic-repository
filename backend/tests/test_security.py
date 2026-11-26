@@ -27,6 +27,8 @@ import httpx
 import jwt
 import pytest
 from fastapi.testclient import TestClient
+from rdflib import Graph
+from rdflib.namespace import OWL
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -35,7 +37,14 @@ from app.config import Settings
 from app.export_openapi import OPENAPI_PATH
 from app.models import AuditAction, AuditEvent, Role, User
 from app.security import create_access_token
-from tests.conftest import DEFAULT_PASSWORD, FIXTURE_DATA_DIR, FIXTURE_SEMANTIC_DIR, TESTS_DIR
+from app.triplestore import MemoryStore
+from tests.conftest import (
+    BASE_URI,
+    DEFAULT_PASSWORD,
+    FIXTURE_DATA_DIR,
+    FIXTURE_SEMANTIC_DIR,
+    TESTS_DIR,
+)
 
 # Decisión 50: esquemas y ontologías se publican en un catálogo (el de las pruebas).
 ONTOLOGIES = "/ontologies?catalog=pruebas"
@@ -49,7 +58,16 @@ _ONTOLOGY_TTL = FIXTURE_SEMANTIC_DIR / "ontologias" / "pqcm" / "0.4.0.ttl"
 @pytest.fixture
 def no_pellet(monkeypatch: pytest.MonkeyPatch) -> None:
     """Métricas sin lanzar Java (aquí solo importa la auditoría)."""
-    from app import owl_metrics, vocab_ingest
+    from app import external_versions, owl_metrics, vocab_ingest
+
+    monkeypatch.setattr(
+        external_versions,
+        "compute_external_metrics",
+        lambda g, uri, ns, _s: (
+            owl_metrics.compute_metrics(g, uri, ns).to_dict(),
+            owl_metrics.Consistency().to_dict(),
+        ),
+    )
 
     monkeypatch.setattr(
         vocab_ingest,
@@ -924,6 +942,7 @@ def test_audit_never_stores_passwords_tokens_or_hashes(
     settings: Settings,
     make_user: Callable[..., User],
     session_factory: sessionmaker[Session],
+    store: MemoryStore,
 ) -> None:
     """Recorre todas las acciones auditadas y busca material sensible en todas las columnas."""
     admin_password = "contrasena-del-admin-auditada"
@@ -1000,6 +1019,25 @@ def test_audit_never_stores_passwords_tokens_or_hashes(
         client.delete("/ontologies/pqcm", headers=headers),
     ]
     assert [r.status_code for r in vocab_crud] == [200, 200, 204, 204], [r.text for r in vocab_crud]
+    # Decisión 51: sustitución de una ontología externa.
+    external = "http://example.org/externa-auditada/"
+    seed = Graph().parse(
+        data=f"""
+@prefix owl: <http://www.w3.org/2002/07/owl#> . @prefix dct: <http://purl.org/dc/terms/> .
+@prefix vann: <http://purl.org/vocab/vann/> .
+<{external}> a owl:Ontology ; dct:title "Externa"@es ;
+    vann:preferredNamespacePrefix "auditada" ; vann:preferredNamespaceUri <{external}> .
+""",
+        format="turtle",
+    )
+    store.append_graph(f"{BASE_URI}onto/externas", seed)
+    replaced = client.post(
+        "/ontologies/externas/auditada/versions",
+        data={"title": "Externa", "prefix": "auditada", "namespace": external},
+        files={"file": ("e.ttl", f"<{external}> a <{OWL}Ontology> .".encode(), "text/turtle")},
+        headers=headers,
+    )
+    assert replaced.status_code == 201, replaced.text
     # Fase 4: fichero de distribución (subida y descarga restringida), evaluación FAIR,
     # consultas guardadas y bloqueo de login.
     member = _bearer(member_token)
@@ -1302,6 +1340,11 @@ def test_openapi_marks_every_private_operation_as_secured(client: TestClient) ->
         ("get", "/vocab/{slug}/{concept}"),
         ("get", "/vocab/corp/{slug}"),
         ("get", "/vocab/corp/{slug}/{concept}"),
+        # Decisión 51: ficha, RDF y URIs persistentes de las versiones de las externas.
+        ("get", "/ontologies/externas/{slug}"),
+        ("get", "/ontologies/externas/{slug}/rdf"),
+        ("get", "/onto/externas/{slug}"),
+        ("get", "/onto/externas/{slug}/{number}"),
         # Fase 4: informe FAIR y URI persistente de una distribución.
         ("get", "/datasets/{slug}/versions/{version}/fair/report"),
         ("get", "/dataset/{slug}/{version}/{dist}"),
@@ -1336,6 +1379,10 @@ def test_openapi_marks_every_private_operation_as_secured(client: TestClient) ->
         ("delete", "/schemes/corp/{slug}"),
         ("patch", "/ontologies/{slug}"),
         ("delete", "/ontologies/{slug}"),
+        # Decisión 51: sustitución de una externa; PATCH y DELETE siempre 403 not_managed.
+        ("post", "/ontologies/externas/{slug}/versions"),
+        ("patch", "/ontologies/externas/{slug}"),
+        ("delete", "/ontologies/externas/{slug}"),
         # Decisión 49: CRUD de catálogos y datasets (editor; admin hereda).
         ("post", "/catalogs"),
         ("patch", "/catalogs/{slug}"),

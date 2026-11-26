@@ -126,7 +126,10 @@ def _schema_enum(schema: dict[str, Any]) -> list[str] | None:
 # Valores nuevos de un enum del contrato que el frontend todavía no tiene (el contrato
 # OpenAPI cambia en su propia PR y el frontend se adapta después). Se borran cuando
 # frontend/src/api/types.ts los incorpore.
-PENDING_FRONTEND_VALUES: dict[tuple[str, str], set[str]] = {}
+# Decisión 51: valores nuevos del contrato que el frontend añade en su propia PR.
+PENDING_FRONTEND_VALUES: dict[tuple[str, str], set[str]] = {
+    ("IngestErrorResponse", "kind"): {"version_exists"},
+}
 
 
 def test_frontend_literal_types_match_the_contract_enums() -> None:
