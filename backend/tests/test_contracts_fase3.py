@@ -131,10 +131,12 @@ def _schema_enum(schema: dict[str, Any]) -> list[str] | None:
 PENDING_FRONTEND_VALUES: dict[tuple[str, str], set[str]] = {
     ("IngestErrorResponse", "kind"): {
         "prefix_withdrawn",
+        "prefix_in_use",
         "concepts_removed",
         "concept_reactivated",
         "replacement",
         "deprecated_theme",
+        "unknown_theme",
     },
     ("ConflictResponse", "kind"): {"in_use"},
     ("GoneResponse", "resource"): {"scheme", "ontology"},
