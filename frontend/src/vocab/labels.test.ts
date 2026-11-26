@@ -3,6 +3,7 @@ import { vocabCardFixture } from '../test/vocabFixtures'
 import {
   compactIri,
   conceptsLabel,
+  formatDate,
   isLinkableIri,
   langRank,
   metricsLine,
@@ -31,7 +32,11 @@ describe('Textos de vocabularios', () => {
   it('compone la línea de métricas según el tipo', () => {
     expect(metricsLine(vocabCardFixture({ metrics: { classes: 1, properties: 1 } }))).toBe('1 clase · 1 propiedad')
     expect(metricsLine(vocabCardFixture({ metrics: null }))).toBe('Métricas sin calcular')
-    expect(metricsLine(vocabCardFixture({ kind: 'external' }))).toBe('Externa · referencia')
+    expect(metricsLine(vocabCardFixture({ kind: 'external', metrics: null }))).toBe('Externa · referencia')
+    // Decisión 51: una externa con versión actual trae las métricas de esa versión.
+    expect(metricsLine(vocabCardFixture({ kind: 'external', metrics: { classes: 2, properties: 1 } }))).toBe(
+      '2 clases · 1 propiedad',
+    )
     expect(metricsLine(vocabCardFixture({ kind: 'skos_domain', concepts: 13 }))).toBe('13 conceptos')
     expect(vocabularyCount(1)).toBe('1 vocabulario')
     expect(vocabularyCount(2)).toBe('2 vocabularios')
@@ -50,5 +55,11 @@ describe('Textos de vocabularios', () => {
     expect(isLinkableIri('https://x.test/[QID]')).toBe(false)
     expect(isLinkableIri('urn:x')).toBe(false)
     expect(normalizeText('Concepto Á2')).toBe('concepto a2')
+  })
+
+  it('formatea las fechas en español y deja tal cual lo que no se puede leer', () => {
+    expect(formatDate('2000-01-15T12:00:00Z')).toMatch(/15 ene 2000/)
+    expect(formatDate('no es una fecha')).toBe('no es una fecha')
+    expect(formatDate(null)).toBeNull()
   })
 })
