@@ -1,0 +1,26 @@
+# Ejemplo INVÁLIDO (decisión 50): la versión 1 de una ontología externa con
+# dcat:previousVersion: la primera no tiene anterior.
+# Todo lo demás es válido, así que solo deben fallar las formas indicadas.
+# validate.py lee las líneas «expect-violation» (nombre local en {BASE_URI}shapes#).
+# expect-violation: ExternalVersion-previousVersion-anterior
+
+# BASE_URI: el fichero no declara @base; las URIs propias son relativas. La
+# IRI oficial de la ontología es ficticia (example.org) y la fecha, también.
+
+@prefix dct:  <http://purl.org/dc/terms/> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix adms: <http://www.w3.org/ns/adms#> .
+@prefix vann: <http://purl.org/vocab/vann/> .
+@prefix dcat: <http://www.w3.org/ns/dcat#> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+
+<onto/externas/ejemplo/1>
+    a prov:Entity ;
+    dct:isVersionOf <http://example.org/ontologia-externa> ;
+    dcat:version "1" ;
+    prov:generatedAtTime "2026-01-01T00:00:00Z"^^xsd:dateTime ;
+    dcat:previousVersion <onto/externas/otra/1> ;
+    prov:wasRevisionOf <onto/externas/otra/1> ;
+    adms:versionNotes "Sustitución de ejemplo."@es .

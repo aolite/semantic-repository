@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react'
-import type { CatalogSummary } from '../api'
+import type { CatalogRef, CatalogSummary } from '../api'
 import { describeError, type ErrorContext, type FormErrorInfo, type FormField } from './errors'
 import { LIMITS, validateResource, VALIDATION_TEXT, type FieldErrors, type ResourceValues } from './validation'
 
@@ -19,6 +19,8 @@ interface ResourceFormProps {
   publisherHint?: string
   /** Prefijo de la URI que se forma con el slug (`{BASE_URI}catalogo/`); vacío si no hay base. */
   uriPrefix?: string
+  /** Catálogo fijo en el que se crea (ficha de un catálogo): se muestra, sin selector. */
+  catalog?: CatalogRef
   /** Con la lista, se muestra el selector «Catálogo» (mover un dataset o un esquema, o elegir dónde crearlo). */
   catalogs?: CatalogSummary[]
   /** La descripción es obligatoria (por defecto, sí). */
@@ -214,7 +216,13 @@ export function ResourceForm(props: ResourceFormProps) {
           {fieldError('publisher_name')}
         </div>
 
-        {catalogs && (
+        {props.catalog && (
+          <p className="form__hint">
+            Catálogo: <strong>{props.catalog.title ?? props.catalog.slug}</strong>
+          </p>
+        )}
+
+        {catalogs && !props.catalog && (
           <div className="form__field">
             <label htmlFor={fieldId('catalog')}>Catálogo</label>
             <select {...fieldProps('catalog', true)} value={values.catalog} onChange={(e) => set('catalog', e.target.value)}>

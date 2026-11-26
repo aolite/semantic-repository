@@ -20,6 +20,7 @@ from typing import Annotated
 import typer
 from rdflib import Graph, URIRef
 from rdflib.compare import isomorphic
+from rdflib.namespace import OWL, RDF
 from sqlalchemy.orm import Session
 
 from app import bajas, distributions, ingest, vocab_ingest, write_lock
@@ -421,9 +422,10 @@ def _check_prefix(session: Session, graph: Graph, resource: str) -> None:
 
 
 def _check_plan_prefixes(store: TripleStore | None, uris: Uris, plan: _Plan) -> bool:
-    """QA-50-01 (validado el 2026-11-26): dos recursos vivos no comparten prefijo VANN. Se
-    comprueba entre los ficheros de esta ejecución y contra los recursos ya publicados que
-    no se cargan ahora (los creados desde la aplicación). Devuelve si ha fallado."""
+    """QA-50-01 (validado el 2026-11-26): dos recursos vivos (esquemas, ontologías propias
+    y externas) no comparten prefijo VANN. Se comprueba entre los ficheros de esta ejecución
+    y contra los recursos ya publicados que no se cargan ahora (los creados desde la
+    aplicación). Devuelve si ha fallado."""
     planned: dict[str, tuple[str, str]] = {}  # recurso -> (prefijo, fichero)
     for name, prepared in plan.schemes:
         prefix = vocab_ingest.resource_prefix(prepared.graph, prepared.uri)
@@ -433,19 +435,33 @@ def _check_plan_prefixes(store: TripleStore | None, uris: Uris, plan: _Plan) -> 
         prefix = vocab_ingest.resource_prefix(prepared_onto.graph, prepared_onto.uri)
         if prefix:
             planned.setdefault(prepared_onto.uri, (prefix, name))
+    # Regla 14 (2026-11-26): el prefijo de una ontología externa también cuenta.
+    reloads_externals = False
+    for name, graph_uri, graph in plan.plain:
+        if graph_uri != uris.external_ontologies_graph:
+            continue
+        reloads_externals = True
+        for external in graph.subjects(RDF.type, OWL.Ontology):
+            prefix = vocab_ingest.resource_prefix(graph, str(external))
+            if isinstance(external, URIRef) and prefix:
+                planned.setdefault(str(external), (prefix, name))
     by_prefix: dict[str, list[str]] = {}
     for resource, (prefix, _name) in planned.items():
         by_prefix.setdefault(prefix, []).append(resource)
+    published = vocab_ingest.all_prefix_owners(store, uris) if store is not None else {}
     failed = False
     for resource, (prefix, name) in sorted(planned.items(), key=lambda item: item[1][1]):
         others = [r for r in by_prefix[prefix] if r != resource]
-        if store is not None:
-            # Lo publicado que también se carga ahora cuenta con su prefijo del fichero.
-            others += [
-                owner
-                for owner in vocab_ingest.live_prefix_owners(store, uris, prefix, resource)
-                if owner not in planned
-            ]
+        # Lo publicado que también se carga ahora cuenta con su prefijo del fichero. Si se
+        # recarga externas.ttl, las externas publicadas se sustituyen por las del fichero
+        # (ya en planned).
+        others += [
+            owner
+            for owner in sorted(published.get(prefix, set()))
+            if owner != resource
+            and owner not in planned
+            and not (reloads_externals and not owner.startswith(uris.base))
+        ]
         if others:
             _print_ingest_error(
                 name,
@@ -646,9 +662,6 @@ def _validate_all(
             _print_ingest_error(name, exc)
             failed = True
 
-    if _check_plan_prefixes(store, uris, plan):
-        failed = True
-
     plain_files: list[tuple[Path, str]] = []
     externas = semantic_dir / ingest.EXTERNAL_ONTOLOGIES_FILE
     if externas.is_file():
@@ -662,6 +675,9 @@ def _validate_all(
         except ingest.IngestError as exc:
             _print_ingest_error(name, exc)
             failed = True
+
+    if _check_plan_prefixes(store, uris, plan):
+        failed = True
 
     series_dir = semantic_dir / ingest.SYNTHETIC_DIR
     for path in sorted(series_dir.glob("*.ttl")):

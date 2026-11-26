@@ -9,8 +9,8 @@ proceso hijo:
 - **Memoria:** el hijo fija ``RLIMIT_AS`` a ``SHACL_MEMORY_MB`` (en Linux; en macOS el
   límite no se aplica). Si se agota, la ingesta responde 422 (``kind=limit``).
 
-Los procesos salen de un *forkserver* que ya tiene importados rdflib y pyshacl, así que
-crear uno cuesta milisegundos. Donde no hay forkserver se usa *spawn*.
+Los procesos salen de un *forkserver* que ya tiene importados rdflib, pyshacl y el módulo
+principal, así que crear uno cuesta milisegundos. Donde no hay forkserver se usa *spawn*.
 
 El grafo de datos, las formas y el grafo de soporte viajan en N-Triples y el informe vuelve
 igual: no se comparte memoria con el servidor.
@@ -53,7 +53,12 @@ def _context() -> mp.context.BaseContext:
         if _CONTEXT is None:
             if "forkserver" in mp.get_all_start_methods():
                 context = mp.get_context("forkserver")
-                context.set_forkserver_preload(["app.shacl_worker", "pyshacl", "rdflib"])
+                # «__main__»: el forkserver importa una sola vez el módulo principal (uvicorn,
+                # la CLI o pytest). Sin él, cada hijo lo vuelve a importar al arrancar, y eso
+                # costaba ~0,25 s por validación.
+                context.set_forkserver_preload(
+                    ["__main__", "app.shacl_worker", "pyshacl", "rdflib"]
+                )
             else:  # pragma: no cover - plataformas sin forkserver
                 context = mp.get_context("spawn")
             _CONTEXT = context
