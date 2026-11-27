@@ -42,3 +42,8 @@ Cada decisión se guarda en un fichero `NNNN-titulo-corto.md` con las secciones 
 | [0034](0034-consultas-guardadas.md) | Consultas guardadas | Aceptada | 2026-11-15 |
 | [0035](0035-correccion-de-itot-1-2-0.md) | Corrección de itot 1.2.0 | Aceptada | 2026-11-15 |
 | [0036](0036-nivel-fair-de-f-uji.md) | Nivel FAIR: el que devuelve F-UJI | Aceptada | 2026-11-15 |
+| [0037](0037-crud-de-catalogos-y-datasets.md) | CRUD de catálogos y datasets en la aplicación | Aceptada | 2026-11-21 |
+| [0038](0038-vocabularios-y-ontologias-en-los-catalogos.md) | Vocabularios y ontologías en los catálogos, con CRUD completo | Aceptada | 2026-11-22 |
+| [0039](0039-sustitucion-de-ontologias-externas-por-versiones.md) | Sustitución de las ontologías externas por versiones | Aceptada | 2026-11-26 |
+| [0040](0040-argon2-con-parametros-minimos-en-las-pruebas.md) | argon2id con parámetros mínimos en las pruebas del backend | Aceptada | 2026-11-26 |
+| [0041](0041-accesibilidad-automatica-con-axe-core.md) | Accesibilidad automática con axe-core en Playwright | Aceptada | 2026-11-26 |
