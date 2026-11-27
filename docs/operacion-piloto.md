@@ -86,7 +86,6 @@ Tienen prioridad sobre las del `.env`; no hace falta cambiarlas:
 | `CORS_ORIGINS` | `https://{FRONTEND_HOST}` |
 | `VITE_API_BASE_URL`, `VITE_BASE_URI` | Derivadas de `API_HOST`; se incrustan en el build del frontend |
 | `FAIR_TARGET_BASE_URL` | Vacía: F-UJI evalúa la `BASE_URI` pública (decisión 47) |
-| `REASONER_JAVA_MEMORY_MB` | `1024` (heap de Pellet). El valor del `.env` no se aplica |
 | `FORWARDED_ALLOW_IPS` | `*` (ver «IP del cliente») |
 
 `FRONTEND_HOST` y `API_HOST` se incrustan en el build del frontend: si cambian, hay que reconstruir (`up -d --build`).
@@ -99,7 +98,8 @@ Tienen prioridad sobre las del `.env`; no hace falta cambiarlas:
 | `PROXY_MAX_BODY_RDF` | `11MiB` | Tamaño máximo de petición del API en general (RDF, JSON, SPARQL). Debe ser mayor o igual que `INGEST_MAX_BYTES` (10 MiB por defecto) |
 | `PROXY_MAX_BODY_UPLOAD` | `520MiB` | Tamaño máximo de la subida de ficheros de distribución. Debe ser mayor o igual que `MAX_UPLOAD_MB` (512 por defecto) |
 | `APP_COMMIT` | vacío | Commit desplegado (ver «Actualizar») |
-| `BACKUP_DIR`, `BACKUP_RETENTION_DAYS` | `$HOME/itot-backups` y 14 | Las lee `backup.sh` (ver «Copias de seguridad») |
+| `REASONER_JAVA_MEMORY_MB` | `1024` | Heap de la JVM de Pellet (el razonador). Se puede cambiar desde `.env`; el límite de memoria del backend está en `docker-compose.prod.yml` |
+| `BACKUP_DIR`, `BACKUP_RETENTION_DAYS` | `$HOME/itot-backups` y 14 | Las lee `backup.sh` del `.env` (ver «Copias de seguridad») |
 
 El resto de variables de `.env.example` (límites de SPARQL, bloqueo de login, descargas, F-UJI, ingesta…) tienen valores por defecto razonables para el piloto y se explican en el propio fichero.
 
@@ -173,7 +173,20 @@ docker compose up -d --build --wait --wait-timeout 900
 - Las migraciones de la base de datos las aplica el backend al arrancar.
 - Si la actualización cambia datos semánticos, vuelve a lanzar `load-semantic`. La aplicación manda en bajas, traslados y contenido de los esquemas ([ADR 0037](adr/0037-crud-de-catalogos-y-datasets.md), [0038](adr/0038-vocabularios-y-ontologias-en-los-catalogos.md)): `load-semantic` no las deshace.
 - Si cambian `FRONTEND_HOST` o `API_HOST`, el `--build` reconstruye el frontend.
-- Volver a una versión anterior: `infra` no documenta una marcha atrás de las migraciones. La vía descrita es restaurar la copia hecha antes de actualizar (ver más abajo). [PENDIENTE] Confirmar con `infra` y `backend`.
+
+### Marcha atrás de una actualización
+
+Antes de actualizar, `backup.sh` (ya está en los pasos de arriba). Si la versión nueva falla:
+
+```bash
+git switch --detach <etiqueta-o-commit-anterior>
+export APP_COMMIT=$(git rev-parse --short HEAD)
+docker compose up -d --build --wait --wait-timeout 900
+```
+
+- Esto vuelve al código anterior **conservando los datos**, y **solo vale si la actualización no aplicó migraciones nuevas** de la base de datos. Las migraciones de Alembic solo avanzan: el código viejo no funciona con un esquema más nuevo.
+- Si la versión nueva aplicó una migración, hay que volver a la versión anterior **y** restaurar la copia previa a la actualización con `restore.sh` (ver «Restaurar»). Se pierden los cambios hechos desde esa copia.
+- `infra` lo probó en local: cambio a un commit anterior y vuelta, con la pila funcionando y los datos intactos. No se ha probado una migración real hacia atrás.
 
 ## Copias de seguridad y restauración
 
@@ -190,7 +203,9 @@ docker compose up -d --build --wait --wait-timeout 900
 
 Se puede lanzar las veces que haga falta: cada ejecución crea su carpeta y nunca modifica las anteriores. Si falla, no deja una copia a medias y sale con código distinto de 0. Usa un bloqueo para no solaparse (si queda uno huérfano, el mensaje indica qué carpeta `.lock` borrar). Necesita los servicios `postgres`, `fuseki` y `backend` en marcha.
 
-**No incluye** el volumen `caddy-data` (certificados y cuenta ACME). Si se pierde, Caddy vuelve a pedir los certificados, con el límite de emisiones de Let's Encrypt por dominio.
+**No incluye, a propósito,** el volumen `caddy-data` (certificados y clave de la cuenta ACME): Caddy los vuelve a emitir solo la primera vez que arranca en un servidor nuevo. Let's Encrypt limita las emisiones por dominio, así que no repitas arranques desde cero sin necesidad; para las pruebas usa `CADDY_TLS=internal`.
+
+Tampoco incluye el `.env`: guárdalo aparte, por un canal seguro (contiene los secretos).
 
 ### Programación, retención y ubicación
 
@@ -202,9 +217,9 @@ Se puede lanzar las veces que haga falta: cada ejecución crea su carpeta y nunc
 
 - **Retención:** `BACKUP_RETENTION_DAYS` días (14 por defecto). Borra las copias más antiguas y conserva siempre la más reciente, aunque sea más vieja.
 - **Ubicación:** `BACKUP_DIR` (por defecto `$HOME/itot-backups`), con permisos 700 y ficheros 600. Está en el mismo disco que los datos.
-- **Variables:** `backup.sh` **no lee `.env`**: toma `BACKUP_DIR` y `BACKUP_RETENTION_DAYS` del entorno de quien lo lanza. Para cambiarlas, ponlas en la línea de cron (`30 3 * * * cd ... && BACKUP_DIR=/ruta infra/scripts/backup.sh ...`) y no en `.env`. No guarda secretos: las credenciales las toma del entorno de los contenedores.
+- **Variables:** `backup.sh` lee del `.env` solo `BACKUP_DIR` y `BACKUP_RETENTION_DAYS`, sin hacer `source` del fichero. Una variable definida en el entorno de quien lo lanza (por ejemplo, en la línea de cron) tiene prioridad sobre el `.env`. No guarda secretos: las credenciales las toma del entorno de los contenedores.
+- **Registro:** el cron escribe siempre en `$HOME/itot-backup.log`. Revísalo de vez en cuando (`tail $HOME/itot-backup.log`): un fallo solo se ve ahí, o por la ausencia de carpetas nuevas.
 - **Copia fuera del VPS:** pendiente de decidir (ver el último apartado).
-- Revisa el registro de vez en cuando (`tail $HOME/itot-backup.log`): un fallo solo se ve ahí, o por la ausencia de carpetas nuevas.
 
 ### Restaurar
 
@@ -232,7 +247,16 @@ El script, por orden:
 
 Los servicios `postgres` y `fuseki` tienen que estar en marcha antes. Después, comprueba con la prueba de humo y entrando en la aplicación. `infra` probó en local copia, borrado de los tres almacenes y restauración: mismos recuentos de cuádruples, usuarios y ficheros, y el login funcionando.
 
-**Restaurar en un servidor nuevo** (por ejemplo, tras perder el VPS): el flujo previsto es preparar el servidor, hacer el primer arranque (`up -d --build --wait`) y lanzar `restore.sh` con la copia, sin `load-semantic` ni `create-admin`, porque los usuarios vienen en la copia. [PENDIENTE] `infra` no ha probado este caso; el flujo se deduce del script.
+### Restaurar en un servidor nuevo
+
+Por ejemplo, tras perder el VPS. Según `infra/README.md`:
+
+1. Prepara el servidor como en «Preparar el servidor». Los DNS tienen que apuntar ya al servidor nuevo: Caddy emite certificados nuevos.
+2. Copia el `.env` (por tu canal seguro; no está en las copias) y la carpeta de la copia (`scp -r`).
+3. Levanta la pila vacía con el «Primer arranque», **sin** `load-semantic` ni `create-admin`.
+4. Ejecuta `infra/scripts/restore.sh --yes <carpeta-de-la-copia>` sobre ella.
+
+Los usuarios, los datos y las distribuciones vuelven con la copia. Usa el mismo `JWT_SECRET` que el servidor viejo si quieres que las sesiones abiertas sigan valiendo. `infra` lo probó en local: pila borrada con sus volúmenes, levantada vacía y restaurada desde una carpeta copiada (895 cuádruples, 1 usuario, 9 ficheros, login y RDF correctos).
 
 ## Logs y diagnóstico
 
@@ -260,12 +284,12 @@ Cifras de partida para 8 GB, sin carga real: la suma es de unos 6,4 GB y deja el
 | `caddy` | 128 MB | |
 | `frontend` | 64 MB | |
 
-Un contenedor que supera su límite se reinicia (`restart: unless-stopped`). Los límites y el heap de las JVM están escritos en `docker-compose.prod.yml` (`mem_limit`, `JAVA_TOOL_OPTIONS`, `REASONER_JAVA_MEMORY_MB`), **no** son variables del `.env`: ajustarlos es un cambio de ese fichero, por PR de `infra`. Mide primero con `docker stats` durante el uso real del piloto. El ajuste definitivo está pendiente de decidir.
+Un contenedor que supera su límite se reinicia (`restart: unless-stopped`). Los límites de memoria (`mem_limit`) y el heap de Fuseki (`JAVA_TOOL_OPTIONS`) están escritos en `docker-compose.prod.yml`, **no** son variables del `.env`: ajustarlos es un cambio de ese fichero, por PR de `infra`. El heap de Pellet sí se cambia desde `.env` con `REASONER_JAVA_MEMORY_MB` (1024 por defecto); si lo subes, comprueba que cabe en el límite del backend. Mide primero con `docker stats` durante el uso real del piloto. El ajuste definitivo está pendiente de decidir.
 
 ## Certificados
 
 - Caddy pide y renueva los certificados de Let's Encrypt de los dos hosts por su cuenta. `CADDY_TLS` es el email de contacto al que Let's Encrypt avisa de las caducidades.
-- Se guardan en el volumen `caddy-data` (y la configuración en `caddy-config`). **No los borres**: Let's Encrypt limita las emisiones por dominio. Ojo, `docker compose down -v` borra **todos** los volúmenes, también los datos.
+- Se guardan en el volumen `caddy-data` (y la configuración en `caddy-config`). **No los borres**: Let's Encrypt limita las emisiones por dominio. Las copias de seguridad no los incluyen a propósito: en un servidor nuevo Caddy los emite otra vez, pero no reinstales desde cero muchas veces. Ojo, `docker compose down -v` borra **todos** los volúmenes, también los datos.
 - Let's Encrypt solo emite certificados: no recibe datos del repositorio.
 - Si falla la emisión, `docker compose logs caddy` dice por qué. Causas habituales: el DNS no apunta al servidor, los puertos 80 o 443 están cerrados, o se agotó el límite de emisiones.
 - La prueba de humo avisa si un certificado caduca en menos de 14 días.
@@ -294,7 +318,11 @@ Un contenedor que supera su límite se reinicia (`restart: unless-stopped`). Los
 | Fichero de distribución | `PROXY_MAX_BODY_UPLOAD` (520 MiB) | `MAX_UPLOAD_MB` (512) |
 | Host del frontend | 1 MiB, fijo | no aplica |
 
-Si se cambia un límite del backend, hay que cambiar también el del proxy (el del proxy debe ser algo mayor). La interfaz muestra «El fichero supera el tamaño máximo que admite la API.» ante un 413 de la API. [PENDIENTE] No se ha comprobado qué ve el usuario si es el proxy el que corta la petición (la respuesta de Caddy puede no llevar las cabeceras CORS; en ese caso el navegador la verá como un fallo de red, «No se ha podido conectar con la API.»).
+Si se cambia un límite del backend, hay que cambiar también el del proxy (el del proxy debe ser algo mayor). Los errores que genera el propio proxy (413, 502 y 503) llevan cabeceras CORS para el host del frontend, así que el navegador los ve con su código real y no como un fallo de red. Qué verá el usuario:
+- **413 en un formulario** (publicar versión, esquema u ontología, sustituir una externa, crear, editar…): «El fichero supera el tamaño máximo que admite la API.» Es el mismo texto si lo corta el proxy o el backend. En el formulario de un RDF, el texto habla de «fichero» aunque el límite sea el del RDF.
+- **413 en la consola SPARQL** (al ejecutar o al guardar una consulta): «La consulta supera el tamaño máximo permitido.»
+- **502**: la interfaz no tiene mensaje propio y muestra el genérico del formulario (por ejemplo, «No se ha podido publicar la versión.»). **503** sin `Retry-After`: «El repositorio no está disponible ahora mismo. Inténtalo más tarde.»
+- Para distinguir quién respondió, mira el log de `caddy` (`docker compose logs caddy`).
 
 **Bloqueo de login.** Tras `LOGIN_MAX_FAILURES` fallos (5 por defecto) de un usuario desde una IP dentro de `LOGIN_WINDOW_MINUTES` (15), ese par queda bloqueado `LOGIN_LOCKOUT_MINUTES` (15): la API responde 429 con `Retry-After`, **aunque la contraseña sea correcta** ([ADR 0026](adr/0026-login-y-revocacion-de-tokens.md)).
 - La interfaz no distingue el 429: muestra «No se ha podido iniciar sesión. Inténtalo de nuevo más tarde.». Dile a la persona que espere el tiempo del bloqueo.
