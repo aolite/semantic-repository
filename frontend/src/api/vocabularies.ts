@@ -3,6 +3,8 @@ import type { IngestMediaType } from './datasets'
 import type {
   ConceptDetail,
   DomainSlug,
+  ExternalOntologyDetail,
+  ExternalReplaceResult,
   OntologyDetail,
   OntologyIngestResult,
   OntologyUpdate,
@@ -128,4 +130,55 @@ export function updateOntology(slug: string, body: OntologyUpdate, token: string
 /** `DELETE /ontologies/{slug}`: baja de la ontología con todas sus versiones (409 `in_use`). */
 export function withdrawOntology(slug: string, token: string): Promise<void> {
   return apiRequestVoid(`/ontologies/${encodeURIComponent(slug)}`, { method: 'DELETE', token })
+}
+
+/* Decisión 51: ontologías externas, que solo se sustituyen enteras (cada sustitución, una versión nueva). */
+
+/** Ruta de una ontología externa en la API. */
+function externalPath(slug: string): string {
+  return `/ontologies/externas/${encodeURIComponent(slug)}`
+}
+
+/** `GET /ontologies/externas/{slug}`: referencia, versión actual y todas las versiones (público). */
+export function fetchExternalOntology(slug: string, signal?: AbortSignal): Promise<ExternalOntologyDetail> {
+  return apiRequest<ExternalOntologyDetail>(externalPath(slug), { signal })
+}
+
+/** URL de descarga de `GET /ontologies/externas/{slug}/rdf?format=&version=` con `download=1`; sin versión, la actual. */
+export function externalOntologyRdfUrl(slug: string, format: VocabRdfFormat, version?: number | null): string {
+  return apiUrl(withQuery(`${externalPath(slug)}/rdf`, { format, version, download: 1 }))
+}
+
+/** Campos de texto de `POST /ontologies/externas/{slug}/versions`, además del fichero. */
+export interface ExternalReplaceFields {
+  title: string
+  prefix: string
+  namespace: string
+  description?: string
+  version_info?: string
+  publisher?: string
+  version_notes?: string
+}
+
+/**
+ * `POST /ontologies/externas/{slug}/versions` (editor o admin): sustituye la
+ * ontología entera con el fichero (Turtle o JSON-LD) y crea la versión n+1.
+ * Va en `multipart/form-data`: el navegador pone el `Content-Type` con su
+ * `boundary`. La parte del fichero lleva `mediaType` (algunos navegadores no
+ * reconocen `.ttl`). Los campos opcionales vacíos no se envían.
+ */
+export function replaceExternalOntology(
+  slug: string,
+  file: File,
+  mediaType: IngestMediaType,
+  fields: ExternalReplaceFields,
+  token: string,
+): Promise<ExternalReplaceResult> {
+  const body = new FormData()
+  body.append('file', new Blob([file], { type: mediaType }), file.name)
+  for (const [name, value] of Object.entries(fields)) {
+    const text = typeof value === 'string' ? value.trim() : ''
+    if (text) body.append(name, text)
+  }
+  return apiRequest<ExternalReplaceResult>(`${externalPath(slug)}/versions`, { method: 'POST', token, body })
 }

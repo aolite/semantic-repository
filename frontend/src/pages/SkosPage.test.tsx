@@ -197,7 +197,7 @@ describe('Navegador SKOS', () => {
     const { user } = await renderSkos()
     expect(await screen.findByRole('heading', { level: 2, name: 'GRUPO A' })).toBeInTheDocument()
     expect(item('Grupo A')).toHaveAttribute('aria-selected', 'true')
-    await user.click(within(item('Grupo B')).getByText('Concepto B1'))
+    await user.click(within(item('Concepto B1')).getByText('Concepto B1'))
     expect(await screen.findByRole('heading', { level: 2, name: 'CONCEPTO B1' })).toBeInTheDocument()
     expect(conceptCalls(fetchMock)).toEqual([`${SCHEME_PATH}/concepts/grupo-a`, `${SCHEME_PATH}/concepts/concepto-b1`])
   })
@@ -399,5 +399,20 @@ describe('Navegador SKOS', () => {
     const nav = screen.getByRole('navigation', { name: 'Principal' })
     expect(within(nav).getByRole('link', { name: 'Vocabularios' })).toHaveAttribute('aria-current', 'true')
     expect(within(nav).getByRole('heading', { name: 'Tipos de vocabulario' })).toBeInTheDocument()
+  })
+
+  it('QA-51-02: el nombre de cada treeitem es el texto visible de su fila, sin aria-label ni los hijos', async () => {
+    mockSkos()
+    await renderSkos()
+    const items = within(tree()).getAllByRole('treeitem')
+    expect(items.length).toBeGreaterThan(1)
+    for (const node of items) {
+      expect(node).not.toHaveAttribute('aria-label')
+      expect(node).not.toHaveAttribute('aria-labelledby')
+      expect(node).toHaveAccessibleName(node.textContent!.trim())
+    }
+    // El grupo de hijos ya no está dentro del treeitem: el nombre del padre no los incluye.
+    expect(item('Grupo B')).toHaveAccessibleName('Grupo B')
+    expect(within(item('Grupo B')).queryByText('Concepto B1')).not.toBeInTheDocument()
   })
 })

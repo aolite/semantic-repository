@@ -8,6 +8,9 @@ import type {
   CatalogRef,
   ConceptDetail,
   ConceptNode,
+  ExternalOntologyDetail,
+  ExternalReplaceResult,
+  ExternalVersionRead,
   OntologyDetail,
   OntologyIngestResult,
   SchemeDetail,
@@ -346,6 +349,83 @@ export function ontologyIngestFixture(overrides: Partial<OntologyIngestResult> =
     consistency: onto.consistency!,
     documentation: onto.documentation!,
     catalog: `${BASE}catalogo/catalogo-prueba`,
+    ...overrides,
+  }
+}
+
+/* Decisión 51: ontologías externas con versiones. */
+
+const EXT_SERIES = `${BASE}onto/externas/ext`
+
+export function externalVersionFixture(overrides: Partial<ExternalVersionRead> = {}): ExternalVersionRead {
+  const onto = ontologyFixture()
+  const number = overrides.number ?? 1
+  return {
+    number,
+    version: String(number),
+    uri: `${EXT_SERIES}/${number}`,
+    version_info: null,
+    generated_at: '2000-01-15T12:00:00Z',
+    previous_version: number > 1 ? `${EXT_SERIES}/${number - 1}` : null,
+    notes: null,
+    current: false,
+    metrics: onto.metrics,
+    profile: onto.profile,
+    consistency: onto.consistency,
+    documentation: onto.documentation,
+    metrics_computed_at: null,
+    metrics_tool: null,
+    ...overrides,
+  }
+}
+
+/** Externa con dos versiones: la 2 (actual, «2.0-prueba») y la 1. */
+export function externalOntologyFixture(overrides: Partial<ExternalOntologyDetail> = {}): ExternalOntologyDetail {
+  const current = externalVersionFixture({
+    number: 2,
+    version_info: '2.0-prueba',
+    generated_at: '2000-02-20T12:00:00Z',
+    notes: 'Notas de prueba de la 2.',
+    current: true,
+  })
+  const first = externalVersionFixture({
+    number: 1,
+    notes: 'Notas de prueba de la 1.',
+    metrics: { ...ontologyFixture().metrics!, classes: 3 },
+  })
+  return {
+    slug: 'ext',
+    uri: 'https://externa.test/onto/',
+    kind: 'external',
+    status: 'referenced',
+    title: 'Ontología externa de prueba',
+    description: 'Descripción de prueba de la externa.',
+    prefix: 'ext',
+    namespace: 'https://externa.test/onto#',
+    version: '2.0-prueba',
+    publisher: 'Publicador externo de prueba',
+    current_version: current,
+    versions: [current, first],
+    ...overrides,
+  }
+}
+
+export function externalReplaceFixture(overrides: Partial<ExternalReplaceResult> = {}): ExternalReplaceResult {
+  const onto = ontologyFixture()
+  return {
+    slug: 'ext',
+    uri: 'https://externa.test/onto/',
+    number: 3,
+    version: '3',
+    version_uri: `${EXT_SERIES}/3`,
+    graph: `${EXT_SERIES}/3`,
+    previous_version: `${EXT_SERIES}/2`,
+    generated_at: '2000-03-01T12:00:00Z',
+    triples: 99,
+    metrics: onto.metrics!,
+    profile: onto.profile!,
+    consistency: onto.consistency!,
+    documentation: onto.documentation!,
     ...overrides,
   }
 }

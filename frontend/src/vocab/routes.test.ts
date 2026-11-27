@@ -3,6 +3,7 @@ import { vocabCardsFixture } from '../test/vocabFixtures'
 import {
   conceptRouteFromUri,
   datasetRouteFromUri,
+  externalOntologyRoute,
   resourceRouteFromUri,
   ontologyRoute,
   ontologyRouteFromUri,
@@ -17,6 +18,8 @@ describe('Rutas de vocabularios', () => {
   it('construye las rutas de ficha y navegador', () => {
     expect(ontologyRoute('itot')).toBe('/ontologias/itot')
     expect(ontologyRoute('itot', '1.1.0')).toBe('/ontologias/itot?version=1.1.0')
+    expect(externalOntologyRoute('saref')).toBe('/ontologias/externas/saref')
+    expect(externalOntologyRoute('saref', 3)).toBe('/ontologias/externas/saref?version=3')
     expect(schemeRoute('ot', false)).toBe('/vocabularios/ot')
     expect(schemeRoute('trl', true, 'trl-1')).toBe('/vocabularios/corp/trl?concepto=trl-1')
   })
@@ -45,6 +48,10 @@ describe('Rutas de vocabularios', () => {
     expect(ontologyRouteFromUri(`${BASE}onto/itot/1.2.0`)).toBe('/ontologias/itot?version=1.2.0')
     expect(ontologyRouteFromUri(`${BASE}onto/itot#Clase`)).toBeNull()
     expect(ontologyRouteFromUri(`${BASE}onto/externas`)).toBeNull()
+    // Decisión 51: la serie y las versiones de una externa van a su ficha.
+    expect(ontologyRouteFromUri(`${BASE}onto/externas/saref`)).toBe('/ontologias/externas/saref')
+    expect(ontologyRouteFromUri(`${BASE}onto/externas/saref/2`)).toBe('/ontologias/externas/saref?version=2')
+    expect(ontologyRouteFromUri(`${BASE}onto/externas/saref/0`)).toBeNull()
     expect(ontologyRouteFromUri('https://saref.test/core/')).toBeNull()
   })
 
@@ -69,5 +76,7 @@ describe('Rutas de vocabularios', () => {
     expect(vocabularyHref(external)).toEqual({ href: 'https://externa.test/onto/', external: true })
     expect(vocabularyHref(corp)).toEqual({ href: '/vocabularios/corp/corp-prueba', external: false })
     expect(vocabularyHref(domain)).toEqual({ href: '/vocabularios/esq-prueba', external: false })
+    // Decisión 51: una externa con slug va a su ficha.
+    expect(vocabularyHref({ ...external, slug: 'ext' })).toEqual({ href: '/ontologias/externas/ext', external: false })
   })
 })

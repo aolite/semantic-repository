@@ -145,6 +145,10 @@
   border-radius: var(--radius-card);
 }
 
+.dialog--form {
+  width: min(640px, 100%);
+}
+
 .dialog__body {
   display: flex;
   flex-direction: column;
@@ -278,6 +282,8 @@
   font-weight: 700;
   background: var(--status-draft-bg);
   color: var(--status-draft-fg);
+  /* El texto es «retirado» para el nombre accesible «{concepto} (retirado)»; se ve «Retirado». */
+  text-transform: capitalize;
 }
 
 .skos__deprecated {

@@ -162,6 +162,17 @@ describe('Vocabularios y ontologías', () => {
     expect(document.querySelector(`a[href="${uri}"]`)).toBeNull()
   })
 
+  it('decisión 51: una externa con slug enlaza a su ficha y muestra sus métricas', async () => {
+    const external = vocabCardsFixture()[1]
+    mockVocab(() => vocabPageFixture([{ ...external, slug: 'ext', version: '2.0', metrics: { classes: 5, properties: 3 } }]))
+    renderApp('/vocabularios')
+    const link = await screen.findByRole('link', { name: 'Ontología externa de prueba' })
+    expect(link).toHaveAttribute('href', '/ontologias/externas/ext')
+    const card = link.closest('article')!
+    expect(within(card).getByText('5 clases · 3 propiedades')).toBeInTheDocument()
+    expect(within(card).getByText('v2.0')).toBeInTheDocument()
+  })
+
   it('muestra «Métricas sin calcular» si una ontología propia no tiene métricas', async () => {
     mockVocab(() => vocabPageFixture([{ ...vocabCardsFixture()[0], metrics: null }]))
     renderApp('/vocabularios')

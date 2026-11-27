@@ -8,9 +8,11 @@ import {
   conflictUsedBy,
   CRUD_TEXT,
   describeError,
+  EXTERNAL_INGEST_TEXT,
   goneFromError,
   INGEST_KIND_TEXT,
   ingestError,
+  ingestFieldIssues,
   isNotManaged,
   SCHEME_INGEST_TEXT,
 } from './errors'
@@ -227,5 +229,31 @@ describe('Errores de los formularios de catálogos y datasets', () => {
   it('goneFromError reconoce las bajas de esquemas y ontologías', () => {
     expect(goneFromError(apiError(410, goneFixture({ resource: 'scheme' })))?.resource).toBe('scheme')
     expect(goneFromError(apiError(410, goneFixture({ resource: 'ontology' })))?.resource).toBe('ontology')
+  })
+
+  describe('sustitución de una ontología externa (decisión 51)', () => {
+    it('409 version_exists: pide recargar la ficha', () => {
+      const info = describeError(apiError(409, ingest('version_exists')), { ...CONTEXT, ingestText: EXTERNAL_INGEST_TEXT })
+      expect(info.message).toBe('Otra persona acaba de sustituir esta ontología; recarga la ficha y vuelve a intentarlo.')
+    })
+
+    it('422 structure: ingestFieldIssues devuelve los campos de issues[].path que conoce el formulario', () => {
+      const error = apiError(
+        422,
+        ingest('structure', {
+          issues: [
+            { message: 'Prefijo no válido', path: 'prefix', focus_node: null, value: null, severity: 'Violation', source_shape: null },
+            { message: 'Otro', path: 'desconocido', focus_node: null, value: null, severity: 'Violation', source_shape: null },
+            { message: '', path: 'namespace', focus_node: null, value: null, severity: 'Violation', source_shape: null },
+          ],
+        }),
+      )
+      expect(ingestFieldIssues(error, ['prefix', 'namespace', 'title'] as const)).toEqual({
+        prefix: 'Prefijo no válido',
+        namespace: CRUD_TEXT.invalidField,
+      })
+      expect(describeError(error, { ...CONTEXT, ingestText: EXTERNAL_INGEST_TEXT }).message).toBe(EXTERNAL_INGEST_TEXT.structure)
+      expect(ingestFieldIssues(apiError(422, ingest('syntax')), ['prefix'] as const)).toEqual({})
+    })
   })
 })

@@ -33,20 +33,23 @@ export { createSavedQuery, listSavedQueries, runSparql, SPARQL_RESULTS_JSON } fr
 export type { SparqlRunResult } from './sparql'
 export type { IngestMediaType, ListDatasetsParams } from './datasets'
 export {
+  externalOntologyRdfUrl,
   fetchConcept,
+  fetchExternalOntology,
   fetchOntology,
   fetchScheme,
   listVocabularies,
   ontologyRdfUrl,
   publishOntology,
   publishScheme,
+  replaceExternalOntology,
   schemeRdfUrl,
   updateOntology,
   updateScheme,
   withdrawOntology,
   withdrawScheme,
 } from './vocabularies'
-export type { ListVocabulariesParams } from './vocabularies'
+export type { ExternalReplaceFields, ListVocabulariesParams } from './vocabularies'
 export type {
   AccessRights,
   Alignment,
@@ -78,6 +81,9 @@ export type {
   DistributionDownload,
   DistributionRead,
   DownloadLink,
+  ExternalOntologyDetail,
+  ExternalReplaceResult,
+  ExternalVersionRead,
   DocumentationCoverageRead,
   DomainRef,
   DomainSlug,

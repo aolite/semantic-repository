@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { jsonResponse, mockFetch } from '../test/utils'
 import { conceptFixture, ontologyFixture, schemeFixture, vocabPageFixture } from '../test/vocabFixtures'
 import {
+  externalOntologyRdfUrl,
   fetchConcept,
+  fetchExternalOntology,
+  replaceExternalOntology,
   fetchOntology,
   fetchScheme,
   listVocabularies,
@@ -15,7 +18,7 @@ import {
   withdrawOntology,
   withdrawScheme,
 } from '.'
-import { ontologyIngestFixture, schemeIngestFixture } from '../test/vocabFixtures'
+import { externalOntologyFixture, externalReplaceFixture, ontologyIngestFixture, schemeIngestFixture } from '../test/vocabFixtures'
 
 describe('API de vocabularios', () => {
   it('listVocabularies envía q y kind, y omite los vacíos', async () => {
@@ -111,5 +114,44 @@ describe('API de vocabularios', () => {
   it('propaga el 404 como ApiError', async () => {
     mockFetch({})
     await expect(fetchScheme('no-existe', false)).rejects.toMatchObject({ name: 'ApiError', status: 404 })
+  })
+
+  describe('ontologías externas (decisión 51)', () => {
+    it('fetchExternalOntology pide la ficha pública y externalOntologyRdfUrl añade la versión si se indica', async () => {
+      const fetchMock = mockFetch({ '/ontologies/externas/ext': () => jsonResponse(externalOntologyFixture()) })
+      await expect(fetchExternalOntology('ext')).resolves.toEqual(externalOntologyFixture())
+      expect(String(fetchMock.mock.calls[0][0])).toBe('http://api.test/ontologies/externas/ext')
+      expect(fetchMock.mock.calls[0][1]?.headers).not.toHaveProperty('Authorization')
+      expect(externalOntologyRdfUrl('ext', 'turtle')).toBe('http://api.test/ontologies/externas/ext/rdf?format=turtle&download=1')
+      expect(externalOntologyRdfUrl('ext', 'jsonld', 1)).toBe(
+        'http://api.test/ontologies/externas/ext/rdf?format=jsonld&version=1&download=1',
+      )
+    })
+
+    it('replaceExternalOntology manda multipart con el fichero y solo los campos con valor', async () => {
+      const fetchMock = mockFetch({ '/ontologies/externas/ext/versions': () => jsonResponse(externalReplaceFixture(), 201) })
+      const file = new File(['@prefix x: <https://externa.test/> .'], 'ext.ttl')
+      const result = await replaceExternalOntology(
+        'ext',
+        file,
+        'text/turtle',
+        { title: ' Título ', prefix: 'ext', namespace: 'https://externa.test/onto#', description: '', version_notes: 'Notas' },
+        'tk',
+      )
+      expect(result.number).toBe(3)
+      const [url, init] = fetchMock.mock.calls[0]
+      expect(String(url)).toBe('http://api.test/ontologies/externas/ext/versions')
+      expect(init?.method).toBe('POST')
+      expect(init?.headers).toMatchObject({ Authorization: 'Bearer tk' })
+      // Sin `Content-Type`: lo pone el navegador con el `boundary` del multipart.
+      expect(init?.headers).not.toHaveProperty('Content-Type')
+      const body = init?.body as FormData
+      expect(body).toBeInstanceOf(FormData)
+      expect([...body.keys()].sort()).toEqual(['file', 'namespace', 'prefix', 'title', 'version_notes'])
+      expect(body.get('title')).toBe('Título')
+      const sent = body.get('file') as File
+      expect(sent.name).toBe('ext.ttl')
+      expect(sent.type).toBe('text/turtle')
+    })
   })
 })

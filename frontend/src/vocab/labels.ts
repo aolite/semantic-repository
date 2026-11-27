@@ -3,7 +3,7 @@
  * el frontend, no la API): nombres y colores de cada tipo y estado, líneas de
  * métricas y placeholders del prototipo.
  */
-import type { VocabularyCard, VocabularyKind, VocabularyStatus } from '../api'
+import type { MetricsSummary, VocabRdfFormat, VocabularyCard, VocabularyKind, VocabularyStatus } from '../api'
 
 export interface KindStyle {
   /** Etiqueta de la tarjeta (singular), p. ej. «Ontología propia». */
@@ -84,6 +84,13 @@ export function statusStyle(status: string): { label: string; className: string 
   return { label: status, className: 'status--referenced' }
 }
 
+/** Serializaciones que se ofrecen para descargar una ontología, en el orden del prototipo. */
+export const RDF_SERIALIZATIONS: { format: VocabRdfFormat; label: string }[] = [
+  { format: 'turtle', label: 'Turtle' },
+  { format: 'rdfxml', label: 'RDF/XML' },
+  { format: 'jsonld', label: 'JSON-LD' },
+]
+
 /** Placeholders del prototipo para los campos que llegan `null`. */
 export const VOCAB_PLACEHOLDERS = {
   version: '[VERSIÓN]',
@@ -114,14 +121,30 @@ export function conceptsLabel(n: number | null): string {
 export function metricsLine(card: VocabularyCard): string {
   switch (card.kind) {
     case 'own':
-      return card.metrics
-        ? `${plural(card.metrics.classes, 'clase', 'clases')} · ${plural(card.metrics.properties, 'propiedad', 'propiedades')}`
-        : 'Métricas sin calcular'
+      return card.metrics ? metricsSummary(card.metrics) : 'Métricas sin calcular'
     case 'external':
-      return 'Externa · referencia'
+      // Decisión 51: las externas con versión actual traen sus métricas.
+      return card.metrics ? metricsSummary(card.metrics) : 'Externa · referencia'
     default:
       return conceptsLabel(card.concepts)
   }
+}
+
+function metricsSummary(m: MetricsSummary): string {
+  return `${plural(m.classes, 'clase', 'clases')} · ${plural(m.properties, 'propiedad', 'propiedades')}`
+}
+
+const dateFormat = new Intl.DateTimeFormat('es', { day: 'numeric', month: 'short', year: 'numeric' })
+
+/**
+ * Fecha de una marca de tiempo de la API (p. ej. `prov:generatedAtTime`) en
+ * español («26 nov 2026»). Si no se puede leer, el texto tal cual; si falta,
+ * null.
+ */
+export function formatDate(value: string | null): string | null {
+  if (!value) return null
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? value : dateFormat.format(date)
 }
 
 export function plural(n: number, one: string, many: string): string {
