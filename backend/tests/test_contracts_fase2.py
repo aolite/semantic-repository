@@ -228,10 +228,7 @@ def _nullable(schema: dict) -> bool:
 # aquí, con su decisión, y se borran cuando frontend/src/api/types.ts los incorpore.
 # Tienen que ser opcionales en el contrato (no requeridos), para no romper al cliente que
 # aún no los conoce.
-PENDING_FRONTEND: dict[str, set[str]] = {
-    # Fase 5: versión y commit desplegados en GET /health.
-    "HealthStatus": {"version", "commit"},
-}
+PENDING_FRONTEND: dict[str, set[str]] = {}
 
 
 def test_pending_frontend_fields_are_optional_in_the_contract() -> None:

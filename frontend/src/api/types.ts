@@ -49,6 +49,10 @@ export interface CurrentUser {
 /** Esquema `HealthStatus`: respuesta de `GET /health`. */
 export interface HealthResponse {
   status: 'ok'
+  /** Versión del backend (`project.version` de su pyproject). */
+  version?: string
+  /** Commit desplegado (`APP_COMMIT`), o null si no se indicó. */
+  commit?: string | null
 }
 
 /* ------------------------------------------------------------------------ */
