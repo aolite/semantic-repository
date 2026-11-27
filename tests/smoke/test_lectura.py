@@ -8,7 +8,6 @@ import secrets
 import urllib.parse
 
 import pytest
-
 from smokelib import Config, api_path, request, warn
 
 TURTLE = {"Accept": "text/turtle"}
