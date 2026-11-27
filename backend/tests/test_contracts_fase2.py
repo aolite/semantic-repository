@@ -21,7 +21,12 @@ import pytest
 from app import ingest
 from app.config import Settings
 from app.export_openapi import OPENAPI_PATH
-from tests.conftest import FIXTURE_DATA_DIR, FIXTURE_SEMANTIC_DIR, REPO_SEMANTIC_DIR
+from tests.conftest import (
+    DEPLOY_ONLY_ENV,
+    FIXTURE_DATA_DIR,
+    FIXTURE_SEMANTIC_DIR,
+    REPO_SEMANTIC_DIR,
+)
 
 REPO_ROOT = REPO_SEMANTIC_DIR.parent
 COMPOSE_FILE = REPO_ROOT / "docker-compose.yml"
@@ -156,7 +161,9 @@ def test_env_example_matches_backend_settings() -> None:
     backend_keys = {
         key
         for key in example
-        if key not in not_backend and not key.startswith("VITE_") and not key.endswith("_HOST_PORT")
+        if key not in not_backend | DEPLOY_ONLY_ENV
+        and not key.startswith("VITE_")
+        and not key.endswith("_HOST_PORT")
     }
     unknown = backend_keys - _settings_env_names()
     assert unknown == set(), f".env.example documenta variables que el backend no lee: {unknown}"

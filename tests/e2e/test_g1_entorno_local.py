@@ -64,7 +64,11 @@ def test_los_cuatro_servicios_de_la_fase_1_estan_en_marcha(stack: Stack) -> None
 
 def test_el_backend_esta_vivo_y_listo(stack: Stack) -> None:
     live = http("GET", f"{stack.api}/health")
-    assert (live.status, live.json()) == (200, {"status": "ok"})
+    assert live.status == 200, live.text
+    # Fase 5 (PR #57): /health informa también de la versión y del commit desplegado.
+    body = live.json()
+    assert set(body) == {"status", "version", "commit"}, body
+    assert body["status"] == "ok" and isinstance(body["version"], str), body
 
     ready = http("GET", f"{stack.api}/health/ready")
     assert ready.status == 200, ready.text

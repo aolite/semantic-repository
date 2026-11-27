@@ -85,6 +85,24 @@ BASE_URI = "https://semantic.example.org/itot/"  # valor por defecto del proyect
 
 TESTS_DIR = Path(__file__).resolve().parent
 REPO_SEMANTIC_DIR = TESTS_DIR.parent.parent / "semantic"
+
+
+# Variables de .env.example que solo leen Docker Compose, Caddy o los scripts de copia del
+# despliegue del piloto (docker-compose.prod.yml, infra/caddy, infra/scripts), no el backend.
+DEPLOY_ONLY_ENV = frozenset(
+    {
+        "FRONTEND_HOST",
+        "API_HOST",
+        "CADDY_TLS",
+        "PROXY_HTTP_PORT",
+        "PROXY_HTTPS_PORT",
+        "PROXY_MAX_BODY_RDF",
+        "PROXY_MAX_BODY_UPLOAD",
+        "BACKUP_DIR",
+        "BACKUP_RETENTION_DAYS",
+    }
+)
+
 # Copia de semantic/data/ de la rama de semantico (datos sintéticos de G2). Las formas
 # SHACL no se copian: se usan las de semantic/shapes/ del repositorio.
 FIXTURE_DATA_DIR = TESTS_DIR / "fixtures" / "data"
