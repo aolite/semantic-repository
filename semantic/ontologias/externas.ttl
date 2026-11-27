@@ -22,7 +22,7 @@
 # Este fichero es solo la SEMILLA de las referencias y no lleva versiones
 # (ni dcat:hasVersion, ni dcat:hasCurrentVersion, ni dct:isVersionOf): las
 # crea la aplicación. Manda la aplicación: load-semantic no toca una externa
-# que ya tiene versiones [PROPUESTA pendiente de validar]. Ver
+# que ya tiene versiones (validado el 2026-11-26, decisión 51). Ver
 # semantic/uris.md, «Versiones de las ontologías externas».
 #
 # Qué queda fuera:

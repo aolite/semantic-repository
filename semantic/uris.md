@@ -40,7 +40,7 @@ Los patrones marcados con *(prototipo)* aparecen literalmente en la pantalla «F
 | Versión de ontología (`owl:versionIRI`) | `{BASE_URI}onto/{slug}/{version}` | — | `{BASE_URI}onto/itot/1.2.0` | prototipo |
 | Término de ontología propia (clase, propiedad) | `{BASE_URI}onto/{slug}#{Nombre}` | `owl:Class`, `owl:ObjectProperty`… | `{BASE_URI}onto/itot#Controlador` | prototipo (`https://[DOMINIO]/itot/onto/itot#`) |
 | Ontología externa | Su IRI oficial | `owl:Ontology` | `https://saref.etsi.org/core/` | prototipo |
-| Versión de ontología externa (sustitución) | `{BASE_URI}onto/externas/{slug}/{n}` | `prov:Entity` | `{BASE_URI}onto/externas/saref/1` | **[PROPUESTA pendiente de validar]** (decisión 50, 2026-11-26; ver «Versiones de las ontologías externas») |
+| Versión de ontología externa (sustitución) | `{BASE_URI}onto/externas/{slug}/{n}` | `prov:Entity` | `{BASE_URI}onto/externas/saref/1` | **Validado (2026-11-26, decisión 51)** (ver «Versiones de las ontologías externas») |
 | Esquema de dominios del catálogo | `{BASE_URI}vocab/dominio` | `skos:ConceptScheme` | `{BASE_URI}vocab/dominio` | **[PROPUESTA del orquestador, fase 3]** |
 | Dominio del catálogo | `{BASE_URI}vocab/dominio/{it\|ot\|pqc\|ia}` | `skos:Concept` | `{BASE_URI}vocab/dominio/ot` | **[PROPUESTA del orquestador, fase 3]** |
 | Fichero de una distribución | `{BASE_URI}dataset/{slug}/{version}/{dist}/fichero` | — | `{BASE_URI}dataset/modbus-tcp-testbed/2.1.0/pcap/fichero` | **[PROPUESTA del orquestador, fase 4]** |
@@ -185,7 +185,7 @@ Los tres datasets sintéticos van al catálogo `{BASE_URI}catalogo/sintetico` (�
 
 ## Vocabularios y ontologías en los catálogos (decisión 50)
 
-Decidido por el responsable (2026-11-22): cada esquema SKOS y cada ontología propia pertenece a **un solo** catálogo, como los datasets, y aparece en su ficha; CRUD completo desde la aplicación (publicar, editar metadatos y **dar de baja** con lápida y 410, igual que los datasets), con permisos de editor y admin; las versiones de ontología publicadas siguen siendo inmutables (decisión 28). Validado el mismo día, a propuesta de `semantico`: el catálogo `vocabularios-sinteticos`, el tratamiento de los corporativos como los de dominio, las externas y los auxiliares fuera de los catálogos, la aplicación como fuente de verdad del catálogo, los traslados y las bajas, y los dos 409 (baja de un recurso en uso y republicar un esquema sin conceptos que ya estaban). El responsable validó el 2026-11-25 las ocho propuestas de `semantico` (PR #45), marcadas **Validado (2026-11-25)**, y decidió además el contenido de los esquemas en `load-semantic`, los sustitutos de un concepto retirado, el rechazo de temas retirados y la no reutilización de prefijos VANN (ver «Decisiones del 2026-11-25»). El 2026-11-26 validó, a propuesta de `backend` (PR #46) y `qa` (PR #47), los códigos de error y los usos que faltaban, marcados **Validado (2026-11-26)** (ver «Decisiones del 2026-11-26»). El mismo día, tras revisar la aplicación, respondió a las preguntas que quedaban y decidió que **las ontologías externas se sustituyen enteras, con una versión nueva por sustitución** (ver «Decisiones del 2026-11-26, tras revisar la aplicación» y «Versiones de las ontologías externas»).
+Decidido por el responsable (2026-11-22): cada esquema SKOS y cada ontología propia pertenece a **un solo** catálogo, como los datasets, y aparece en su ficha; CRUD completo desde la aplicación (publicar, editar metadatos y **dar de baja** con lápida y 410, igual que los datasets), con permisos de editor y admin; las versiones de ontología publicadas siguen siendo inmutables (decisión 28). Validado el mismo día, a propuesta de `semantico`: el catálogo `vocabularios-sinteticos`, el tratamiento de los corporativos como los de dominio, las externas y los auxiliares fuera de los catálogos, la aplicación como fuente de verdad del catálogo, los traslados y las bajas, y los dos 409 (baja de un recurso en uso y republicar un esquema sin conceptos que ya estaban). El responsable validó el 2026-11-25 las ocho propuestas de `semantico` (PR #45), marcadas **Validado (2026-11-25)**, y decidió además el contenido de los esquemas en `load-semantic`, los sustitutos de un concepto retirado, el rechazo de temas retirados y la no reutilización de prefijos VANN (ver «Decisiones del 2026-11-25»). El 2026-11-26 validó, a propuesta de `backend` (PR #46) y `qa` (PR #47), los códigos de error y los usos que faltaban, marcados **Validado (2026-11-26)** (ver «Decisiones del 2026-11-26»). El mismo día, tras revisar la aplicación, respondió a las preguntas que quedaban y decidió que **las ontologías externas se sustituyen enteras, con una versión nueva por sustitución** (ver «Decisiones del 2026-11-26, tras revisar la aplicación» y «Versiones de las ontologías externas»); también ese día validó los 9 puntos del modelo de versiones que propuso `semantico` (decisión 51), marcados **Validado (2026-11-26)**.
 
 ### Qué está en un catálogo y qué no
 
@@ -286,7 +286,7 @@ SHACL solo ve el grafo que valida. Estas reglas son del backend, en la ingesta y
 - La **aplicación** es la fuente de verdad del catálogo de cada esquema y ontología, de los traslados y de las bajas.
 - La **etiqueta de Git** (`onto/{slug}/v{version}`, `vocab/[corp/]{slug}/v{version}`, decisión 37) solo valida, versiona y archiva: crea la Release con el RDF y la documentación WIDOCO, **sin cargar nada** en ningún entorno. Como la pertenencia no está en los ficheros (ver arriba), la Release no lleva el catálogo.
 - En `load-semantic` (**Validado (2026-11-25)**), siguiendo lo validado para los datasets en la decisión 49: un esquema u ontología con lápida se omite; uno que ya está en un catálogo del triplestore se queda en él (un traslado hecho en la aplicación no se deshace), y uno nuevo va al catálogo que le da `data/catalogos/`, que tiene que cargarse en la misma ejecución o estar ya publicado. Para validar cada fichero, `load-semantic` le añade el triple de su catálogo.
-- **[PROPUESTA pendiente de validar]** **Ontologías externas en `load-semantic`:** `ontologias/externas.ttl` es solo la semilla de las referencias. Una externa que ya tiene versiones en el triplestore (`dcat:hasCurrentVersion` en `{BASE_URI}onto/externas`) **no se toca**: la sustitución hecha en la aplicación no se deshace. Las demás se escriben como hoy, pero sujeto a sujeto, no sustituyendo el grafo entero. `load-semantic` nunca crea, cambia ni borra versiones ni quita una externa que ya no esté en el fichero (las externas no se dan de baja). Ver «Versiones de las ontologías externas».
+- **Validado (2026-11-26)** **Ontologías externas en `load-semantic`:** `ontologias/externas.ttl` es solo la semilla de las referencias. Una externa que ya tiene versiones en el triplestore (`dcat:hasCurrentVersion` en `{BASE_URI}onto/externas`) **no se toca**: la sustitución hecha en la aplicación no se deshace. Las demás se escriben como hoy, pero sujeto a sujeto, no sustituyendo el grafo entero. `load-semantic` nunca crea, cambia ni borra versiones ni quita una externa que ya no esté en el fichero (las externas no se dan de baja). Ver «Versiones de las ontologías externas».
 - **Decidido (2026-11-25): manda la aplicación también en el contenido de los esquemas.** Si la aplicación ha añadido conceptos a un esquema publicado, `load-semantic` **no los quita** y no da 409 por eso (la regla 9 es de la API): el esquema que queda tiene los conceptos del fichero más los añadidos desde la aplicación.
 
 ### Decisiones del 2026-11-25
@@ -312,9 +312,9 @@ Respuestas del responsable tras revisar la aplicación en Docker, recogidas arri
 
 ### Versiones de las ontologías externas (decisión 50, 2026-11-26)
 
-**Decidido por el responsable (2026-11-26):** las externas se sustituyen enteras y cada sustitución genera una versión nueva. También es suyo, de antes, que siguen fuera de los catálogos y no se dan de baja (2026-11-22) y que las versiones publicadas son inmutables (decisión 28). **Todo lo demás de esta sección es [PROPUESTA pendiente de validar]** de `semantico`: el patrón de URIs, el slug, los grafos, las propiedades, qué cuenta como versión actual y el comportamiento de `load-semantic`.
+**Decidido por el responsable (2026-11-26):** las externas se sustituyen enteras y cada sustitución genera una versión nueva. También es suyo, de antes, que siguen fuera de los catálogos y no se dan de baja (2026-11-22) y que las versiones publicadas son inmutables (decisión 28). El resto de esta sección eran propuestas de `semantico` (el patrón de URIs, el slug, los grafos, las propiedades, qué cuenta como versión actual, de dónde salen los metadatos de referencia, el comportamiento de `load-semantic`, que la aplicación no crea externas y la publicación en SPARQL): el responsable validó sus 9 puntos el mismo día y van marcadas **Validado (2026-11-26)** (decisión 51).
 
-#### Identificación · [PROPUESTA pendiente de validar]
+#### Identificación · **Validado (2026-11-26)**
 
 | Recurso | URI | Grafo con nombre |
 |---|---|---|
@@ -327,7 +327,7 @@ Respuestas del responsable tras revisar la aplicación en Docker, recogidas arri
 - `{BASE_URI}onto/externas/{slug}` no es un recurso RDF: solo agrupa las versiones. Cómo responde al resolverla (por ejemplo, 303 a la ficha de la externa) lo decide `backend`.
 - Alternativas descartadas: (a) `owl:versionIRI` en el dominio del publicador: no es nuestro y no se resuelve aquí; (b) `{BASE_URI}onto/externas/{slug}/{owl:versionInfo}`: la versión del publicador no siempre existe ni es un segmento válido, y dos sustituciones con la misma versión (una corrección) chocarían; (c) un slug elegido por el editor: posible, pero el prefijo ya es único y reservado.
 
-#### Qué guarda cada versión · [PROPUESTA pendiente de validar]
+#### Qué guarda cada versión · **Validado (2026-11-26)**
 
 El grafo `{BASE_URI}onto/externas/{slug}/{n}` guarda dos cosas:
 
@@ -356,7 +356,7 @@ El grafo `{BASE_URI}onto/externas/{slug}/{n}` guarda dos cosas:
 | `dcat:previousVersion` y `prov:wasRevisionOf` (0..1, iguales) | DCAT 3 y PROV-O | La versión `n-1`; la 1 no lleva ninguna |
 | `adms:versionNotes` (0..n, uno por idioma) | ADMS | Notas de la sustitución, como en datasets y ontologías propias |
 
-#### Versión actual y registro de referencia · [PROPUESTA pendiente de validar]
+#### Versión actual y registro de referencia · **Validado (2026-11-26)**
 
 El registro de referencia sigue en `{BASE_URI}onto/externas`, con lo de siempre (`dct:title`, `dct:description`, `owl:versionInfo`, VANN y `dct:publisher`, sin `owl:versionIRI` ni `adms:status`) y, en cuanto tiene versiones, los enlaces de versionado de DCAT 3 (forma `itsh:ExternalOntologyVersionedShape`):
 
@@ -377,9 +377,9 @@ El registro de referencia sigue en `{BASE_URI}onto/externas`, con lo de siempre 
 - **Las versiones son inmutables** (decisión 28): el grafo `{BASE_URI}onto/externas/{slug}/{n}` no se reescribe ni se borra nunca. Volver a un contenido anterior es una sustitución más, con un `{n}` nuevo. Lo único que cambia al sustituir es el registro de referencia de `{BASE_URI}onto/externas`.
 - **Fuera de los catálogos**, como la externa (formas `itsh:ExternalOntologyCatalogShape`, `itsh:ExternalVersion-catalog` e `itsh:Catalog-resource`).
 - **No se dan de baja**, ni la externa ni sus versiones (`itsh:BajaUriShape`).
-- **[PROPUESTA pendiente de validar]** Los grafos de las versiones se publican en SPARQL, como los de las versiones de las ontologías propias (decisión 42).
+- **Validado (2026-11-26)** Los grafos de las versiones se publican en SPARQL, como los de las versiones de las ontologías propias (decisión 42).
 
-#### `load-semantic` y `externas.ttl` · [PROPUESTA pendiente de validar]
+#### `load-semantic` y `externas.ttl` · **Validado (2026-11-26)**
 
 Manda la aplicación (decisión 50):
 
@@ -391,7 +391,7 @@ Manda la aplicación (decisión 50):
 
 Además de las formas (que solo ven el grafo que validan):
 
-1. La externa existe en `{BASE_URI}onto/externas` (si no, 404). La aplicación no crea externas nuevas **[PROPUESTA pendiente de validar]**: entran por `externas.ttl` y `load-semantic`, y crearlas desde la API sigue dando 403 `not_managed`.
+1. La externa existe en `{BASE_URI}onto/externas` (si no, 404). La aplicación no crea externas nuevas (**Validado (2026-11-26)**): entran por `externas.ttl` y `load-semantic`, y crearlas desde la API sigue dando 403 `not_managed`.
 2. El fichero se analiza, declara `<IRI oficial> a owl:Ontology` con la misma IRI oficial de la externa y no describe recursos bajo `BASE_URI` (422).
 3. `{n}` = la última versión + 1, calculado por el backend, con las sustituciones de una misma externa serializadas; si el grafo `{BASE_URI}onto/externas/{slug}/{n}` ya existe, 409 y no se escribe nada.
 4. El prefijo VANN de la referencia no lo usa otro recurso, vivo, dado de baja o reservado (reglas 7 y 14, 409); sí puede ser el suyo actual o uno que la externa dejó de usar.
@@ -445,7 +445,7 @@ Los slugs `it/cwe`, `it/control-iso-27001`, `ia/evasion` e `ia/caja-blanca` fuer
 |---|---|---|---|
 | Versión de ontología propia | `semantic/ontologias/{slug}/{version}.ttl` | su `owl:versionIRI`, `{BASE_URI}onto/{slug}/{version}` | `onto/{slug}/v{version}` |
 | Ontologías externas (todas, referencia) | `semantic/ontologias/externas.ttl` (semilla) | `{BASE_URI}onto/externas` | — |
-| Versión de una ontología externa (fichero completo y registro) **[PROPUESTA pendiente de validar]** | ninguno: la crea la aplicación al sustituir | `{BASE_URI}onto/externas/{slug}/{n}` | — |
+| Versión de una ontología externa (fichero completo y registro) **Validado (2026-11-26)** | ninguno: la crea la aplicación al sustituir | `{BASE_URI}onto/externas/{slug}/{n}` | — |
 | Esquema de dominio | `semantic/vocabularios/{slug}.ttl` | `{BASE_URI}vocab/{slug}` | `vocab/{slug}/v{version}` |
 | Esquema corporativo | `semantic/vocabularios/corp/{slug}.ttl` | `{BASE_URI}vocab/corp/{slug}` | `vocab/corp/{slug}/v{version}` |
 | Esquemas auxiliares (`dominio`, `tipo-dataset`) | `semantic/data/vocab-minimo.ttl` | cada esquema en el grafo de su URI: `{BASE_URI}vocab/dominio` y `{BASE_URI}vocab/tipo-dataset` | — |
@@ -557,6 +557,5 @@ Con Apache Jena: `riot --base="$BASE_URI" fichero.ttl`. Las IRIs absolutas (voca
 - Si la versión de los esquemas SKOS debe ser semver, como la de las ontologías.
 - Si se admiten versiones preliminares de SemVer.
 - Decisión 49: lo que sigue marcado **[PROPUESTA]** en «Catálogos y borrado lógico» (pertenencia en el grafo de ingesta, un solo nivel de catálogos, fichero por catálogo y descripción del catálogo «sintetico»).
-- Decisión 50: validar el modelo de versiones de las ontologías externas, marcado **[PROPUESTA pendiente de validar]** en «Versiones de las ontologías externas».
 - Decisión 50: confirmar `dcat:resource` contra el texto oficial de DCAT-AP 3 (decisión 22). Los códigos de las reglas 11 y 12 ya están validados (2026-11-26); el `kind` de los errores de las reglas 13 y 14 lo fija `backend` en el OpenAPI.
 - Qué devuelve cada URI al resolverla (negociación de contenido HTML / Turtle / JSON-LD) y cómo se sirve la descarga de una distribución restringida: lo implementa `backend` según el contrato de la fase 4 (decisiones 31 y 40).

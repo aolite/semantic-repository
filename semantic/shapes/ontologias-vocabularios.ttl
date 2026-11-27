@@ -657,9 +657,9 @@ itsh:OwnOntology-catalog
     sh:nodeKind sh:IRI ;
     sh:message "Regla IT&OT: cada ontología propia pertenece exactamente a un dcat:Catalog, identificado por IRI («<catálogo> dcat:resource <{BASE_URI}onto/{slug}>»)."@es .
 
-# Ontología externa (sin owl:versionIRI): fuera de los catálogos. Se cataloga
-# solo por referencia en {BASE_URI}onto/externas y no se gestiona desde la
-# aplicación.
+# Ontología externa (sin owl:versionIRI): fuera de los catálogos. Su registro
+# de referencia está en {BASE_URI}onto/externas; desde la aplicación solo se
+# sustituye entera, con una versión nueva (decisión 51).
 itsh:ExternalOntologyCatalogShape
     a sh:NodeShape ;
     rdfs:label "IT&OT · Ontología externa fuera de los catálogos"@es ;
@@ -705,8 +705,8 @@ itsh:ConceptSchemeCatalogShape
 # Decidido (2026-11-26): las ontologías externas se sustituyen enteras desde
 # la aplicación y cada sustitución genera una versión nueva. Su IRI oficial
 # no está bajo BASE_URI, así que no se acuñan versionIRIs en su dominio. El
-# resto del modelo es [PROPUESTA pendiente de validar] de `semantico`
-# (semantic/uris.md, «Versiones de las ontologías externas»):
+# resto del modelo lo propuso `semantico` y lo validó el responsable el
+# 2026-11-26 (decisión 51; semantic/uris.md, «Versiones de las ontologías externas»):
 #
 # - Cada versión es {BASE_URI}onto/externas/{slug}/{n}, con {n} = 1, 2, 3…
 #   (número de sustitución, no la versión del publicador) y {slug} = el
