@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import secrets
 import urllib.parse
@@ -30,17 +31,34 @@ def test_la_api_esta_lista_con_sus_dependencias(get) -> None:
 
 
 def test_la_version_de_la_api_se_conoce(get) -> None:
-    # No hay endpoint de versión propio: la versión es la de info.version del OpenAPI.
-    response = get("/openapi.json")
-    assert response.status == 200, f"/openapi.json: {response.status}"
-    version = response.json()["info"]["version"]  # type: ignore[index]
+    spec = get("/openapi.json")
+    assert spec.status == 200, f"/openapi.json: {spec.status}"
+    data = spec.json()
+    version = data["info"]["version"]  # type: ignore[index]
     assert re.fullmatch(r"\d+\.\d+\.\d+\S*", version), version
-    print(f"versión de la API (info.version del OpenAPI): {version}")
     health = get("/health").json()
-    if "version" not in health:  # type: ignore[operator]
+    schema = data["components"]["schemas"].get("HealthStatus", {})  # type: ignore[index]
+    if "version" in schema.get("properties", {}):
+        # La API ya declara el campo (PR #57): /health debe traerlo.
+        assert isinstance(health.get("version"), str), f"/health sin version: {health}"  # type: ignore[union-attr]
+        assert "commit" in health, f"/health sin commit: {health}"  # type: ignore[operator]
+        print(f"versión {health['version']}, commit {health['commit']}")  # type: ignore[index]
+        if health["commit"] is None:  # type: ignore[index]
+            warn(
+                "/health devuelve commit null: APP_COMMIT no está definida en el despliegue"
+            )
+        expected = os.environ.get("SMOKE_EXPECT_COMMIT")
+        if expected:
+            assert health["commit"] == expected, (  # type: ignore[index]
+                f"commit desplegado {health['commit']!r}, esperado {expected!r}"
+            )
+    else:
         warn(
-            "La API no tiene /version y /health no informa de versión ni de commit desplegado"
+            "/health aún no informa de version ni commit (API anterior a la PR #57); "
+            f"solo se conoce info.version del OpenAPI: {version}"
         )
+        if os.environ.get("SMOKE_EXPECT_COMMIT"):
+            pytest.fail("SMOKE_EXPECT_COMMIT definida pero la API no expone el commit")
 
 
 def test_docs_responde(get) -> None:

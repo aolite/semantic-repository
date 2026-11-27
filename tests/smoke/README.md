@@ -19,11 +19,12 @@ uv run --frozen --project backend pytest tests/smoke -v
 | `SMOKE_EDITOR_USER`, `SMOKE_EDITOR_PASSWORD` | sin definir | Login y rol de un editor (o admin). Solo por entorno, nunca en el repositorio |
 | `SMOKE_MEMBER_USER`, `SMOKE_MEMBER_PASSWORD` | sin definir | Opcional: un miembro, para comprobar que no puede escribir |
 | `SMOKE_ALLOW_WRITE` | desactivado | `1` (con editor): crea y borra un catálogo `smoke-<hex>` titulado «[PRUEBA DE HUMO]». Lo borra siempre; si no pudiera, el fallo dice qué catálogo queda. Los eventos de auditoría de la prueba permanecen |
+| `SMOKE_EXPECT_COMMIT` | sin definir | Commit esperado: falla si `/health` devuelve otro `commit` (o la API no lo expone) |
 | `SMOKE_TIMEOUT` | `10` | Segundos por petición |
 
 ## Qué comprueba
 
-- **API:** `/health`, `/health/ready` (Fuseki y PostgreSQL), versión (`info.version` de `/openapi.json`) y `/docs` público (decisión 24).
+- **API:** `/health`, `/health/ready` (Fuseki y PostgreSQL), versión: si el esquema `HealthStatus` del OpenAPI declara `version`, `/health` debe traer `version` y `commit` (fallo si no; aviso si `commit` es `null`); en APIs anteriores a la PR #57 solo avisa. `SMOKE_EXPECT_COMMIT` exige un commit concreto y `/docs` público (decisión 24).
 - **Frontend:** el HTML contiene la app (`#root`), sirve sus assets (no HTML disfrazado de asset) y una ruta interna del SPA.
 - **Datos:** catálogos, datasets, ontologías y vocabularios SKOS no vacíos; catálogo raíz en Turtle.
 - **URIs persistentes** (tomadas del catálogo cargado, nunca a mano): dataset, ontología y concepto SKOS dan 303 al frontend sin `Accept` y Turtle con `Accept: text/turtle`.
