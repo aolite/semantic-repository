@@ -72,6 +72,8 @@ Se leen del entorno o de un fichero `backend/.env` (que no se versiona). Los val
 | `LOGIN_MAX_FAILURES` | no | `5` | Fallos de login por (usuario, IP) que bloquean ese par |
 | `LOGIN_WINDOW_MINUTES` | no | `15` | Ventana en la que se cuentan los fallos |
 | `LOGIN_LOCKOUT_MINUTES` | no | `15` | Duración del bloqueo (429 con `Retry-After`) |
+| `APP_COMMIT` | no | vacío (`null`) | Commit desplegado, que publica `GET /health` en `commit` (p. ej. `git rev-parse --short HEAD`). Letras, dígitos y `._+-`, hasta 64 caracteres; vacío = `null` |
+| `FORWARDED_ALLOW_IPS` | no | `127.0.0.1,::1` | **La lee uvicorn, no la aplicación.** IPs o redes (CIDR) de los proxies de confianza, separadas por comas: solo si la conexión llega desde una de ellas, la IP del cliente se toma de `X-Forwarded-For` (ver «IP del cliente detrás del proxy») |
 
 Si falta una variable obligatoria o tiene un valor no válido, el arranque falla con un mensaje que nombra la variable, sin mostrar su valor.
 
@@ -79,7 +81,7 @@ Si falta una variable obligatoria o tiene un valor no válido, el arranque falla
 
 | Método y ruta | Acceso | Qué hace |
 |---|---|---|
-| `GET /health` | público | El proceso está vivo |
+| `GET /health` | público | El proceso está vivo. Responde `{"status": "ok", "version": "0.1.0", "commit": "a1b2c3d"}`: `version` es `project.version` de `pyproject.toml` (la misma que `info.version` del OpenAPI) y `commit`, `APP_COMMIT` o `null`. Nada más: ni rutas, ni variables, ni versiones de dependencias |
 | `GET /health/ready` | público | Comprueba la base de datos (`SELECT 1`) y Fuseki (`ASK {}` sobre `FUSEKI_URL/FUSEKI_DATASET/query`). 200 si todo responde, 503 si no |
 | `POST /auth/token` | público | Login OAuth2 *password* (formulario `username`, `password`). Devuelve `access_token`, `token_type`, `expires_in` y `role` |
 | `GET /auth/me` | con cuenta | Datos de la cuenta autenticada |
@@ -186,6 +188,17 @@ Las URIs se construyen con `BASE_URI` (p. ej. `https://<dominio>/itot/`) y el ba
 - Respetar `Vary: Accept` en cualquier caché (el backend lo envía).
 
 Lo mismo vale para `{BASE_URI}onto/*` y `{BASE_URI}vocab/*` (fase 3) y para `{BASE_URI}catalogo` y `{BASE_URI}catalogo/*` (decisión 49). El resto de patrones (`actividad/`, `sparql`) se resolverán igual cuando tengan ruta en el backend.
+
+### IP del cliente detrás del proxy (fase 5)
+
+El límite de SPARQL anónimo y el bloqueo de login por (usuario, IP) usan `request.client.host`. La aplicación no lee `X-Forwarded-For`: lo hace uvicorn (`--proxy-headers`, en `docker-entrypoint.sh`) con los proxies de confianza de `FORWARDED_ALLOW_IPS`.
+
+- Si la conexión llega desde una IP o red de `FORWARDED_ALLOW_IPS`, uvicorn recorre `X-Forwarded-For` **desde el final** y se queda con el primer salto que no es de confianza: el que añadió el proxy. Lo que el cliente haya puesto delante no cuenta.
+- Desde cualquier otra IP, la cabecera se ignora y cuenta la IP de la conexión. Por defecto solo se confía en `127.0.0.1` y `::1`.
+- **No uses `*` en el despliegue.** Con `*` uvicorn confía en cualquier conexión y toma el **primer** valor de la cabecera: cualquier contenedor que llegue al backend sin pasar por el proxy (F-UJI, que en el piloto tiene salida a internet, o el frontend) elegiría la IP, y con ella podría saltarse el límite de SPARQL o bloquear el login de otra IP. Pon la IP fija del proxy en su red de Docker (o una red en la que solo esté el proxy), p. ej. `FORWARDED_ALLOW_IPS=172.30.0.2`.
+- El proxy debe sustituir el `X-Forwarded-For` que traiga el cliente por el suyo (Caddy lo hace por defecto si no se le declaran `trusted_proxies`).
+
+Pruebas en `tests/test_proxy_ip.py`: montan la aplicación detrás del mismo middleware de uvicorn, configurado desde la variable.
 
 ## Endpoints (fase 3): vocabularios y ontologías
 
@@ -347,7 +360,7 @@ Desde la decisión 49 el backend mantiene `<{BASE_URI}catalogo/{slug}> dcat:data
 - Resultados recortados a `SPARQL_MAX_ROWS` con `X-Result-Truncated: true`. Todo se lee de Fuseki en streaming y se corta la conexión al llegar al límite: los triples (CONSTRUCT/DESCRIBE) en N-Triples, línea a línea; las filas (SELECT) en JSON, fila a fila. Lo procesado se acota además a 32 MiB: si se alcanza antes de `SPARQL_MAX_ROWS` filas, el resultado también se recorta con la misma cabecera (QA-G4-03); solo da 400 si una sola fila (o la cabecera) supera ese tope.
 - Formatos por `Accept`: SELECT/ASK, `application/sparql-results+json` (por defecto) o `text/csv`; CONSTRUCT/DESCRIBE, `text/turtle` (por defecto), `application/ld+json`, `application/rdf+xml` (406 si el grafo tiene predicados que RDF/XML no representa) o `application/n-triples`. Con `Accept: application/sparql-results+json, text/turtle;q=0.9` (el del frontend) cada tipo de consulta recibe su formato. Sin ningún formato válido, 406.
 - **Límite de frecuencia:** `SPARQL_RATE_ANON_PER_MIN` por IP y `SPARQL_RATE_AUTH_PER_MIN` por usuario, con ventana fija de un minuto guardada en PostgreSQL (`rate_limit_counters`, incremento atómico con `INSERT … ON CONFLICT`), así que vale con varios workers y réplicas. Al superarlo, 429 con `Retry-After`. En el peor caso la ventana fija admite el doble del límite en el cambio de minuto.
-- **IP del cliente:** la de la conexión (`request.client`); `X-Forwarded-For` se ignora. uvicorn solo reescribe la IP con esa cabecera si la conexión llega desde una IP de `FORWARDED_ALLOW_IPS` (por defecto `127.0.0.1`); detrás de un proxy inverso (fase 5) esa variable de uvicorn es la configuración explícita de proxies de confianza.
+- **IP del cliente:** `request.client.host`, la misma que el bloqueo de login; ver «IP del cliente detrás del proxy».
 - CORS expone `X-Result-Truncated`, `Retry-After` y `Content-Disposition`.
 
 ### Consultas guardadas (decisión 43)
@@ -527,7 +540,7 @@ Un admin no puede quitarse el rol de admin ni darse de baja a sí mismo (409), p
 
 - Contraseñas con argon2id (`pwdlib`). Mínimo 12 caracteres, sin caracteres de control. Nunca se devuelven ni se registran.
 - El login responde igual (401, mismo mensaje) si el usuario no existe, la contraseña es incorrecta, la cuenta está de baja o el nombre de usuario contiene caracteres de control (NUL incluido). En este último caso no se consulta la cuenta y la auditoría registra el motivo `invalid_username`.
-- **Bloqueo (fase 4, decisión 18):** los fallos se cuentan por (nombre normalizado —sin controles, sin espacios alrededor y en minúsculas—, IP de la conexión) en la tabla `login_attempts`, así que vale con varios workers. El fallo número `LOGIN_MAX_FAILURES` dentro de `LOGIN_WINDOW_MINUTES` responde aún 401 y bloquea el par; desde ahí, cualquier intento responde **429 con `Retry-After`** durante `LOGIN_LOCKOUT_MINUTES`, aunque la contraseña sea correcta (se audita `login_locked` una vez, al empezar el bloqueo; los intentos bloqueados no escriben auditoría, para que los reintentos no llenen `audit_events`). Un login correcto borra el contador del par. Al registrar cada fallo se borran los pares sin bloqueo vigente cuya ventana ya caducó, así que `login_attempts` no crece sin límite.
+- **Bloqueo (fase 4, decisión 18):** los fallos se cuentan por (nombre normalizado —sin controles, sin espacios alrededor y en minúsculas—, IP del cliente: `request.client.host`, ver «IP del cliente detrás del proxy») en la tabla `login_attempts`, así que vale con varios workers. El fallo número `LOGIN_MAX_FAILURES` dentro de `LOGIN_WINDOW_MINUTES` responde aún 401 y bloquea el par; desde ahí, cualquier intento responde **429 con `Retry-After`** durante `LOGIN_LOCKOUT_MINUTES`, aunque la contraseña sea correcta (se audita `login_locked` una vez, al empezar el bloqueo; los intentos bloqueados no escriben auditoría, para que los reintentos no llenen `audit_events`). Un login correcto borra el contador del par. Al registrar cada fallo se borran los pares sin bloqueo vigente cuya ventana ya caducó, así que `login_attempts` no crece sin límite.
 - Los nombres de usuario y las contraseñas con caracteres de control se rechazan en `POST /users` con 422.
 - Las respuestas 422 siguen el formato de FastAPI (`detail` con `type`, `loc` y `msg`), pero nunca devuelven el valor enviado (`input`) ni el contexto (`ctx`), para no reflejar contraseñas.
 - La tabla `audit_events` registra `login_success`, `login_failure` (con el motivo), `user_created`, `role_changed` (rol anterior y nuevo), `user_deactivated` y `user_reactivated`, con quién (`actor_*`), sobre quién (`target_*`) y cuándo (`occurred_at`, UTC). Las altas por CLI quedan con `actor_username = "cli"`.
