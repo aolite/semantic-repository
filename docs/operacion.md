@@ -1,6 +1,6 @@
 # Operación
 
-Este documento recoge los procedimientos de operación del entorno local que la fase 4 hace necesarios. La guía completa de operación (arranque, variables de entorno, copias de seguridad, restauración y despliegue) es un entregable de la fase 5 y no está escrita todavía. Para el arranque básico, ver [`infra/README.md`](../infra/README.md).
+Este documento recoge los procedimientos de operación del entorno local que la fase 4 hace necesarios. La operación del piloto (servidor, variables, despliegue, copias de seguridad y restauración) está en [`operacion-piloto.md`](operacion-piloto.md). Para el arranque básico en local, ver [`infra/README.md`](../infra/README.md).
 
 ## Recargar el entorno local desde cero tras la corrección de itot 1.2.0
 
@@ -112,7 +112,9 @@ El límite de frecuencia de SPARQL anónimo (`SPARQL_RATE_ANON_PER_MIN`, por IP)
 
 Qué hace hoy el repositorio: `backend/docker-entrypoint.sh` arranca `uvicorn app.main:app --host 0.0.0.0 --port 8000` sin pasar `--forwarded-allow-ips`, (más `--log-config app/log_config.json`, ver «Registro de accesos del backend»), y ni `docker-compose.yml` ni `.env.example` mencionan `FORWARDED_ALLOW_IPS`. Según `backend/README.md`, uvicorn solo reescribe la IP con esa cabecera si la conexión viene de una IP de `FORWARDED_ALLOW_IPS` (por defecto `127.0.0.1`).
 
-**Tarea pendiente del despliegue (fase 5):** configurar uvicorn para que confíe en `X-Forwarded-For` solo del proxy, con la variable `FORWARDED_ALLOW_IPS` (o `--forwarded-allow-ips`) apuntando a la IP o red del proxy. No uses `*` si el backend es alcanzable sin pasar por el proxy, porque cualquiera podría falsear su IP. [PENDIENTE] No hay configuración probada en el repositorio: el valor concreto depende del proxy elegido en el despliegue.
+**En el piloto** esto ya está resuelto: `docker-compose.prod.yml` pone a Caddy con la IP fija `10.254.77.2` en la red `proxy-net` y fija `FORWARDED_ALLOW_IPS=10.254.77.2`, y Caddy sustituye el `X-Forwarded-For` del cliente (ver [`operacion-piloto.md`](operacion-piloto.md)). Lo que sigue describe el caso general.
+
+**Tarea del despliegue (fase 5), en general:** configurar uvicorn para que confíe en `X-Forwarded-For` solo del proxy, con la variable `FORWARDED_ALLOW_IPS` (o `--forwarded-allow-ips`) apuntando a la IP o red del proxy. No uses `*` si el backend es alcanzable sin pasar por el proxy, porque cualquiera podría falsear su IP. La configuración del piloto (Caddy) está probada en local; otro proxy necesitaría su propio valor.
 
 ## Registro de accesos del backend
 
