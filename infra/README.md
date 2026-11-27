@@ -1,6 +1,6 @@
 # Infraestructura local
 
-Entorno de desarrollo con Docker Compose (fases 1 y 2). Requiere Docker con Compose v2.
+Entorno de desarrollo con Docker Compose (fases 1 y 2). Requiere Docker con Compose v2. El despliegue del piloto (fase 5) está en «Despliegue del piloto», al final.
 
 ## Arranque
 
@@ -226,3 +226,145 @@ docker compose exec backend python -m app.cli load-semantic
 ```
 
 `load-semantic` carga también `semantic/ontologias/` y `semantic/vocabularios/`; este flujo no lo modifica.
+
+## Despliegue del piloto
+
+Fase 5. El **mismo Docker Compose** del entorno local, con `docker-compose.prod.yml` encima. Esta sección es un resumen operativo; la guía de operación completa está en [`docs/operacion-piloto.md`](../docs/operacion-piloto.md). Todo lo que ves aquí está probado en local con hosts ficticios; no se ha desplegado en ningún servidor. Los valores (`example.org`) son ficticios: los hosts y el email reales van solo en el `.env` del servidor, que no se versiona.
+
+### Qué cambia respecto al local
+
+| Tema | Local (`docker-compose.yml`) | Piloto (`+ docker-compose.prod.yml`) |
+|---|---|---|
+| Puertos en el host | 5173, 8000, 3030 y 5432 en `127.0.0.1` | Solo **80 y 443** del proxy (`!reset` quita el resto). Fuseki y PostgreSQL no se exponen nunca; el SPARQL público va por el backend |
+| Proxy | no hay | `caddy` (2.11.9) con HTTPS automático de Let's Encrypt |
+| Frontend | servidor de desarrollo de Vite | build estático de Vite servido por un Caddy ligero (`infra/frontend/`), sin privilegios y de solo lectura |
+| F-UJI | red `fuji-net` interna (sin internet), evalúa el backend | `fuji-net` con salida a internet; `FAIR_TARGET_BASE_URL` vacío: evalúa la `BASE_URI` pública (decisión 47) |
+| URLs | `.env` | `BASE_URI`, `FRONTEND_BASE_URL`, `CORS_ORIGINS` y `VITE_*` se derivan de `FRONTEND_HOST` y `API_HOST` |
+| Memoria y logs | sin límites | límites por contenedor, heap de JVM fijado, logs `json-file` de 10 MB x 5 ficheros |
+
+Requiere **Docker Compose 2.24.4 o superior** (etiquetas `!reset` y `!override`).
+
+**Hosts.** Frontend y API van en dos hosts (`FRONTEND_HOST`, `API_HOST`) porque comparten rutas (`/datasets/{slug}`). `BASE_URI` es `https://{API_HOST}/semanticrepository/`: las URIs persistentes las resuelve el backend.
+
+**Cómo se resuelve `/semanticrepository/`.** El backend no monta ese prefijo: sirve en la raíz (`/dataset/...`, `/catalogo/...`, `/onto/...`, `/vocab/...`, `/sparql`, `/auth`, `/docs`...). El proxy lo quita en el host de la API (`handle_path /semanticrepository/*`), así que `https://{API_HOST}/semanticrepository/dataset/x` llega al backend como `/dataset/x`. La API sigue accesible sin prefijo en la raíz del mismo host. No hace falta tocar el backend. El 303 de las URIs persistentes va a `https://{FRONTEND_HOST}/datasets/...` (`FRONTEND_BASE_URL`).
+
+**Cabeceras.** HSTS, `X-Content-Type-Options`, `Referrer-Policy` y `Permissions-Policy` en los dos hosts. CSP: en el frontend, `default-src 'self'` más `connect-src` hacia el host de la API y `style-src 'unsafe-inline'` (React usa estilos en línea); en la API, `default-src 'none'`, salvo en `/docs` y `/redoc` (decisión 24), que permiten solo `cdn.jsdelivr.net` y scripts en línea. No se permiten Google Fonts ni el favicon de `fastapi.tiangolo.com` que piden ReDoc y Swagger (se ven con fuentes del sistema). El token de las URL de descarga firmadas se oculta en el registro de acceso del proxy.
+
+**Tamaño de petición.** `PROXY_MAX_BODY_RDF` (11 MiB; `INGEST_MAX_BYTES` es 10 MiB por defecto) para RDF, JSON y SPARQL, y `PROXY_MAX_BODY_UPLOAD` (520 MiB; `MAX_UPLOAD_MB` es 512) solo para la subida de ficheros de distribución. Si cambias esos límites del backend, cambia también estas variables.
+
+**Memoria** (máximos por contenedor, para 8 GB; suman unos 6,4 GB y dejan el resto al sistema y a la caché de disco):
+
+| Servicio | Límite | Notas |
+|---|---|---|
+| `fuseki` | 2 GB | `JAVA_TOOL_OPTIONS=-Xms256m -Xmx1g` |
+| `backend` | 2,5 GB | Pellet con `REASONER_JAVA_MEMORY_MB=1024`; la validación SHACL conserva su `SHACL_MEMORY_MB` |
+| `fuji` | 1,25 GB | Chromium; en reposo ronda 450 MB |
+| `postgres` | 512 MB | |
+| `caddy` / `frontend` | 128 MB / 64 MB | |
+
+Son cifras de partida, sin carga real: ajústalas en el piloto con `docker stats`. Un contenedor que supera su límite se reinicia (`restart: unless-stopped`).
+
+**IP del cliente.** Detrás del proxy, el backend recibe la IP real en `X-Forwarded-For`. Caddy, el backend y el frontend comparten la red `proxy-net` (subred fija `10.254.77.0/24`, fuera de los rangos habituales de Docker; si choca con una red del servidor, cámbiala en `docker-compose.prod.yml`), y Caddy está solo en ella con la IP fija `10.254.77.2`. El backend lleva `FORWARDED_ALLOW_IPS=10.254.77.2` (nunca `*`): uvicorn solo acepta la cabecera de esa IP, de modo que ningún otro contenedor (F-UJI, que tiene salida a internet, ni los demás) puede elegir su IP. Caddy sustituye el `X-Forwarded-For` del cliente (no se configura `trusted_proxies`). Así el límite de SPARQL anónimo y el bloqueo de login son por cliente y no del proxy entero. Comprobado en local: con el proxy el backend ve la IP del cliente aunque este mande un `X-Forwarded-For` falso, y una petición directa a `backend:8000` desde F-UJI con la cabecera falsificada se registra con la IP de F-UJI.
+
+### Requisitos del VPS
+
+Linux (Debian o Ubuntu LTS reciente), 4 vCPU, 8 GB de RAM y 240 GB de NVMe (los volúmenes de Docker y las copias van en ese disco; las copias en la misma máquina no protegen de perder el VPS: copia también fuera de él). Una IP pública, dos nombres DNS (`FRONTEND_HOST` y `API_HOST`) que apunten a ella (registros A, y AAAA si hay IPv6) **antes** del primer arranque, y los puertos 80 y 443 libres. Salida a internet (Let's Encrypt, F-UJI y la construcción de las imágenes); los usuarios cargan `cdn.jsdelivr.net` en `/docs` y `/redoc`.
+
+### Preparar el servidor
+
+1. Actualiza el sistema. Instala Docker Engine y el plugin Compose desde el repositorio oficial de Docker (comprueba `docker compose version` >= 2.24.4).
+2. Crea un usuario sin root (por ejemplo `itot`), añádelo al grupo `docker` y entra por SSH con clave; desactiva el acceso SSH de root y por contraseña.
+3. Cortafuegos con solo 22, 80 y 443 (con `ufw`: `ufw default deny incoming`, `ufw allow 22/tcp`, `ufw allow 80/tcp`, `ufw allow 443`, `ufw enable`). Ojo: Docker publica sus puertos saltándose `ufw`; por eso el Compose solo publica 80 y 443 y no hay nada más que proteger. Comprueba desde otra máquina que el resto de puertos no responden.
+4. Clona el repositorio en el servidor (por ejemplo en `/srv/semantic-repository`).
+
+### Variables
+
+`cp .env.example .env` y cambia, como mínimo:
+
+- los secretos: `JWT_SECRET` (`openssl rand -hex 32`), `POSTGRES_PASSWORD` (y la misma en `DATABASE_URL`), `FUSEKI_ADMIN_PASSWORD`, `FUSEKI_BACKEND_PASSWORD`, `FUJI_PASSWORD`;
+- `FRONTEND_HOST` y `API_HOST` (solo el nombre, sin `https://`);
+- `CADDY_TLS`: el **email de contacto de Let's Encrypt**. El valor del ejemplo, `internal`, es el certificado de la CA interna de Caddy y solo vale para pruebas: los navegadores lo rechazan;
+- opcionales: `PROXY_*`, `BACKUP_DIR`, `BACKUP_RETENTION_DAYS` (ver `.env.example`).
+
+`chmod 600 .env`. Las demás variables (`BASE_URI`, `FRONTEND_BASE_URL`, `CORS_ORIGINS`, `VITE_*`) las sustituye `docker-compose.prod.yml`. `FRONTEND_HOST` y `API_HOST` se incrustan en el build del frontend: si cambian, hay que reconstruir (`up -d --build`).
+
+Atajo para no repetir los ficheros en cada comando:
+
+```bash
+export COMPOSE_FILE=docker-compose.yml:docker-compose.prod.yml
+export APP_COMMIT=$(git rev-parse --short HEAD)   # opcional: commit desplegado
+```
+
+### Primer arranque
+
+```bash
+docker compose config -q                         # valida; falla si falta una variable obligatoria
+docker compose up -d --build --wait --wait-timeout 900
+docker compose ps                                # todos healthy
+docker compose exec -T backend python -m app.cli load-semantic
+docker compose exec -it backend python -m app.cli create-admin --username <nombre>
+```
+
+La primera vez, Caddy pide los certificados a Let's Encrypt (tarda unos segundos; los DNS tienen que apuntar ya al servidor). `load-semantic` carga los datos sintéticos, ontologías y vocabularios (el piloto es solo con datos sintéticos). Los certificados se guardan en el volumen `caddy-data`: no lo borres, porque Let's Encrypt limita las emisiones por dominio. Let's Encrypt solo emite certificados y no recibe datos del repositorio.
+
+Comprobaciones: `https://{FRONTEND_HOST}` carga; `https://{API_HOST}/health/ready` da `ok`; `curl -i https://{API_HOST}/semanticrepository/dataset/<slug>` da 303 al frontend y con `-H 'Accept: text/turtle'` da el RDF; `https://{API_HOST}/docs` se ve; el login funciona. La prueba de humo de `tests/smoke` automatiza buena parte (ver su README; con `SMOKE_API_URL=https://{API_HOST}` sin prefijo y `SMOKE_BASE_URI=https://{API_HOST}/semanticrepository/`).
+
+### Actualizar
+
+```bash
+git pull                                         # o: git switch --detach <etiqueta>
+export APP_COMMIT=$(git rev-parse --short HEAD)
+infra/scripts/backup.sh                          # copia antes de actualizar
+docker compose up -d --build --wait --wait-timeout 900
+```
+
+Las migraciones de la base de datos las aplica el backend al arrancar. Si la actualización cambia datos semánticos, vuelve a lanzar `load-semantic`.
+
+### Copias de seguridad y restauración
+
+`infra/scripts/backup.sh` guarda en `BACKUP_DIR/<fecha UTC>/` un `pg_dump` de PostgreSQL, un volcado N-Quads de todos los grafos de Fuseki (por su API de administración, con el usuario admin, dentro del contenedor: Fuseki no tiene puertos) y un tar del volumen de distribuciones, con `SHA256SUMS`. Puede lanzarse las veces que haga falta (cada ejecución crea su carpeta; si falla no deja una copia a medias y sale con error), usa un bloqueo para no solaparse y borra las copias de más de `BACKUP_RETENTION_DAYS` días (14 por defecto), conservando siempre la más reciente. De `.env` solo lee `BACKUP_DIR` y `BACKUP_RETENTION_DAYS` (sin hacer `source` del fichero; una variable del entorno tiene prioridad) y no guarda secretos: las credenciales las toma del entorno de los contenedores. **No copia el volumen `caddy-data`** (certificados y clave de cuenta ACME): Caddy los vuelve a emitir solo la primera vez que arranca en un servidor nuevo. Let's Encrypt limita las emisiones por dominio, así que no repitas arranques desde cero sin necesidad; para las pruebas usa `CADDY_TLS=internal`.
+
+Cron diario (`crontab -e` del usuario `itot`):
+
+```
+30 3 * * * cd /srv/semantic-repository && infra/scripts/backup.sh >> $HOME/itot-backup.log 2>&1
+```
+
+Restaurar (**destructivo**: sustituye los datos actuales) desde una carpeta de copia:
+
+```bash
+infra/scripts/restore.sh --yes ~/itot-backups/2026-01-01T033000Z
+```
+
+Comprueba las sumas, para el backend y el proxy, restaura PostgreSQL (`pg_restore --clean`), vacía Fuseki y carga el N-Quads, vacía y restaura las distribuciones, y arranca de nuevo los servicios. Probado en local: copia, borrado de los tres almacenes y restauración, con los mismos recuentos de cuádruples, usuarios y ficheros y el login funcionando. **Restaurar en un servidor nuevo.** Prepara el servidor como en «Preparar el servidor», copia el `.env` (por tu canal seguro; no está en las copias) y la carpeta de la copia (`scp -r`), levanta la pila vacía con el «Primer arranque» **sin** `load-semantic` ni `create-admin`, y ejecuta `restore.sh --yes <carpeta>` sobre ella. Los usuarios, los datos y las distribuciones vuelven con la copia. Los DNS tienen que apuntar ya al servidor nuevo (Caddy emite certificados nuevos). Probado en local: pila borrada con sus volúmenes, levantada vacía y restaurada desde una carpeta copiada (895 cuádruples, 1 usuario, 9 ficheros, login y RDF correctos). Usa el mismo `JWT_SECRET` que el servidor viejo si quieres que las sesiones abiertas sigan valiendo.
+
+**Marcha atrás de una actualización.** Antes de actualizar, `backup.sh` (ya forma parte de «Actualizar»). Si la versión nueva falla:
+
+```bash
+git switch --detach <etiqueta-o-commit-anterior>
+export APP_COMMIT=$(git rev-parse --short HEAD)
+docker compose up -d --build --wait --wait-timeout 900
+```
+
+Esto vuelve al código anterior conservando los datos, y vale si la actualización no cambió el esquema de la base de datos. Las migraciones de Alembic solo avanzan: si la versión nueva aplicó una migración, el código viejo no funcionará con ese esquema, y entonces hay que volver a la versión anterior **y** restaurar la copia previa a la actualización con `restore.sh` (se pierden los cambios hechos desde esa copia). Probado en local: cambio a un commit anterior y vuelta con la pila funcionando y los datos intactos; la restauración, como arriba. No se ha probado una migración real hacia atrás.
+
+Las copias están en el mismo disco que los datos: sincronízalas a otro sitio dentro de la UE (decisión pendiente del responsable).
+
+### Probar el despliegue en local
+
+Con hosts ficticios y el certificado interno de Caddy (`CADDY_TLS=internal`), sin tocar la pila de desarrollo (`-p itot-prod`):
+
+```bash
+# .env con FRONTEND_HOST=repositorio.localhost, API_HOST=api.localhost y CADDY_TLS=internal.
+# Los dominios *.localhost resuelven a 127.0.0.1 en la mayoría de sistemas; si no, añade
+# "127.0.0.1 repositorio.localhost api.localhost" a /etc/hosts.
+docker compose -p itot-prod -f docker-compose.yml -f docker-compose.prod.yml up -d --build --wait
+docker compose -p itot-prod -f docker-compose.yml -f docker-compose.prod.yml cp caddy:/data/caddy/pki/authorities/local/root.crt ./caddy-root.crt
+curl --cacert ./caddy-root.crt https://api.localhost/health/ready
+```
+
+Usa los puertos 80 y 443 del equipo (o `PROXY_HTTP_PORT` y `PROXY_HTTPS_PORT`; con puertos distintos de 80 y 443 la redirección de HTTP a HTTPS pierde el puerto). Con 4 GB para Docker no caben a la vez las pilas `itot` e `itot-prod`: para una con `docker compose -p itot stop`. F-UJI no confía en la CA interna, así que las evaluaciones FAIR no funcionan con `tls internal`.
+
+### CI del despliegue
+
+El job `compose-prod` valida `docker compose -f docker-compose.yml -f docker-compose.prod.yml config`, comprueba que solo el proxy publica puertos (80 y 443) y ejecuta `caddy validate` sobre los dos Caddyfile. El job `smoke-prod` (propuesta de `qa`, pendiente de decisión) levanta la pila de producción con `tls internal` en el runner y le pasa `tests/smoke`; se salta mientras no exista esa carpeta.
