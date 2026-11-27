@@ -327,23 +327,29 @@ def test_las_variables_del_razonador_son_opcionales(stack: Stack) -> None:
 def test_la_migracion_ha_creado_la_tabla_de_metricas(stack: Stack) -> None:
     tables = stack.psql("select tablename from pg_tables where schemaname = 'public'")
     assert "ontology_metrics" in tables
-    # La 0004 es de la decisión 50 (prefijos VANN de esquemas y ontologías dados de baja);
-    # la 0003 era de la fase 4 (ficheros, FAIR, consultas guardadas, login y SPARQL).
-    assert stack.psql("select version_num from alembic_version") == ["0004"]
+    # La 0005 es de la decisión 51 (prefijos de las versiones de las externas); la 0004, de la
+    # decisión 50 (prefijos VANN de esquemas y ontologías dados de baja); la 0003 era de la
+    # fase 4 (ficheros, FAIR, consultas guardadas, login y SPARQL).
+    assert stack.psql("select version_num from alembic_version") == ["0005"]
     assert "withdrawn_prefixes" in tables
+    assert "external_version_prefixes" in tables
 
 
 # --- 2. load-semantic ------------------------------------------------------------------
 
 
 def _expected_graphs(base: str) -> dict[str, str]:
-    """``fichero (relativo a semantic/) -> grafo`` de los 22 ficheros (23 grafos)."""
+    """``fichero (relativo a semantic/) -> grafo`` de los 22 ficheros (25 líneas: desde la
+    decisión 51, ``externas.ttl`` se carga sujeto a sujeto, una línea por externa)."""
     expected = {
         **{f"vocabularios/{slug}.ttl": f"{base}vocab/{slug}" for slug in DOMAIN_SCHEMES},
         **{f"vocabularios/corp/{slug}.ttl": f"{base}vocab/corp/{slug}" for slug in CORP_SCHEMES},
         "data/vocab-minimo.ttl (dominio)": f"{base}vocab/dominio",
         "data/vocab-minimo.ttl (tipo-dataset)": f"{base}vocab/tipo-dataset",
-        "ontologias/externas.ttl": f"{base}onto/externas",
+        **{
+            f"ontologias/externas.ttl <{iri}>": f"{base}onto/externas"
+            for iri in sorted(EXTERNAL)
+        },
         "data/catalogo.ttl": f"{base}catalogo",
         "data/catalogos/sintetico.ttl": f"{base}catalogo/sintetico",  # decisión 49
         # decisión 50: el catálogo de los esquemas y las ontologías sintéticos
@@ -360,13 +366,13 @@ def _expected_graphs(base: str) -> dict[str, str]:
 def test_load_semantic_carga_las_veintidos_piezas(stack: Stack, loaded: str) -> None:
     base = _base(stack)
     expected = _expected_graphs(base)
-    assert len(expected) == 23
-    assert len({name.split(" (")[0] for name in expected}) == 22
+    assert len(expected) == 25
+    assert len({name.split(" (")[0].split(" <")[0] for name in expected}) == 22
     # Los 22 ficheros existen en semantic/ (lo que se monta en el backend).
     for name in expected:
-        assert (SEMANTIC / name.split(" (")[0]).is_file(), name
+        assert (SEMANTIC / name.split(" (")[0].split(" <")[0]).is_file(), name
     lines = [line for line in loaded.splitlines() if " -> <" in line]
-    assert len(lines) == 23, loaded
+    assert len(lines) == 25, loaded
     for name, graph in expected.items():
         assert any(line.startswith(f"{name} -> <{graph}>") for line in lines), f"{name}\n{loaded}"
     graphs = _graphs(stack)
@@ -402,7 +408,7 @@ def test_load_semantic_es_idempotente_y_no_recalcula_metricas(stack: Stack, load
     code, output = _load_semantic(stack)
     assert code == 0, output
     lines = [line for line in output.splitlines() if " -> <" in line]
-    assert len(lines) == 23, output
+    assert len(lines) == 25, output
     assert all("sin cambios" in line for line in lines), output
     ontology_lines = [
         line for line in lines if line.startswith("ontologias/") and "externas" not in line
@@ -475,7 +481,8 @@ def test_los_recuentos_de_vocabularios(stack: Stack, baseline: dict) -> None:
     assert set(external) == EXTERNAL
     for card in external.values():
         assert card["status"] == "referenced"
-        assert card["slug"] is None and card["metrics"] is None
+        # Decisión 51: el slug de una externa sin versiones es su prefijo (enlaza con su ficha).
+        assert card["slug"] == card["prefix"] and card["metrics"] is None
         assert card["synthetic"] is False  # las externas son reales
         assert not card["uri"].startswith(base)
 
