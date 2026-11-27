@@ -111,6 +111,18 @@ class Settings(BaseSettings):
     login_window_minutes: int = Field(default=15, gt=0, le=24 * 60)
     login_lockout_minutes: int = Field(default=15, gt=0, le=24 * 60)
 
+    # Commit desplegado, que publica ``GET /health``. Lo fija quien despliega (p. ej.
+    # ``git rev-parse --short HEAD``); vacío o ausente = ``null``.
+    app_commit: str | None = Field(default=None, pattern=r"^[0-9A-Za-z._+-]{1,64}$")
+
+    @field_validator("app_commit", mode="before")
+    @classmethod
+    def _commit_empty_is_none(cls, value: object) -> object:
+        if isinstance(value, str):
+            value = value.strip()
+            return value or None
+        return value
+
     @field_validator("base_uri")
     @classmethod
     def _base_uri_with_trailing_slash(cls, value: str) -> str:

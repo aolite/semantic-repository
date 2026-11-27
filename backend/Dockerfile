@@ -35,7 +35,8 @@ RUN groupadd --system --gid 10001 app \
     && chown app:app /data/distributions
 WORKDIR /app
 COPY --from=builder /opt/venv /opt/venv
-COPY --chown=app:app alembic.ini ./
+# pyproject.toml: de ahí sale la versión que publican /health y el OpenAPI (app/__init__.py).
+COPY --chown=app:app alembic.ini pyproject.toml ./
 COPY --chown=app:app alembic ./alembic
 COPY --chown=app:app app ./app
 COPY --chown=app:app docker-entrypoint.sh ./

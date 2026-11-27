@@ -6,9 +6,9 @@
   ``app.sparql_public``.
 - Límite de frecuencia: ``SPARQL_RATE_ANON_PER_MIN`` por IP y ``SPARQL_RATE_AUTH_PER_MIN``
   por usuario (429 con ``Retry-After``), en la base de datos (``app.ratelimit``). La IP es
-  la de la conexión (``request.client``), nunca ``X-Forwarded-For``: detrás de un proxy, la
-  única forma de fiarse de esa cabecera es la configuración explícita de uvicorn
-  (``FORWARDED_ALLOW_IPS``), ver ``backend/README.md``.
+  ``request.client.host``; el backend no lee ``X-Forwarded-For``. Detrás del proxy, uvicorn
+  pone ahí la IP de esa cabecera solo si la conexión llega desde ``FORWARDED_ALLOW_IPS``
+  (ver «IP del cliente detrás del proxy» en ``backend/README.md`` y ``app.login_guard``).
 - ``/sparql/queries``: consultas de referencia (de ``semantic/consultas``) y personales.
 """
 

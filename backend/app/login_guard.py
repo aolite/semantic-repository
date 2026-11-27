@@ -4,8 +4,13 @@ Los fallos se cuentan por (usuario normalizado, IP) en PostgreSQL (``login_attem
 que el recuento vale con varios workers. Con ``LOGIN_MAX_FAILURES`` fallos dentro de
 ``LOGIN_WINDOW_MINUTES``, ese par queda bloqueado ``LOGIN_LOCKOUT_MINUTES``: cualquier
 intento responde 429 con ``Retry-After``, aunque la contraseña sea correcta. Un login
-correcto pone el contador de ese par a cero. La IP es la de la conexión, no
-``X-Forwarded-For``.
+correcto pone el contador de ese par a cero.
+
+La IP es ``request.client.host``. El backend no lee ``X-Forwarded-For``: lo hace uvicorn
+(``ProxyHeadersMiddleware``), y solo cuando la conexión llega desde una IP de
+``FORWARDED_ALLOW_IPS`` (por defecto ``127.0.0.1,::1``). En ese caso ``request.client.host``
+ya es la IP del cliente que puso el proxy; desde cualquier otra IP la cabecera se ignora y
+cuenta la IP de la conexión. Ver «IP del cliente detrás del proxy» en ``backend/README.md``.
 """
 
 import math
