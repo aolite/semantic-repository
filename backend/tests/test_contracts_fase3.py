@@ -32,7 +32,7 @@ from app import cli, ingest, owl_metrics, uris, vocab_ingest
 from app.config import Settings, get_settings
 from app.export_openapi import OPENAPI_PATH
 from app.uris import SKOS, Uris
-from tests.conftest import BASE_URI, REPO_SEMANTIC_DIR
+from tests.conftest import BASE_URI, DEPLOY_ONLY_ENV, REPO_SEMANTIC_DIR
 from tests.test_contracts_fase2 import (
     ENV_EXAMPLE,
     FRONTEND_TYPES,
@@ -593,9 +593,11 @@ def test_reasoner_variables_are_documented_with_the_backend_defaults() -> None:
     assert optional["INGEST_MAX_TRIPLES"] == str(fields["ingest_max_triples"].default)
     assert optional["SHACL_TIMEOUT_SECONDS"] == f"{fields['shacl_timeout_seconds'].default:g}"
     assert optional["SHACL_MEMORY_MB"] == str(fields["shacl_memory_mb"].default)
-    # Toda variable opcional documentada es un puerto del host o la lee el backend.
+    # Toda variable opcional documentada es un puerto del host, del despliegue o la lee el backend.
     for name in optional:
-        assert name.endswith("_HOST_PORT") or name in _settings_env_names(), name
+        assert (
+            name.endswith("_HOST_PORT") or name in DEPLOY_ONLY_ENV or name in _settings_env_names()
+        ), name
     # Llegan al backend por env_file: Compose no las fija ni las pisa en `environment`.
     compose = _require(COMPOSE).read_text(encoding="utf-8")
     assert re.search(r"^  backend:\n(?:    .*\n|\n)*?    env_file: \.env$", compose, re.MULTILINE)
