@@ -66,6 +66,8 @@ class AuditAction(enum.StrEnum):
     SCHEME_WITHDRAWN = "scheme_withdrawn"
     ONTOLOGY_UPDATED = "ontology_updated"
     ONTOLOGY_WITHDRAWN = "ontology_withdrawn"
+    # Decisión 51: sustitución de una ontología externa por una versión nueva.
+    EXTERNAL_ONTOLOGY_REPLACED = "external_ontology_replaced"
 
 
 class User(Base):
@@ -253,3 +255,22 @@ class WithdrawnPrefix(Base):
     prefix: Mapped[str] = mapped_column(String(200), primary_key=True)
     resource_uri: Mapped[str] = mapped_column(String(1024), index=True)
     withdrawn_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ExternalVersionPrefix(Base):
+    """Prefijo VANN con el que se publicó cada versión de una ontología externa (decisión
+    51; regla 7 de ``semantic/uris.md``): el prefijo que una sustitución posterior deja de
+    usar queda reservado para esa externa.
+
+    Va aquí porque el registro de la versión (``itsh:ExternalVersionShape``) no lleva el
+    prefijo y el de referencia solo guarda el actual. Se escribe **antes** que el grafo de
+    la versión; una fila cuya versión no está en ``dcat:hasVersion`` de la referencia (una
+    sustitución que falló a medias) no cuenta, y la siguiente sustitución la sobrescribe.
+    """
+
+    __tablename__ = "external_version_prefixes"
+
+    version_uri: Mapped[str] = mapped_column(String(1024), primary_key=True)
+    ontology_iri: Mapped[str] = mapped_column(String(1024), index=True)
+    prefix: Mapped[str] = mapped_column(String(200), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

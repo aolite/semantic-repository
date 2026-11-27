@@ -140,7 +140,8 @@ Si falla un paso, la respuesta es 422 con `kind` (`syntax`, `structure`, `uri`, 
 | `{BASE_URI}dataset/{slug}` | Una serie con sus versiones, distribuciones y procedencia |
 | `{BASE_URI}vocab/{slug}` y `{BASE_URI}vocab/corp/{slug}` | Un esquema SKOS con sus conceptos (`vocabularios/*.ttl`, `vocabularios/corp/*.ttl`). Los auxiliares `vocab/dominio` y `vocab/tipo-dataset` salen de `data/vocab-minimo.ttl`, repartido en un grafo por esquema |
 | `{BASE_URI}onto/{slug}/{version}` | Una versión de ontología (su `owl:versionIRI`) |
-| `{BASE_URI}onto/externas` | Las ontologías externas, solo por referencia (`ontologias/externas.ttl`) |
+| `{BASE_URI}onto/externas` | El registro de referencia de cada ontología externa (semilla: `ontologias/externas.ttl`; desde la decisión 51, con `dcat:hasVersion` y `dcat:hasCurrentVersion` cuando se sustituye) |
+| `{BASE_URI}onto/externas/{slug}/{n}` | Una versión de una ontología externa (decisión 51): el fichero oficial completo y el registro de la versión. Inmutable |
 | `{BASE_URI}catalogo` | Catálogo raíz, `data/catalogo.ttl`: agrupa los catálogos con `dcat:catalog` y no lista series (decisión 49) |
 | `{BASE_URI}catalogo/{slug}` | Un catálogo (`data/catalogos/{slug}.ttl` o creado por la API) con un `dcat:dataset` por serie |
 | `{BASE_URI}bajas` | Lápidas de los catálogos y series dados de baja. **No se publica**: ni en SPARQL ni en los listados |
@@ -169,7 +170,7 @@ Carga desde `SEMANTIC_DIR`:
 - `data/vocab-minimo.ttl` (obligatorio): esquemas auxiliares `vocab/dominio` y `vocab/tipo-dataset`, cada uno en el grafo de su URI.
 - `vocabularios/*.ttl` y `vocabularios/corp/*.ttl`: un esquema por fichero. El nombre del fichero es el slug del esquema (`vocabularios/corp/trl.ttl` ↔ `{BASE_URI}vocab/corp/trl`).
 - `ontologias/{slug}/{version}.ttl`: todas las versiones de cada ontología. La ruta tiene que coincidir con el `owl:versionIRI`.
-- `ontologias/externas.ttl`: las externas, solo por referencia (ningún sujeto bajo `BASE_URI`).
+- `ontologias/externas.ttl`: la semilla de las referencias de las externas (ningún sujeto bajo `BASE_URI`). Desde la decisión 51 se escribe sujeto a sujeto (no sustituye el grafo `{BASE_URI}onto/externas`), omite las externas que ya tienen versiones y no quita las que ya no estén en el fichero.
 - `data/catalogo.ttl` (obligatorio, catálogo raíz), `data/catalogos/{slug}.ttl` (un catálogo por fichero, decisión 49) y `data/sintetico/*.ttl` (al menos uno).
 
 Con lo hecho desde la aplicación (decisión 49), `load-semantic` **conserva el estado del triplestore**: los catálogos y series dados de baja se omiten (con sus ficheros) y se avisa, sin error; una serie que ya está en un catálogo se queda en él aunque su fichero diga otro (un traslado no se deshace); los catálogos creados por la API siguen en el raíz, y los `dcat:dataset` de cada catálogo publicado se mantienen (los de `data/catalogos/*.ttl` no se copian: la pertenencia la aporta cada serie). Los metadatos (título, descripción…) sí salen de los ficheros, como siempre. Una serie nueva necesita que su catálogo se cargue en la misma ejecución o ya exista.
@@ -356,7 +357,7 @@ Desde la decisión 49 el backend mantiene `<{BASE_URI}catalogo/{slug}> dcat:data
 
 ### Migraciones
 
-`0003` añade `users.tokens_valid_after` y las tablas `distribution_files`, `used_download_tokens`, `fair_evaluations`, `saved_queries`, `login_attempts` y `rate_limit_counters`. `0004` (decisión 50) añade `withdrawn_prefixes`.
+`0003` añade `users.tokens_valid_after` y las tablas `distribution_files`, `used_download_tokens`, `fair_evaluations`, `saved_queries`, `login_attempts` y `rate_limit_counters`. `0004` (decisión 50) añade `withdrawn_prefixes` y `0005` (decisión 51), `external_version_prefixes`.
 
 ## Catálogos y bajas (decisión 49)
 
@@ -431,7 +432,7 @@ Cada esquema SKOS (de dominio o corporativo) y cada ontología propia está en *
 
 **Temas retirados (regla 11) y temas desconocidos (QA-50-03).** `POST /datasets` (y `load-semantic`) rechaza una versión **nueva** cuyo `dcat:theme` apunta a un concepto con `owl:deprecated true`: **422** `deprecated_theme`, con un `issue` por tema y versión (`value` es el tema, `focus_node` la versión) y sus sustitutos en `issues[].replaced_by`. Si el tema es una IRI de `{BASE_URI}vocab/` que no es un `skos:Concept` de un esquema vivo (no existe, es un esquema y no un concepto, o su esquema se dio de baja), **422** `unknown_theme`, con el mismo formato de `issues` (el `message` dice si el esquema está dado de baja). Los temas fuera de `{BASE_URI}vocab/` (conceptos externos) no se comprueban: el backend no los conoce. `unknown_theme` se comprueba antes que `deprecated_theme`; `load-semantic` lo comprueba al validar, contra los esquemas de la misma ejecución y los publicados, antes de escribir nada. Las versiones ya publicadas no se comprueban (son inmutables). Es 422 y no 409 porque es el contenido de la petición el que no vale (como un catálogo inexistente, 422 `catalog`): reintentarla igual siempre falla hasta que el editor cambie los temas; los 409 de esta API son conflictos con el estado publicado del propio recurso.
 
-**Recursos no gestionables (regla 12): 403 `not_managed`.** Crear, editar, dar de baja o catalogar un esquema auxiliar (`/schemes/dominio`, `/schemes/tipo-dataset`) o una ontología externa (`/ontologies/externas`, o un `POST /ontologies` que describe una externa) da **403** con `ForbiddenResponse` (`detail` y `kind: "not_managed"`), con cualquier rol, también admin. Motivos: el servidor entiende la petición y la rechaza por política, no porque falte el recurso (404 sería falso: `GET /schemes/dominio` responde 200) ni por un estado que el cliente pueda resolver (409 invita a corregir y reintentar, y aquí no hay nada que corregir: solo cambian con sus ficheros y `load-semantic`). El 403 por rol insuficiente no lleva `kind`, así que el frontend distingue los dos casos.
+**Recursos no gestionables (regla 12): 403 `not_managed`.** Crear, editar, dar de baja o catalogar un esquema auxiliar (`/schemes/dominio`, `/schemes/tipo-dataset`) o una ontología externa (`/ontologies/externas`, o un `POST /ontologies` que describe una externa) da **403** con `ForbiddenResponse` (`detail` y `kind: "not_managed"`), con cualquier rol, también admin. Motivos: el servidor entiende la petición y la rechaza por política, no porque falte el recurso (404 sería falso: `GET /schemes/dominio` responde 200) ni por un estado que el cliente pueda resolver (409 invita a corregir y reintentar, y aquí no hay nada que corregir: solo cambian con sus ficheros y `load-semantic`). El 403 por rol insuficiente no lleva `kind`, así que el frontend distingue los dos casos. **Excepción (decisión 51):** una ontología externa se puede **sustituir entera** (`POST /ontologies/externas/{slug}/versions`, ver abajo); es la única escritura que la API admite sobre ella. `PATCH` y `DELETE /ontologies/externas/{slug}` dan 403 `not_managed`.
 
 **Editar.** `PATCH /schemes/…` (cuerpo `SchemeUpdate`, sin campos extra) cambia solo los campos presentes: `title` sustituye el `dct:title` y el `skos:prefLabel` **en español** del esquema, y `description` el `dct:description` en español; los literales en otros idiomas no se tocan (en los datasets se sustituyen todos; los esquemas tienen etiquetas en varios idiomas). `publisher_name` sustituye el publicador. `catalog` lo mueve: el triple se quita del catálogo de origen y se añade al de destino en una sola petición de Update. El esquema resultante se valida con SHACL; sus conceptos no cambian (se cambian republicando). `PATCH /ontologies/{slug}` (cuerpo `OntologyUpdate`) **solo** mueve de catálogo: los metadatos de una ontología están en cada versión, que es inmutable (decisión 28), así que se cambian publicando una versión nueva. Se valida la versión actual con el triple de destino; no se recalculan métricas.
 
@@ -463,6 +464,36 @@ Cada esquema SKOS (de dominio o corporativo) y cada ontología propia está en *
 **Auditoría.** `scheme_published` y `ontology_published` llevan `catalog`; nuevas `scheme_updated` y `ontology_updated` (con `fields`, `catalog` y `moved_from`) y `scheme_withdrawn` y `ontology_withdrawn` (con `catalogs`, `prefix` y los conceptos o las versiones).
 
 **Concurrencia.** Publicar, editar, mover y dar de baja esquemas y ontologías usan el mismo bloqueo (`app.write_lock`) y las mismas escrituras atómicas que el CRUD de catálogos (`bajas.set_resource_membership`: una petición de Update; nada reescribe el grafo de un catálogo ni el de bajas).
+
+## Versiones de las ontologías externas (decisión 51)
+
+Las ontologías externas se sustituyen **enteras** desde la aplicación (editor y admin) y cada sustitución crea una versión nueva. Contrato: `semantic/uris.md`, «Versiones de las ontologías externas», validado por el responsable el 2026-11-26; formas `itsh:ExternalVersionShape` e `itsh:ExternalOntologyVersionedShape`.
+
+| Método y ruta | Rol | Qué hace |
+|---|---|---|
+| `POST /ontologies/externas/{slug}/versions` | editor, admin | Sustituye la externa: `multipart/form-data` con `file` (Turtle o JSON-LD; por el `Content-Type` de la parte o la extensión `.ttl`/`.jsonld`), `title`, `prefix` y `namespace` obligatorios, y `description`, `version_info`, `publisher` y `version_notes` opcionales. 201 con `ExternalReplaceResult` |
+| `GET /ontologies/externas/{slug}` | público | Ficha (`ExternalOntologyDetail`): la referencia, `current_version` y `versions` (de la más reciente a la más antigua), cada una con sus métricas |
+| `GET /ontologies/externas/{slug}/rdf` | público | RDF de la versión actual o de `?version=n` (fichero y registro); 404 si no tiene versiones |
+| `PATCH`, `DELETE /ontologies/externas/{slug}` | editor, admin | Siempre 403 `not_managed` |
+| `GET /onto/externas/{slug}/{n}` | público | URI persistente de la versión: RDF con un `Accept` de RDF; si no, 303 a `{FRONTEND_BASE_URL}/ontologias/externas/{slug}?version={n}` |
+| `GET /onto/externas/{slug}` | público | No es un recurso RDF, solo agrupa las versiones: 303 a la ficha del frontend (`/ontologias/externas/{slug}`) sin `Accept`, con `*/*` o con HTML; 303 a la versión actual con un `Accept` de RDF (404 si aún no tiene versiones) |
+
+Las rutas van bajo `/ontologies/externas/` porque `externas` es un slug reservado de las propias. El **slug** de una externa es su prefijo VANN en su primera sustitución y ya no cambia aunque cambie el prefijo; antes de la primera, es su prefijo actual. Las tarjetas de `/vocabularies` lo llevan en `slug` (antes, `null`) y, si la externa tiene versión actual, sus métricas.
+
+**Qué hace la sustitución:**
+
+1. Fuera del bloqueo: la externa existe (404); los campos (422 `structure`, con el campo en `issues[].path`); el fichero se analiza (422 `syntax`), declara `<IRI oficial> a owl:Ontology` (422 `structure`) y no describe recursos bajo `BASE_URI` (422 `uri`), y **no** se valida con las formas; se construyen el registro de referencia y el de la versión y se validan juntos con SHACL (422 `shacl`); se calculan las métricas y la consistencia del fichero (owlready2 y Pellet, sin descargar los `owl:imports`, como en las propias), contando como propias las entidades del `namespace` del formulario.
+2. Con el bloqueo de las escrituras del catálogo (`app.write_lock`, que serializa todas las sustituciones): se vuelve a leer la referencia y `n` es la última versión más uno; el prefijo no puede ser de un recurso dado de baja (409 `prefix_withdrawn`) ni de otro recurso vivo o reservado por versiones anteriores de otra externa (409 `prefix_in_use`); el suyo actual o uno que la propia externa dejó de usar sí valen. Si la referencia ya cuenta la versión `n`, 409 `version_exists` y no se escribe nada.
+3. Escritura: PostgreSQL primero (el prefijo de la versión en `external_version_prefixes` y las métricas en `ontology_metrics`, con la URI de la versión); después el grafo de la versión (`PUT`, atómico), y por último **una** petición de SPARQL Update que reescribe solo el registro de esa externa en `{BASE_URI}onto/externas` (`bajas.replace_subject_update`: borra sus triples y los de su publicador en nodo en blanco e inserta los nuevos, con los literales en `BIND`). `owl:versionInfo` se omite si es un placeholder (`[VERSIÓN]`); `prov:generatedAtTime` es la hora del servidor.
+4. Auditoría `external_ontology_replaced` (con `version_uri`, `previous_version` y `prefix`).
+
+**Robusta ante un fallo a medias.** Si falla la reescritura de la referencia, se intenta borrar el grafo recién escrito y se responde 503; la referencia no ha cambiado. Si tampoco se puede borrar, queda un grafo huérfano que la referencia no lista: ninguna lectura de la API lo muestra, sus filas de PostgreSQL no reservan nada (solo cuentan las versiones de `dcat:hasVersion`) y la siguiente sustitución, que calcula el mismo `n`, lo sobrescribe. Así el reintento siempre es seguro.
+
+**Prefijos reservados (regla 7).** El registro de la versión no guarda el prefijo y el de referencia solo tiene el actual, así que el prefijo de cada versión se guarda en `external_version_prefixes` (PostgreSQL). Lo leen la sustitución, `POST /ontologies`, `POST /schemes` y `load-semantic`.
+
+**Lectura.** Las demás lecturas siguen usando `{BASE_URI}onto/externas` (tarjetas, imports y alineamientos de las propias). Las ontologías propias se siguen detectando solo en grafos `{BASE_URI}onto/{slug}/{versión}` cuyo nombre es su `owl:versionIRI` y cuelga de su URI, así que el `owl:versionIRI` que traiga el fichero oficial no crea ninguna ontología propia. Los grafos de versión se ven en el SPARQL público, como los de las propias.
+
+**`load-semantic`.** `externas.ttl` es solo la semilla: escribe cada externa sujeto a sujeto (una petición de Update por externa, solo si cambia), omite las que ya tienen `dcat:hasCurrentVersion` (manda la aplicación), no crea ni toca versiones y no quita las externas que ya no estén en el fichero. En la comprobación de prefijos, cuentan el prefijo publicado de las externas con versiones y los reservados por sus versiones anteriores.
 
 ## Roles y autorización
 

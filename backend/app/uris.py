@@ -50,6 +50,15 @@ def is_version(value: str) -> bool:
     return bool(_VERSION_RE.fullmatch(value))
 
 
+EXTERNAL_VERSION_PATTERN = r"^[1-9][0-9]{0,8}$"
+_EXTERNAL_VERSION_RE = re.compile(EXTERNAL_VERSION_PATTERN)
+
+
+def is_external_version_number(value: str) -> bool:
+    """Número de sustitución de una externa: 1, 2, 3… sin ceros a la izquierda."""
+    return bool(_EXTERNAL_VERSION_RE.fullmatch(value))
+
+
 def version_key(value: str | None) -> tuple[int, int, int]:
     """Clave de orden semver. Lo que no es semver va al final (como ``-1``)."""
     if value and is_version(value):
@@ -141,6 +150,29 @@ class Uris:
     def external_ontologies_graph(self) -> str:
         """Grafo con nombre de las ontologías externas (solo referencia)."""
         return f"{self.onto_ns}{EXTERNAL_ONTOLOGIES_SLUG}"
+
+    @property
+    def external_versions_ns(self) -> str:
+        """``{BASE_URI}onto/externas/``: debajo cuelgan las versiones de las externas."""
+        return f"{self.external_ontologies_graph}/"
+
+    def external_series(self, slug: str) -> str:
+        """``{BASE_URI}onto/externas/{slug}``: agrupa las versiones (no es un recurso RDF)."""
+        return f"{self.external_versions_ns}{slug}"
+
+    def external_version(self, slug: str, number: int) -> str:
+        """Versión ``n`` de una externa (decisión 51): ``{BASE_URI}onto/externas/{slug}/{n}``.
+        También es el nombre de su grafo."""
+        return f"{self.external_versions_ns}{slug}/{number}"
+
+    def external_version_parts(self, uri: str) -> tuple[str, int] | None:
+        """``(slug, n)`` de ``{BASE_URI}onto/externas/{slug}/{n}``, o ``None``."""
+        if not uri.startswith(self.external_versions_ns):
+            return None
+        slug, _, number = uri[len(self.external_versions_ns) :].partition("/")
+        if not is_slug(slug) or not is_external_version_number(number):
+            return None
+        return slug, int(number)
 
     @property
     def domain_concepts_scheme(self) -> str:

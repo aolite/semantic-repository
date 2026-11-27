@@ -233,6 +233,9 @@ def _write_schemes_and_ontologies(
         state = "cargado" if result.changed else "sin cambios"
         typer.echo(f"{name} -> <{result.graph_uri}>: {state} ({result.concepts} conceptos)")
     for name, graph_uri, graph in plan.plain:
+        if graph_uri == uris.external_ontologies_graph:
+            _write_externals(store, uris, name, graph)
+            continue
         _created, changed = ingest.store_graph(store, graph_uri, graph)
         typer.echo(f"{name} -> <{graph_uri}>: {'cargado' if changed else 'sin cambios'}")
     for name, ontology, analysis in plan.ontologies:
@@ -249,6 +252,30 @@ def _write_schemes_and_ontologies(
         state = "cargado" if onto.changed else "sin cambios"
         metrics = "métricas calculadas" if onto.metrics_recomputed else "métricas al día"
         typer.echo(f"{name} -> <{onto.graph_uri}>: {state}, {metrics}")
+
+
+def _write_externals(store: TripleStore, uris: Uris, name: str, graph: Graph) -> None:
+    """Decisión 51: ``externas.ttl`` es solo la semilla de las referencias. Se escribe
+    sujeto a sujeto (con su publicador en nodo en blanco), cada uno en una petición de
+    Update, sin sustituir el grafo ``{BASE_URI}onto/externas`` entero (borraría los enlaces
+    de versionado). Las externas que ya tienen versiones no se tocan (manda la aplicación),
+    y no se quita ninguna que ya no esté en el fichero (no se dan de baja). No crea ni toca
+    ninguna versión."""
+    store.ensure_writable()
+    target = uris.external_ontologies_graph
+    current = store.get_graph(target)
+    versioned = {s for s in current.subjects(DCAT.hasCurrentVersion, None)}
+    subjects = sorted({s for s in graph.subjects() if isinstance(s, URIRef)}, key=str)
+    for subject in subjects:
+        if subject in versioned:
+            typer.echo(f"{name} <{subject}>: se omite (tiene versiones; manda la aplicación)")
+            continue
+        description = bajas.subject_description(graph, subject)
+        if isomorphic(bajas.subject_description(current, subject), description):
+            typer.echo(f"{name} <{subject}> -> <{target}>: sin cambios")
+            continue
+        store.update(bajas.replace_subject_update(target, str(subject), description))
+        typer.echo(f"{name} <{subject}> -> <{target}>: cargado")
 
 
 def _write_catalogs(store: TripleStore, uris: Uris, plan: _Plan) -> None:
@@ -421,7 +448,19 @@ def _check_prefix(session: Session, graph: Graph, resource: str) -> None:
         )
 
 
-def _check_plan_prefixes(store: TripleStore | None, uris: Uris, plan: _Plan) -> bool:
+def versioned_externals(store: TripleStore | None, uris: Uris) -> set[str]:
+    """Externas que ya tienen versiones (``dcat:hasCurrentVersion`` en
+    ``{BASE_URI}onto/externas``, decisión 51): manda la aplicación y ``load-semantic`` no
+    las toca."""
+    if store is None:
+        return set()
+    graph = store.get_graph(uris.external_ontologies_graph)
+    return {str(s) for s in graph.subjects(DCAT.hasCurrentVersion, None) if isinstance(s, URIRef)}
+
+
+def _check_plan_prefixes(
+    store: TripleStore | None, uris: Uris, plan: _Plan, session: Session | None = None
+) -> bool:
     """QA-50-01 (validado el 2026-11-26): dos recursos vivos (esquemas, ontologías propias
     y externas) no comparten prefijo VANN. Se comprueba entre los ficheros de esta ejecución
     y contra los recursos ya publicados que no se cargan ahora (los creados desde la
@@ -435,32 +474,33 @@ def _check_plan_prefixes(store: TripleStore | None, uris: Uris, plan: _Plan) -> 
         prefix = vocab_ingest.resource_prefix(prepared_onto.graph, prepared_onto.uri)
         if prefix:
             planned.setdefault(prepared_onto.uri, (prefix, name))
-    # Regla 14 (2026-11-26): el prefijo de una ontología externa también cuenta.
-    reloads_externals = False
+    # Regla 14 (2026-11-26): el prefijo de una ontología externa también cuenta. Las que ya
+    # tienen versiones (decisión 51) no se cargan: cuenta su prefijo publicado.
+    versioned = versioned_externals(store, uris)
     for name, graph_uri, graph in plan.plain:
         if graph_uri != uris.external_ontologies_graph:
             continue
-        reloads_externals = True
         for external in graph.subjects(RDF.type, OWL.Ontology):
+            if str(external) in versioned:
+                continue
             prefix = vocab_ingest.resource_prefix(graph, str(external))
             if isinstance(external, URIRef) and prefix:
                 planned.setdefault(str(external), (prefix, name))
     by_prefix: dict[str, list[str]] = {}
     for resource, (prefix, _name) in planned.items():
         by_prefix.setdefault(prefix, []).append(resource)
-    published = vocab_ingest.all_prefix_owners(store, uris) if store is not None else {}
+    published = vocab_ingest.all_prefix_owners(store, uris, session) if store is not None else {}
     failed = False
     for resource, (prefix, name) in sorted(planned.items(), key=lambda item: item[1][1]):
         others = [r for r in by_prefix[prefix] if r != resource]
-        # Lo publicado que también se carga ahora cuenta con su prefijo del fichero. Si se
-        # recarga externas.ttl, las externas publicadas se sustituyen por las del fichero
-        # (ya en planned).
+        # Lo publicado que también se carga ahora cuenta con su prefijo del fichero. Las
+        # externas publicadas que no están en el fichero siguen (decisión 51: load-semantic
+        # ya no sustituye el grafo entero) y cuentan con su prefijo publicado y los que
+        # reservan sus versiones anteriores.
         others += [
             owner
             for owner in sorted(published.get(prefix, set()))
-            if owner != resource
-            and owner not in planned
-            and not (reloads_externals and not owner.startswith(uris.base))
+            if owner != resource and owner not in planned
         ]
         if others:
             _print_ingest_error(
@@ -676,7 +716,7 @@ def _validate_all(
             _print_ingest_error(name, exc)
             failed = True
 
-    if _check_plan_prefixes(store, uris, plan):
+    if _check_plan_prefixes(store, uris, plan, session):
         failed = True
 
     series_dir = semantic_dir / ingest.SYNTHETIC_DIR
@@ -725,6 +765,10 @@ def load_semantic() -> None:
     Decisión 50: igual con los esquemas y las ontologías propias (se omiten los dados de
     baja, uno que ya está en un catálogo se queda en él y uno nuevo va al catálogo que le
     da ``data/catalogos/``), y no se quitan los conceptos añadidos desde la aplicación.
+    Decisión 51: ``ontologias/externas.ttl`` se escribe sujeto a sujeto (no se sustituye el
+    grafo ``{BASE_URI}onto/externas``); se omiten las externas que ya tienen versiones, no
+    se crea ni se toca ninguna versión y no se quita ninguna externa que ya no esté en el
+    fichero.
     Valida todo antes de escribir nada: si un fichero no es válido, no se carga ninguno. Es
     idempotente: un grafo con el mismo contenido no se reescribe, y las métricas de una
     versión de ontología solo se recalculan si su contenido ha cambiado.

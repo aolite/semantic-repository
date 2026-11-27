@@ -126,7 +126,10 @@ def _schema_enum(schema: dict[str, Any]) -> list[str] | None:
 # Valores nuevos de un enum del contrato que el frontend todavía no tiene (el contrato
 # OpenAPI cambia en su propia PR y el frontend se adapta después). Se borran cuando
 # frontend/src/api/types.ts los incorpore.
-PENDING_FRONTEND_VALUES: dict[tuple[str, str], set[str]] = {}
+# Decisión 51: valores nuevos del contrato que el frontend añade en su propia PR.
+PENDING_FRONTEND_VALUES: dict[tuple[str, str], set[str]] = {
+    ("IngestErrorResponse", "kind"): {"version_exists"},
+}
 
 
 def test_frontend_literal_types_match_the_contract_enums() -> None:
@@ -213,6 +216,7 @@ def _client_calls() -> dict[str, set[str]]:
                 raw.replace("${schemePath(slug, corp)}", scheme)
                 for scheme in ("/schemes/{}", "/schemes/corp/{}")
             ]
+        variants = [v.replace("${externalPath(slug)}", "/ontologies/externas/{}") for v in variants]
         for variant in variants:
             calls.setdefault(re.sub(r"\$\{[^}]*\}", "{}", variant), set()).update(names)
 
@@ -223,6 +227,12 @@ def _client_calls() -> dict[str, set[str]]:
     # fetchScheme llama a la ruta del esquema sin más.
     assert "apiRequest<SchemeDetail>(schemePath(slug, corp)," in source
     add("${schemePath(slug, corp)}", set())
+    # Decisión 51: externalPath(slug) es la ruta de una ontología externa, y fetchExternal
+    # la llama sin más (solo cuando el frontend ya la tiene).
+    if "function externalPath(" in source:
+        assert "`/ontologies/externas/${encodeURIComponent(slug)}`" in source
+        assert "apiRequest<ExternalOntologyDetail>(externalPath(slug)," in source
+        add("${externalPath(slug)}", set())
     return calls
 
 

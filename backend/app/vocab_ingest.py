@@ -39,12 +39,19 @@ from typing import Any
 from rdflib import BNode, Graph, Literal, URIRef
 from rdflib.compare import isomorphic, to_canonical_graph
 from rdflib.namespace import OWL, RDF, XSD
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import audit, bajas, ingest, owl_metrics
 from app.config import Settings
 from app.ingest import IngestError, Issue, OtherCatalog
-from app.models import AuditAction, OntologyMetricsRecord, User, WithdrawnPrefix
+from app.models import (
+    AuditAction,
+    ExternalVersionPrefix,
+    OntologyMetricsRecord,
+    User,
+    WithdrawnPrefix,
+)
 from app.sparql import iri, iri_list, literal, render
 from app.triplestore import TripleStore
 from app.uris import AUXILIARY_SCHEME_SLUGS, DCAT, DCT, SKOS, VANN, Uris, is_slug, version_key
@@ -173,9 +180,36 @@ WHERE {
 }"""
 
 
-def all_prefix_owners(store: TripleStore, uris: Uris) -> dict[str, set[str]]:
+_LISTED_EXTERNAL_VERSIONS = """CONSTRUCT { ?o <http://www.w3.org/ns/dcat#hasVersion> ?v }
+WHERE { GRAPH $externas { ?o <http://www.w3.org/ns/dcat#hasVersion> ?v } }"""
+
+
+def reserved_external_prefixes(
+    store: TripleStore, session: Session, uris: Uris
+) -> dict[str, set[str]]:
+    """``{prefijo: externas}`` con los prefijos de las versiones publicadas de cada externa
+    (decisión 51, regla 7): el que una sustitución posterior deja de usar sigue siendo
+    suyo. Solo cuentan las versiones que la referencia lista en ``dcat:hasVersion`` (una
+    fila de una sustitución que falló a medias no reserva nada)."""
+    rows = list(session.scalars(select(ExternalVersionPrefix)))
+    if not rows:
+        return {}
+    listed = store.construct(
+        render(_LISTED_EXTERNAL_VERSIONS, externas=iri(uris.external_ontologies_graph))
+    )
+    owners: dict[str, set[str]] = {}
+    for row in rows:
+        if (URIRef(row.ontology_iri), DCAT.hasVersion, URIRef(row.version_uri)) in listed:
+            owners.setdefault(row.prefix, set()).add(row.ontology_iri)
+    return owners
+
+
+def all_prefix_owners(
+    store: TripleStore, uris: Uris, session: Session | None = None
+) -> dict[str, set[str]]:
     """``{prefijo: recursos}`` de todos los recursos que cuentan para la regla 14 (los
-    mismos que ``live_prefix_owners``)."""
+    mismos que ``live_prefix_owners``). Con ``session``, también los prefijos reservados
+    por versiones anteriores de las externas (decisión 51)."""
     graph = store.construct(
         render(
             _PREFIX_OWNERS,
@@ -188,17 +222,25 @@ def all_prefix_owners(store: TripleStore, uris: Uris) -> dict[str, set[str]]:
     for resource, _p, prefix in graph:
         if isinstance(resource, URIRef) and str(prefix):
             owners.setdefault(str(prefix), set()).add(str(resource))
+    if session is not None:
+        for prefix, externals in reserved_external_prefixes(store, session, uris).items():
+            owners.setdefault(prefix, set()).update(externals)
     return owners
 
 
 def live_prefix_owners(
-    store: TripleStore, uris: Uris, prefix: str | None, resource: str
+    store: TripleStore,
+    uris: Uris,
+    prefix: str | None,
+    resource: str,
+    session: Session | None = None,
 ) -> list[str]:
     """Otros recursos que tienen ``prefix`` (QA-50-01, regla 14): esquemas y ontologías
-    propias vivos (con todas sus versiones publicadas) y ontologías externas."""
+    propias vivos (con todas sus versiones publicadas) y ontologías externas (también los
+    prefijos de sus versiones anteriores, con ``session``)."""
     if not prefix:
         return []
-    return sorted(all_prefix_owners(store, uris).get(prefix, set()) - {resource})
+    return sorted(all_prefix_owners(store, uris, session).get(prefix, set()) - {resource})
 
 
 def check_resource_publication(
@@ -242,7 +284,7 @@ def check_resource_publication(
                 )
             ],
         )
-    owners = live_prefix_owners(store, uris, prefix, resource)
+    owners = live_prefix_owners(store, uris, prefix, resource, session)
     if owners:
         raise IngestError(
             "prefix_in_use",
@@ -422,8 +464,8 @@ def check_not_external(store: TripleStore, uris: Uris, graph: Graph) -> None:
     if found:
         raise IngestError(
             "not_managed",
-            "Las ontologías externas no se gestionan desde la aplicación: solo cambian con "
-            "ontologias/externas.ttl y load-semantic",
+            "Las ontologías externas no se crean ni se editan desde la aplicación: solo se "
+            "sustituyen enteras (POST /ontologies/externas/{slug}/versions)",
             [Issue("Ontología externa", focus_node=uri) for uri in found],
         )
 

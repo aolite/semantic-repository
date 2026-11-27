@@ -70,7 +70,7 @@ def test_vocabularies_cards_and_counts(api: TestClient, itot_metrics: tuple[dict
     saref = cards["https://saref.etsi.org/core/"]
     assert saref["kind"] == "external"
     assert saref["catalog"] is None  # las externas no están en ningún catálogo
-    assert saref["slug"] is None
+    assert saref["slug"] == "saref"  # decisión 51: su prefijo, el slug de sus versiones
     assert saref["status"] == "referenced"
     assert saref["prefix"] == "saref"
     assert saref["namespace"] == "https://saref.etsi.org/core/"

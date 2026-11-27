@@ -3384,6 +3384,510 @@
         }
       }
     },
+    "/ontologies/externas/{slug}/versions": {
+      "post": {
+        "tags": [
+          "ontologies"
+        ],
+        "summary": "Sustituye entera una ontología externa: crea su versión n+1 (editor o admin)",
+        "description": "Decisión 51. Recibe en `multipart/form-data` el fichero completo de la ontología (Turtle o JSON-LD) y sus metadatos de referencia. El fichero tiene que declarar «<IRI oficial> a owl:Ontology» con la IRI de la externa y no puede describir recursos bajo BASE_URI; no se valida con las formas. El backend calcula `n` (la última versión más uno; las sustituciones se serializan), construye el registro de la versión `{BASE_URI}onto/externas/{slug}/{n}` (`prov:Entity`, `dct:isVersionOf`, `dcat:version`, `owl:versionInfo`, `prov:generatedAtTime` con la hora del servidor, `dcat:previousVersion` y `prov:wasRevisionOf` hacia la n-1, `adms:versionNotes`), valida con SHACL ese registro junto con el de referencia, calcula las métricas OWL y la consistencia del fichero (owlready2 y Pellet, sin descargar los owl:imports; cuentan como propias las entidades de `namespace`), escribe el grafo de la versión (fichero y registro; inmutable) y reescribe solo el registro de esa externa en `{BASE_URI}onto/externas`, con `dcat:hasVersion` y `dcat:hasCurrentVersion` hacia la nueva. Robusta ante un fallo a medias: la referencia se reescribe en una sola petición de Update, y si falla se puede reintentar. 404 si la externa no existe. 422 `syntax` si el fichero no se analiza, `structure` si un campo no es válido o el fichero no declara la ontología, `uri` si describe recursos bajo BASE_URI, `shacl` si fallan los registros. 409 `prefix_withdrawn` o `prefix_in_use` si el prefijo es de otro recurso, dado de baja o vivo (el que una versión anterior de esta externa dejó de usar sigue siendo suyo); 409 `version_exists` si la versión `n` ya existe. Auditoría `external_ontology_replaced`.",
+        "operationId": "replace_external_ontologies_externas__slug__versions_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+              "description": "Slug de la externa: su prefijo VANN (el de su primera sustitución)",
+              "title": "Slug"
+            },
+            "description": "Slug de la externa: su prefijo VANN (el de su primera sustitución)"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExternalReplaceResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "multipart mal formado, sin 'file', con campos repetidos o no admitidos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No autenticado"
+          },
+          "403": {
+            "description": "Requiere rol editor o admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForbiddenResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "La externa (o la versión) no existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "prefix_withdrawn, prefix_in_use o version_exists",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestErrorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
+          },
+          "422": {
+            "description": "Fichero no válido (syntax, structure, uri), campos no válidos (structure) o informe SHACL de los registros (shacl)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Triplestore no disponible, sin credenciales de escritura o bloqueo de escritura ocupado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "file",
+                  "title",
+                  "prefix",
+                  "namespace"
+                ],
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "Fichero completo de la ontología, tal como lo publica su organismo: Turtle (text/turtle, .ttl) o JSON-LD (application/ld+json, .jsonld)"
+                  },
+                  "title": {
+                    "type": "string",
+                    "description": "dct:title en español"
+                  },
+                  "description": {
+                    "type": "string",
+                    "description": "dct:description en español"
+                  },
+                  "version_info": {
+                    "type": "string",
+                    "description": "owl:versionInfo: la versión del publicador (3.2.1, W3C REC). Se omite si está vacía o es un placeholder como [VERSIÓN]"
+                  },
+                  "prefix": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9]*$",
+                    "description": "vann:preferredNamespacePrefix. En la primera sustitución es el slug de las versiones, que ya no cambia"
+                  },
+                  "namespace": {
+                    "type": "string",
+                    "format": "uri",
+                    "description": "vann:preferredNamespaceUri: sus entidades cuentan como propias en las métricas"
+                  },
+                  "publisher": {
+                    "type": "string",
+                    "description": "foaf:name del dct:publisher"
+                  },
+                  "version_notes": {
+                    "type": "string",
+                    "description": "adms:versionNotes en español"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ontologies/externas/{slug}": {
+      "get": {
+        "tags": [
+          "ontologies"
+        ],
+        "summary": "Ficha de una ontología externa: referencia, versión actual y versiones",
+        "description": "Decisión 51. La referencia de `{BASE_URI}onto/externas`, la versión actual (`dcat:hasCurrentVersion`) y todas las versiones, de la más reciente a la más antigua, con sus métricas. Una externa que nunca se ha sustituido no tiene versiones ni métricas.",
+        "operationId": "get_external_ontologies_externas__slug__get",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+              "description": "Slug de la externa: su prefijo VANN (el de su primera sustitución)",
+              "title": "Slug"
+            },
+            "description": "Slug de la externa: su prefijo VANN (el de su primera sustitución)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExternalOntologyDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "La externa (o la versión) no existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Triplestore no disponible, sin credenciales de escritura o bloqueo de escritura ocupado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "ontologies"
+        ],
+        "summary": "No admitido: una ontología externa no se edita campo a campo",
+        "description": "Siempre 403 `not_managed` (decisión 51): sus metadatos llegan con la sustitución entera.",
+        "operationId": "update_external_ontologies_externas__slug__patch",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+              "description": "Slug de la externa: su prefijo VANN (el de su primera sustitución)",
+              "title": "Slug"
+            },
+            "description": "Slug de la externa: su prefijo VANN (el de su primera sustitución)"
+          }
+        ],
+        "responses": {
+          "403": {
+            "description": "kind=not_managed con cualquier rol: una externa solo se sustituye entera (POST /ontologies/externas/{slug}/versions); sin rol editor o admin, 403 sin kind",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForbiddenResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No autenticado"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "ontologies"
+        ],
+        "summary": "No admitido: una ontología externa no se da de baja",
+        "description": "Siempre 403 `not_managed` (decisión 51): ni la externa ni sus versiones se dan de baja.",
+        "operationId": "withdraw_external_ontologies_externas__slug__delete",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+              "description": "Slug de la externa: su prefijo VANN (el de su primera sustitución)",
+              "title": "Slug"
+            },
+            "description": "Slug de la externa: su prefijo VANN (el de su primera sustitución)"
+          }
+        ],
+        "responses": {
+          "403": {
+            "description": "kind=not_managed con cualquier rol: una externa solo se sustituye entera (POST /ontologies/externas/{slug}/versions); sin rol editor o admin, 403 sin kind",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForbiddenResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No autenticado"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ontologies/externas/{slug}/rdf": {
+      "get": {
+        "tags": [
+          "ontologies"
+        ],
+        "summary": "RDF de una versión de ontología externa: Turtle, RDF/XML o JSON-LD",
+        "description": "El grafo de la versión (fichero oficial y registro de la versión): la actual o `?version=n`. Formato por `?format=` o, si no se indica, por `Accept`. 404 si la externa no tiene versiones.",
+        "operationId": "get_external_rdf_ontologies_externas__slug__rdf_get",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+              "description": "Slug de la externa: su prefijo VANN (el de su primera sustitución)",
+              "title": "Slug"
+            },
+            "description": "Slug de la externa: su prefijo VANN (el de su primera sustitución)"
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 9,
+                  "pattern": "^[1-9][0-9]{0,8}$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Número de la versión (1, 2, 3…); por defecto, la actual",
+              "title": "Version"
+            },
+            "description": "Número de la versión (1, 2, 3…); por defecto, la actual"
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "turtle",
+                    "rdfxml",
+                    "jsonld"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Format"
+            }
+          },
+          {
+            "name": "download",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "true (o 1): añade Content-Disposition: attachment con un nombre de fichero {slug}-{versión}.{ttl|jsonld|rdf}. Por defecto se muestra en línea",
+              "default": false,
+              "title": "Download"
+            },
+            "description": "true (o 1): añade Content-Disposition: attachment con un nombre de fichero {slug}-{versión}.{ttl|jsonld|rdf}. Por defecto se muestra en línea"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "RDF en Turtle, JSON-LD o RDF/XML",
+            "content": {
+              "text/turtle": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              },
+              "application/ld+json": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              },
+              "application/rdf+xml": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "406": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Acceptable"
+          },
+          "410": {
+            "description": "Dado de baja (decisión 50): ficha mínima (lápida)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoneResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/ontologies": {
       "post": {
         "tags": [
@@ -3444,7 +3948,7 @@
             "description": "No autenticado"
           },
           "403": {
-            "description": "Requiere rol editor o admin; o kind=not_managed: las ontologías externas no se gestionan desde la aplicación",
+            "description": "Requiere rol editor o admin; o kind=not_managed: una ontología externa no se crea, ni se edita campo a campo, ni se da de baja, ni se cataloga; solo se sustituye entera (POST /ontologies/externas/{slug}/versions, decisión 51)",
             "content": {
               "application/json": {
                 "schema": {
@@ -3583,7 +4087,7 @@
             }
           },
           "403": {
-            "description": "Requiere rol editor o admin; o kind=not_managed: las ontologías externas no se gestionan desde la aplicación",
+            "description": "Requiere rol editor o admin; o kind=not_managed: una ontología externa no se crea, ni se edita campo a campo, ni se da de baja, ni se cataloga; solo se sustituye entera (POST /ontologies/externas/{slug}/versions, decisión 51)",
             "content": {
               "application/json": {
                 "schema": {
@@ -3676,7 +4180,7 @@
             }
           },
           "403": {
-            "description": "Requiere rol editor o admin; o kind=not_managed: las ontologías externas no se gestionan desde la aplicación",
+            "description": "Requiere rol editor o admin; o kind=not_managed: una ontología externa no se crea, ni se edita campo a campo, ni se da de baja, ni se cataloga; solo se sustituye entera (POST /ontologies/externas/{slug}/versions, decisión 51)",
             "content": {
               "application/json": {
                 "schema": {
@@ -5117,6 +5621,207 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/GoneResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/onto/externas/{slug}": {
+      "get": {
+        "tags": [
+          "linked-data"
+        ],
+        "summary": "Serie de versiones de una ontología externa: 303 a la ficha o a la actual",
+        "description": "Decisión 51. `{BASE_URI}onto/externas/{slug}` no es un recurso RDF: solo agrupa las versiones. Sin `Accept`, con `*/*` o con `text/html`: 303 a la ficha de la externa en el frontend (`/ontologias/externas/{slug}`). Con un `Accept` de RDF: 303 a la versión actual `{BASE_URI}onto/externas/{slug}/{n}`, o 404 si aún no tiene versiones. 404 si la externa no existe.",
+        "operationId": "resolve_external_series_onto_externas__slug__get",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+              "title": "Slug"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "303": {
+            "description": "Sin Accept, con */* o con text/html: redirige al frontend"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "406": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Acceptable"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/onto/externas/{slug}/{number}": {
+      "get": {
+        "tags": [
+          "linked-data"
+        ],
+        "summary": "URI persistente de una versión de ontología externa",
+        "description": "Decisión 51. Con un `Accept` de RDF, el grafo de la versión (fichero oficial y registro de la versión). Sin `Accept`, con `*/*` o con `text/html`: 303 a la ficha de la externa (`/ontologias/externas/{slug}?version={n}`). 404 si la externa no lista esa versión.",
+        "operationId": "resolve_external_version_onto_externas__slug___number__get",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+              "title": "Slug"
+            }
+          },
+          {
+            "name": "number",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 9,
+              "pattern": "^[1-9][0-9]{0,8}$",
+              "title": "Number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "RDF del recurso",
+            "content": {
+              "text/turtle": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              },
+              "application/ld+json": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              },
+              "application/rdf+xml": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              }
+            }
+          },
+          "303": {
+            "description": "Sin Accept, con */* o con text/html: redirige al frontend"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "406": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Acceptable"
+          },
+          "410": {
+            "description": "Dado de baja (decisión 50): ficha mínima en HTML o RDF de la lápida",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "text/turtle": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              },
+              "application/ld+json": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
+                }
+              },
+              "application/rdf+xml": {
+                "schema": {
+                  "type": "string",
+                  "description": "RDF serializado"
                 }
               }
             }
@@ -7742,6 +8447,375 @@
         ],
         "title": "ErrorResponse"
       },
+      "ExternalOntologyDetail": {
+        "properties": {
+          "slug": {
+            "type": "string",
+            "title": "Slug",
+            "description": "Slug de sus versiones (su prefijo VANN en la primera)"
+          },
+          "uri": {
+            "type": "string",
+            "title": "Uri",
+            "description": "IRI oficial de la ontología"
+          },
+          "kind": {
+            "type": "string",
+            "const": "external",
+            "title": "Kind"
+          },
+          "status": {
+            "type": "string",
+            "const": "referenced",
+            "title": "Status"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "prefix": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prefix",
+            "description": "vann:preferredNamespacePrefix actual"
+          },
+          "namespace": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Namespace",
+            "description": "vann:preferredNamespaceUri"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version",
+            "description": "owl:versionInfo de la referencia (la actual)"
+          },
+          "publisher": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publisher",
+            "description": "foaf:name del dct:publisher"
+          },
+          "current_version": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExternalVersionRead"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "La versión actual (dcat:hasCurrentVersion); null si aún no se ha sustituido nunca (solo referencia, sin métricas)"
+          },
+          "versions": {
+            "items": {
+              "$ref": "#/components/schemas/ExternalVersionRead"
+            },
+            "type": "array",
+            "title": "Versions",
+            "description": "Todas sus versiones, de la más reciente a la más antigua"
+          }
+        },
+        "type": "object",
+        "required": [
+          "slug",
+          "uri",
+          "kind",
+          "status",
+          "title",
+          "description",
+          "prefix",
+          "namespace",
+          "version",
+          "publisher",
+          "current_version",
+          "versions"
+        ],
+        "title": "ExternalOntologyDetail",
+        "description": "Ficha de una ontología externa: su registro de referencia y sus versiones."
+      },
+      "ExternalReplaceResult": {
+        "properties": {
+          "slug": {
+            "type": "string",
+            "title": "Slug"
+          },
+          "uri": {
+            "type": "string",
+            "title": "Uri",
+            "description": "IRI oficial de la ontología"
+          },
+          "number": {
+            "type": "integer",
+            "title": "Number",
+            "description": "n de la versión nueva"
+          },
+          "version": {
+            "type": "string",
+            "title": "Version",
+            "description": "n como texto (dcat:version)"
+          },
+          "version_uri": {
+            "type": "string",
+            "title": "Version Uri",
+            "description": "{BASE_URI}onto/externas/{slug}/{n}"
+          },
+          "graph": {
+            "type": "string",
+            "title": "Graph",
+            "description": "Grafo con nombre de la versión (su URI)"
+          },
+          "previous_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Version"
+          },
+          "generated_at": {
+            "type": "string",
+            "title": "Generated At",
+            "description": "prov:generatedAtTime (hora del servidor)"
+          },
+          "triples": {
+            "type": "integer",
+            "title": "Triples",
+            "description": "Triples del grafo de la versión (fichero y registro)"
+          },
+          "metrics": {
+            "$ref": "#/components/schemas/OntologyMetricsRead"
+          },
+          "profile": {
+            "$ref": "#/components/schemas/OwlProfile"
+          },
+          "consistency": {
+            "$ref": "#/components/schemas/ConsistencyRead"
+          },
+          "documentation": {
+            "$ref": "#/components/schemas/DocumentationCoverageRead"
+          }
+        },
+        "type": "object",
+        "required": [
+          "slug",
+          "uri",
+          "number",
+          "version",
+          "version_uri",
+          "graph",
+          "previous_version",
+          "generated_at",
+          "triples",
+          "metrics",
+          "profile",
+          "consistency",
+          "documentation"
+        ],
+        "title": "ExternalReplaceResult",
+        "description": "Resultado de una sustitución (decisión 51)."
+      },
+      "ExternalVersionRead": {
+        "properties": {
+          "number": {
+            "type": "integer",
+            "title": "Number",
+            "description": "n: número de sustitución (1, 2, 3…)"
+          },
+          "version": {
+            "type": "string",
+            "title": "Version",
+            "description": "dcat:version: n como texto"
+          },
+          "uri": {
+            "type": "string",
+            "title": "Uri",
+            "description": "{BASE_URI}onto/externas/{slug}/{n}; también su grafo"
+          },
+          "version_info": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version Info",
+            "description": "owl:versionInfo: la versión del publicador"
+          },
+          "generated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generated At",
+            "description": "prov:generatedAtTime (hora del servidor)"
+          },
+          "previous_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Version",
+            "description": "dcat:previousVersion (la n-1)"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes",
+            "description": "adms:versionNotes (es)"
+          },
+          "current": {
+            "type": "boolean",
+            "title": "Current",
+            "description": "Es la de dcat:hasCurrentVersion (la última)"
+          },
+          "metrics": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OntologyMetricsRead"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "null si no se han calculado"
+          },
+          "profile": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OwlProfile"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "consistency": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConsistencyRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "documentation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DocumentationCoverageRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "metrics_computed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metrics Computed At"
+          },
+          "metrics_tool": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metrics Tool"
+          }
+        },
+        "type": "object",
+        "required": [
+          "number",
+          "version",
+          "uri",
+          "version_info",
+          "generated_at",
+          "previous_version",
+          "notes",
+          "current",
+          "metrics",
+          "profile",
+          "consistency",
+          "documentation",
+          "metrics_computed_at",
+          "metrics_tool"
+        ],
+        "title": "ExternalVersionRead",
+        "description": "Una versión ``{BASE_URI}onto/externas/{slug}/{n}`` de una ontología externa."
+      },
       "FairSummary": {
         "properties": {
           "status": {
@@ -7904,7 +8978,7 @@
           "detail"
         ],
         "title": "ForbiddenResponse",
-        "description": "403 de las escrituras. Sin ``kind``: el rol no basta (hace falta editor o admin).\nCon ``kind=not_managed`` (decisión 50, regla 12): el recurso es una ontología externa\no un esquema auxiliar (``vocab/dominio``, ``vocab/tipo-dataset``), que no se gestionan\ndesde la aplicación con ningún rol: solo cambian con sus ficheros y ``load-semantic``."
+        "description": "403 de las escrituras. Sin ``kind``: el rol no basta (hace falta editor o admin).\nCon ``kind=not_managed`` (decisión 50, regla 12): el recurso es una ontología externa\no un esquema auxiliar (``vocab/dominio``, ``vocab/tipo-dataset``), que no se gestionan\ndesde la aplicación con ningún rol. Única excepción (decisión 51): una ontología externa\nse puede **sustituir entera** (``POST /ontologies/externas/{slug}/versions``); crearla,\neditarla campo a campo, darla de baja o catalogarla sigue dando ``not_managed``."
       },
       "GoneResponse": {
         "properties": {
@@ -8070,10 +9144,11 @@
               "concept_reactivated",
               "replacement",
               "deprecated_theme",
-              "unknown_theme"
+              "unknown_theme",
+              "version_exists"
             ],
             "title": "Kind",
-            "description": "limit: se ha superado un límite de la ingesta (tripletas, tamaño expandido, IRI, profundidad o tiempo o memoria de la validación SHACL). catalog (422): el catálogo indicado no existe o está dado de baja. version_removed y version_immutable (409): falta una versión ya publicada o viene con otro contenido; las versiones afectadas van en issues (focus_node). withdrawn (409): el slug (la URI) es de un recurso dado de baja y no se reutiliza. catalog_conflict (409): la serie, el esquema o la ontología ya está en otro catálogo (se mueve con PATCH). Decisión 50: prefix_withdrawn (409): el prefijo VANN era de un esquema o una ontología dados de baja; prefix_in_use (409): el prefijo VANN ya lo usa otro esquema vivo, una ontología externa o alguna versión publicada de otra ontología propia, aunque su versión actual ya no lo use (en issues, value); concepts_removed (409): al republicar un esquema faltan conceptos ya publicados (en issues); concept_reactivated (409): un concepto retirado deja de estarlo (fuera del piloto); replacement (422): un sustituto (dct:isReplacedBy) no es un concepto vivo; deprecated_theme (422): una versión nueva de dataset usa temas retirados (en issues, con replaced_by); unknown_theme (422): una versión nueva de dataset usa como tema una IRI de {BASE_URI}vocab/ que no es un concepto de un esquema vivo, porque no existe o porque su esquema se dio de baja (en issues, value); los temas externos no se comprueban"
+            "description": "limit: se ha superado un límite de la ingesta (tripletas, tamaño expandido, IRI, profundidad o tiempo o memoria de la validación SHACL). catalog (422): el catálogo indicado no existe o está dado de baja. version_removed y version_immutable (409): falta una versión ya publicada o viene con otro contenido; las versiones afectadas van en issues (focus_node). withdrawn (409): el slug (la URI) es de un recurso dado de baja y no se reutiliza. catalog_conflict (409): la serie, el esquema o la ontología ya está en otro catálogo (se mueve con PATCH). Decisión 50: prefix_withdrawn (409): el prefijo VANN era de un esquema o una ontología dados de baja; prefix_in_use (409): el prefijo VANN ya lo usa otro esquema vivo, una ontología externa o alguna versión publicada de otra ontología propia, aunque su versión actual ya no lo use (en issues, value); concepts_removed (409): al republicar un esquema faltan conceptos ya publicados (en issues); concept_reactivated (409): un concepto retirado deja de estarlo (fuera del piloto); replacement (422): un sustituto (dct:isReplacedBy) no es un concepto vivo; deprecated_theme (422): una versión nueva de dataset usa temas retirados (en issues, con replaced_by); unknown_theme (422): una versión nueva de dataset usa como tema una IRI de {BASE_URI}vocab/ que no es un concepto de un esquema vivo, porque no existe o porque su esquema se dio de baja (en issues, value); los temas externos no se comprueban. Decisión 51 (sustitución de una ontología externa): structure (422) también si un campo del formulario no es válido (en issues, path = nombre del campo) o si el fichero no declara «<IRI oficial> a owl:Ontology»; uri (422) si el fichero describe recursos bajo BASE_URI; version_exists (409): el grafo de la versión {BASE_URI}onto/externas/{slug}/{n} ya existe y la referencia ya lo cuenta (otra sustitución se ha adelantado); no se escribe nada"
           },
           "issues": {
             "items": {
@@ -10113,7 +11188,7 @@
               }
             ],
             "title": "Slug",
-            "description": "Slug de la ontología o del esquema (sin 'corp/'); null en las externas"
+            "description": "Slug de la ontología o del esquema (sin 'corp/'). En las externas (decisión 51), el de sus versiones {BASE_URI}onto/externas/{slug}/{n}: su prefijo VANN (el de la primera sustitución, si ya tiene versiones); null si no tiene prefijo"
           },
           "uri": {
             "type": "string",
@@ -10202,7 +11277,7 @@
                 "type": "null"
               }
             ],
-            "description": "Ontologías propias con métricas calculadas; null en el resto"
+            "description": "Ontologías propias con métricas calculadas y externas con versión actual (las de esa versión, decisión 51); null en el resto"
           },
           "concepts": {
             "anyOf": [
