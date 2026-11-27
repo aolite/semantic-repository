@@ -48,6 +48,11 @@ services:
         condition: service_healthy
       frontend:
         condition: service_healthy
+    # Solo en proxy-net, con IP fija: sus conexiones al backend salen siempre de ella y es
+    # la única de la que el backend acepta X-Forwarded-For (FORWARDED_ALLOW_IPS).
+    networks: !override
+      proxy-net:
+        ipv4_address: 10.254.77.2
     mem_limit: 128m
     cap_drop: [ALL]
     cap_add: [NET_BIND_SERVICE]
@@ -90,13 +95,17 @@ services:
       FAIR_TARGET_BASE_URL: ""
       # Pellet (razonador): heap de su JVM.
       REASONER_JAVA_MEMORY_MB: ${REASONER_JAVA_MEMORY_MB:-1024}
-      # Detrás del proxy la IP del cliente llega en X-Forwarded-For. El backend solo es
-      # alcanzable desde el proxy y desde F-UJI (sin puertos en el host), y Caddy descarta
-      # el X-Forwarded-For que traiga el cliente, así que se confía en él.
-      FORWARDED_ALLOW_IPS: "*"
+      # Detrás del proxy la IP del cliente llega en X-Forwarded-For. Uvicorn solo la acepta
+      # de la IP fija de Caddy en `proxy-net` (nunca "*": cualquier contenedor que llegue a
+      # backend:8000 podría elegir su IP). Con una IP concreta recorre la cabecera desde el
+      # final y descarta lo que el cliente ponga delante; Caddy, además, sustituye la
+      # cabecera del cliente (no se configura `trusted_proxies`).
+      FORWARDED_ALLOW_IPS: "10.254.77.2"
       # Commit desplegado (lo exportará quien despliegue: APP_COMMIT=$(git rev-parse --short HEAD)).
       # El backend puede leerlo para informar de la versión desplegada.
       APP_COMMIT: ${APP_COMMIT:-}
+    networks:
+      - proxy-net
     mem_limit: 2560m
     logging: *logging
 
@@ -114,6 +123,9 @@ services:
     image: itot-frontend-prod:local
     environment: !reset {}
     ports: !reset []
+    # Solo lo alcanza el proxy.
+    networks: !override
+      - proxy-net
     mem_limit: 64m
     read_only: true
     tmpfs:
@@ -130,6 +142,15 @@ services:
     logging: *logging
 
 networks:
+  # Red del proxy: Caddy, backend y frontend. Subred fija y privada, elegida fuera de los
+  # rangos habituales de Docker (172.16.0.0/12 y 192.168.0.0/16). Si choca con una red del
+  # servidor, cámbiala aquí y en FORWARDED_ALLOW_IPS y la IP de Caddy.
+  proxy-net:
+    ipam:
+      config:
+        - subnet: 10.254.77.0/24
+          # El resto de contenedores toman IP de la mitad alta; la baja queda para la de Caddy.
+          ip_range: 10.254.77.128/25
   fuji-net:
     # Con salida a internet (la base la declara internal: true). Sigue sin puertos en el host
     # y solo comparte red con el backend: F-UJI no alcanza PostgreSQL ni Fuseki.
