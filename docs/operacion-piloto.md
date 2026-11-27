@@ -86,7 +86,7 @@ Tienen prioridad sobre las del `.env`; no hace falta cambiarlas:
 | `CORS_ORIGINS` | `https://{FRONTEND_HOST}` |
 | `VITE_API_BASE_URL`, `VITE_BASE_URI` | Derivadas de `API_HOST`; se incrustan en el build del frontend |
 | `FAIR_TARGET_BASE_URL` | Vacía: F-UJI evalúa la `BASE_URI` pública (decisión 47) |
-| `FORWARDED_ALLOW_IPS` | `*` (ver «IP del cliente») |
+| `FORWARDED_ALLOW_IPS` | `10.254.77.2`, la IP fija de Caddy en la red `proxy-net` (ver «IP del cliente») |
 
 `FRONTEND_HOST` y `API_HOST` se incrustan en el build del frontend: si cambian, hay que reconstruir (`up -d --build`).
 
@@ -103,7 +103,7 @@ Tienen prioridad sobre las del `.env`; no hace falta cambiarlas:
 
 El resto de variables de `.env.example` (límites de SPARQL, bloqueo de login, descargas, F-UJI, ingesta…) tienen valores por defecto razonables para el piloto y se explican en el propio fichero.
 
-**IP del cliente.** Detrás del proxy, el backend recibe la IP real en `X-Forwarded-For`. El Compose fija `FORWARDED_ALLOW_IPS=*` porque el backend no es alcanzable desde fuera del Compose (solo desde el proxy y desde F-UJI) y Caddy descarta el `X-Forwarded-For` que traiga el cliente. Así el límite de SPARQL anónimo y el bloqueo de login son por cliente y no del proxy entero.
+**IP del cliente.** Detrás del proxy, el backend recibe la IP real en `X-Forwarded-For`. Caddy, el backend y el frontend comparten la red `proxy-net` (subred `10.254.77.0/24`); Caddy tiene la IP fija `10.254.77.2` y solo está en esa red, y el backend confía en `X-Forwarded-For` solo si la conexión viene de ahí (`FORWARDED_ALLOW_IPS=10.254.77.2`, nunca `*`). Caddy sustituye el `X-Forwarded-For` que traiga el cliente, y una cabecera falsificada desde otro contenedor (por ejemplo, F-UJI) no cambia la IP. Así el límite de SPARQL anónimo y el bloqueo de login son por cliente y no del proxy entero. Si la subred chocara con una red del servidor, se cambian en `docker-compose.prod.yml` la subred, la IP de Caddy, la misma IP en `FORWARDED_ALLOW_IPS` y el `ip_range` (ver `infra/README.md`).
 
 ## Primer arranque
 

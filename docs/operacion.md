@@ -112,9 +112,9 @@ El límite de frecuencia de SPARQL anónimo (`SPARQL_RATE_ANON_PER_MIN`, por IP)
 
 Qué hace hoy el repositorio: `backend/docker-entrypoint.sh` arranca `uvicorn app.main:app --host 0.0.0.0 --port 8000` sin pasar `--forwarded-allow-ips`, (más `--log-config app/log_config.json`, ver «Registro de accesos del backend»), y ni `docker-compose.yml` ni `.env.example` mencionan `FORWARDED_ALLOW_IPS`. Según `backend/README.md`, uvicorn solo reescribe la IP con esa cabecera si la conexión viene de una IP de `FORWARDED_ALLOW_IPS` (por defecto `127.0.0.1`).
 
-**En el piloto** esto ya está resuelto de otra forma: `docker-compose.prod.yml` fija `FORWARDED_ALLOW_IPS=*` porque el backend solo es alcanzable desde el proxy y desde F-UJI, y Caddy descarta el `X-Forwarded-For` del cliente (ver [`operacion-piloto.md`](operacion-piloto.md)). Lo que sigue describe el caso general.
+**En el piloto** esto ya está resuelto: `docker-compose.prod.yml` pone a Caddy con la IP fija `10.254.77.2` en la red `proxy-net` y fija `FORWARDED_ALLOW_IPS=10.254.77.2`, y Caddy sustituye el `X-Forwarded-For` del cliente (ver [`operacion-piloto.md`](operacion-piloto.md)). Lo que sigue describe el caso general.
 
-**Tarea del despliegue (fase 5), en general:** configurar uvicorn para que confíe en `X-Forwarded-For` solo del proxy, con la variable `FORWARDED_ALLOW_IPS` (o `--forwarded-allow-ips`) apuntando a la IP o red del proxy. No uses `*` si el backend es alcanzable sin pasar por el proxy, porque cualquiera podría falsear su IP. [PENDIENTE] No hay configuración probada en el repositorio: el valor concreto depende del proxy elegido en el despliegue.
+**Tarea del despliegue (fase 5), en general:** configurar uvicorn para que confíe en `X-Forwarded-For` solo del proxy, con la variable `FORWARDED_ALLOW_IPS` (o `--forwarded-allow-ips`) apuntando a la IP o red del proxy. No uses `*` si el backend es alcanzable sin pasar por el proxy, porque cualquiera podría falsear su IP. La configuración del piloto (Caddy) está probada en local; otro proxy necesitaría su propio valor.
 
 ## Registro de accesos del backend
 
