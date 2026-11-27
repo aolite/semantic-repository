@@ -1,0 +1,140 @@
+# Despliegue del piloto: se suma al Compose local.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env up -d --build
+#
+# Requiere Docker Compose 2.24.4 o superior (etiquetas `!reset` y `!override` de la fusión).
+# Qué cambia respecto al local (ver "Despliegue del piloto" en infra/README.md):
+#   - Proxy inverso Caddy con HTTPS automático: único servicio con puertos en el host (80 y 443).
+#   - Se quitan los puertos de postgres, fuseki, backend y frontend. Fuseki no se expone nunca.
+#   - Frontend: build estático (infra/frontend), no el servidor de desarrollo de Vite.
+#   - F-UJI con salida a internet y evaluando la BASE_URI pública (decisión 47).
+#   - BASE_URI, FRONTEND_BASE_URL, CORS_ORIGINS y las VITE_* se derivan de FRONTEND_HOST y
+#     API_HOST: no hay que repetirlas en .env (aquí tienen prioridad sobre las del .env).
+#   - Límites de memoria para un VPS de 8 GB, heap de las JVM fijado y rotación de logs.
+#
+# Memoria (límite máximo por contenedor; suman unos 6,4 GB y dejan el resto al sistema):
+#   fuseki 2 GB (heap 1 GB) · backend 2,5 GB (Pellet 1 GB de heap) · fuji 1,25 GB ·
+#   postgres 512 MB · caddy 128 MB · frontend 64 MB.
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  caddy:
+    image: caddy:2.11.9-alpine
+    restart: unless-stopped
+    environment:
+      FRONTEND_HOST: ${FRONTEND_HOST:?define FRONTEND_HOST en .env (ver .env.example)}
+      API_HOST: ${API_HOST:?define API_HOST en .env (ver .env.example)}
+      # `internal` (CA interna de Caddy, solo pruebas locales) o el email de Let's Encrypt.
+      CADDY_TLS: ${CADDY_TLS:?define CADDY_TLS en .env (ver .env.example)}
+      PROXY_MAX_BODY_RDF: ${PROXY_MAX_BODY_RDF:-11MiB}
+      PROXY_MAX_BODY_UPLOAD: ${PROXY_MAX_BODY_UPLOAD:-520MiB}
+    ports:
+      - "${PROXY_HTTP_PORT:-80}:80"
+      - "${PROXY_HTTPS_PORT:-443}:443"
+      - "${PROXY_HTTPS_PORT:-443}:443/udp"
+    volumes:
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Certificados y claves de la cuenta ACME: hay que conservarlos entre despliegues
+      # (Let's Encrypt limita las emisiones por dominio).
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+    mem_limit: 128m
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:2019/config/"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    logging: *logging
+
+  postgres:
+    ports: !reset []
+    mem_limit: 512m
+    logging: *logging
+
+  fuseki:
+    ports: !reset []
+    environment:
+      # Heap acotado: el resto del límite es para metaspace y la caché de ficheros de TDB2.
+      JAVA_TOOL_OPTIONS: "-Xms256m -Xmx1g"
+    mem_limit: 2g
+    logging: *logging
+
+  fuji:
+    # fuji-net deja de ser interna (ver abajo): F-UJI sale a internet para evaluar la
+    # BASE_URI pública y hacer sus comprobaciones externas (decisión 47).
+    mem_limit: 1280m
+    logging: *logging
+
+  backend:
+    ports: !reset []
+    environment:
+      BASE_URI: https://${API_HOST:?define API_HOST en .env}/semanticrepository/
+      FRONTEND_BASE_URL: https://${FRONTEND_HOST:?define FRONTEND_HOST en .env}
+      CORS_ORIGINS: https://${FRONTEND_HOST}
+      # Vacío (y no el valor por defecto de Compose) para que F-UJI evalúe BASE_URI.
+      FAIR_TARGET_BASE_URL: ""
+      # Pellet (razonador): heap de su JVM.
+      REASONER_JAVA_MEMORY_MB: "1024"
+      # Detrás del proxy la IP del cliente llega en X-Forwarded-For. El backend solo es
+      # alcanzable desde el proxy y desde F-UJI (sin puertos en el host), y Caddy descarta
+      # el X-Forwarded-For que traiga el cliente, así que se confía en él.
+      FORWARDED_ALLOW_IPS: "*"
+      # Commit desplegado (lo exportará quien despliegue: APP_COMMIT=$(git rev-parse --short HEAD)).
+      # El backend puede leerlo para informar de la versión desplegada.
+      APP_COMMIT: ${APP_COMMIT:-}
+    mem_limit: 2560m
+    logging: *logging
+
+  frontend:
+    # Sustituye al servidor de desarrollo de Vite por el build estático. Las URL públicas
+    # se incrustan en el build: si cambian FRONTEND_HOST o API_HOST hay que reconstruir.
+    build: !override
+      context: ./frontend
+      dockerfile: ../infra/frontend/Dockerfile
+      additional_contexts:
+        infra: ./infra/frontend
+      args:
+        VITE_API_BASE_URL: https://${API_HOST:?define API_HOST en .env}
+        VITE_BASE_URI: https://${API_HOST}/semanticrepository/
+    image: itot-frontend-prod:local
+    environment: !reset {}
+    ports: !reset []
+    mem_limit: 64m
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: !override ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    logging: *logging
+
+networks:
+  fuji-net:
+    # Con salida a internet (la base la declara internal: true). Sigue sin puertos en el host
+    # y solo comparte red con el backend: F-UJI no alcanza PostgreSQL ni Fuseki.
+    internal: false
+
+volumes:
+  caddy-data:
+  caddy-config:
