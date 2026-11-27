@@ -367,4 +367,4 @@ Usa los puertos 80 y 443 del equipo (o `PROXY_HTTP_PORT` y `PROXY_HTTPS_PORT`; c
 
 ### CI del despliegue
 
-El job `compose-prod` valida `docker compose -f docker-compose.yml -f docker-compose.prod.yml config`, comprueba que solo el proxy publica puertos (80 y 443) y ejecuta `caddy validate` sobre los dos Caddyfile. El job `smoke-prod` (propuesta de `qa`, pendiente de decisión) levanta la pila de producción con `tls internal` en el runner y le pasa `tests/smoke`; se salta mientras no exista esa carpeta.
+El job `compose-prod` valida `docker compose -f docker-compose.yml -f docker-compose.prod.yml config`, comprueba que solo el proxy publica puertos (80 y 443) y ejecuta `caddy validate` sobre los dos Caddyfile. No hay job que levante la pila de producción en CI (decisión 57): la prueba de humo (`tests/smoke`) se ejecuta a mano contra el despliegue.

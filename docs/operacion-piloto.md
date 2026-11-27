@@ -331,14 +331,15 @@ Si se cambia un límite del backend, hay que cambiar también el del proxy (el d
 
 **«El servidor está ocupado»** (503 con `Retry-After`): otra escritura tiene el bloqueo de catálogos y datasets. Es pasajero; el tiempo máximo de espera es `CATALOG_LOCK_TIMEOUT_SECONDS` (30 por defecto).
 
-## Pendiente de decidir
+## Decidido por el responsable (2026-11-27)
 
-Estos puntos están sin decidir. Esta guía no los resuelve.
+1. **Sin copias fuera del VPS** (decisión 54). El piloto es un prototipo para mostrar, con datos sintéticos: no se copian las copias a otro sitio. `backup.sh` sigue disponible para copias locales, por ejemplo antes de una actualización, pero perder el VPS supone perder también sus copias.
+2. **F-UJI consulta servicios externos** (decisión 55). Se acepta para el piloto: con salida a internet (decisión 47), F-UJI puede llamar, entre otros, a Mendeley Data (Elsevier) con el identificador y la URL de la página. La tabla completa está en `infra/README.md`, «Llamadas salientes de F-UJI». La instalación con datos reales se decidirá aparte.
+3. **`cdn.jsdelivr.net` en `/docs` y `/redoc`** (decisión 56, que confirma la 24). Swagger UI y ReDoc cargan scripts y estilos de ese CDN en el navegador de quien los abre, y la CSP de esas rutas lo permite.
+4. **Sin job `smoke-prod` en CI** (decisión 57). Solo queda `compose-prod`, que valida la configuración del Compose y de los Caddyfile. La prueba de humo se ejecuta a mano contra el despliegue.
 
-1. **Adónde se copian las copias fuera del VPS.** `backup.sh` deja las copias en el mismo disco. Hay que decidir el destino, que debe estar en la UE, y cómo se sincroniza (cron, herramienta, cifrado). Hasta entonces, perder el VPS es perder también las copias.
-2. **Qué servicios externos consulta F-UJI.** Con salida a internet (decisión 47), F-UJI puede llamar, entre otros, a Mendeley Data (Elsevier), con el identificador y la URL de la página, sin opción de desactivarlo por configuración; y a DataCite y a Google si se configuran. La tabla completa está en `infra/README.md`, «Llamadas salientes de F-UJI». Nadie ha verificado en qué región alojan sus servidores. Con la residencia de datos en la UE como criterio excluyente, corresponde al responsable aceptar o no estas llamadas.
-3. **`cdn.jsdelivr.net` en `/docs` y `/redoc`.** Quedan públicos (decisión 24), y Swagger UI y ReDoc cargan scripts y estilos de ese CDN, por lo que el navegador de quien los abre lo consulta. La CSP de esas rutas lo permite. No hay decisión sobre su residencia de datos ni sobre si se sirven esos recursos desde el propio servidor.
-4. **El ajuste real de la memoria.** Los límites de arriba son cifras de partida. Hay que medirlos con `docker stats` durante el uso del piloto y fijar los definitivos.
-5. **Si el job `smoke-prod` se queda en CI.** Es una propuesta de `qa`: levantaría la pila de producción con `tls internal` en el runner y le pasaría `tests/smoke`. Mientras no se decida, solo está el job `compose-prod`, que valida la configuración del Compose y de los Caddyfile.
+## Pendiente
 
-También están pendientes, sin ser decisiones de esta lista: los hosts reales (decisión 3, «los hosts reales, en la fase 5») y que `/health` informe de la versión y el commit (en curso en `backend`).
+- **El ajuste real de la memoria.** Los límites de arriba son cifras de partida. Hay que medirlos con `docker stats` durante el uso del piloto y fijar los definitivos.
+
+También están pendientes, sin ser decisiones de esta lista: los hosts reales (decisión 3, «los hosts reales, en la fase 5») y que `/health` informe de la versión y el commit (PR #57).
