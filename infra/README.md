@@ -229,7 +229,7 @@ docker compose exec backend python -m app.cli load-semantic
 
 ## Despliegue del piloto
 
-Fase 5. El **mismo Docker Compose** del entorno local, con `docker-compose.prod.yml` encima. Esta sección es un resumen operativo; `docs` escribirá después la guía de operación completa. Todo lo que ves aquí está probado en local con hosts ficticios; no se ha desplegado en ningún servidor. Los valores (`example.org`) son ficticios: los hosts y el email reales van solo en el `.env` del servidor, que no se versiona.
+Fase 5. El **mismo Docker Compose** del entorno local, con `docker-compose.prod.yml` encima. Esta sección es un resumen operativo; la guía de operación completa está en [`docs/operacion-piloto.md`](../docs/operacion-piloto.md). Todo lo que ves aquí está probado en local con hosts ficticios; no se ha desplegado en ningún servidor. Los valores (`example.org`) son ficticios: los hosts y el email reales van solo en el `.env` del servidor, que no se versiona.
 
 ### Qué cambia respecto al local
 
@@ -322,7 +322,7 @@ Las migraciones de la base de datos las aplica el backend al arrancar. Si la act
 
 ### Copias de seguridad y restauración
 
-`infra/scripts/backup.sh` guarda en `BACKUP_DIR/<fecha UTC>/` un `pg_dump` de PostgreSQL, un volcado N-Quads de todos los grafos de Fuseki (por su API de administración, con el usuario admin, dentro del contenedor: Fuseki no tiene puertos) y un tar del volumen de distribuciones, con `SHA256SUMS`. Puede lanzarse las veces que haga falta (cada ejecución crea su carpeta; si falla no deja una copia a medias y sale con error), usa un bloqueo para no solaparse y borra las copias de más de `BACKUP_RETENTION_DAYS` días (14 por defecto), conservando siempre la más reciente. No lee `.env` ni guarda secretos: las credenciales las toma del entorno de los contenedores.
+`infra/scripts/backup.sh` guarda en `BACKUP_DIR/<fecha UTC>/` un `pg_dump` de PostgreSQL, un volcado N-Quads de todos los grafos de Fuseki (por su API de administración, con el usuario admin, dentro del contenedor: Fuseki no tiene puertos) y un tar del volumen de distribuciones, con `SHA256SUMS`. Puede lanzarse las veces que haga falta (cada ejecución crea su carpeta; si falla no deja una copia a medias y sale con error), usa un bloqueo para no solaparse y borra las copias de más de `BACKUP_RETENTION_DAYS` días (14 por defecto), conservando siempre la más reciente. De `.env` solo lee `BACKUP_DIR` y `BACKUP_RETENTION_DAYS` (sin hacer `source` del fichero; una variable del entorno tiene prioridad) y no guarda secretos: las credenciales las toma del entorno de los contenedores. **No copia el volumen `caddy-data`** (certificados y clave de cuenta ACME): Caddy los vuelve a emitir solo la primera vez que arranca en un servidor nuevo. Let's Encrypt limita las emisiones por dominio, así que no repitas arranques desde cero sin necesidad; para las pruebas usa `CADDY_TLS=internal`.
 
 Cron diario (`crontab -e` del usuario `itot`):
 
@@ -336,7 +336,19 @@ Restaurar (**destructivo**: sustituye los datos actuales) desde una carpeta de c
 infra/scripts/restore.sh --yes ~/itot-backups/2026-01-01T033000Z
 ```
 
-Comprueba las sumas, para el backend y el proxy, restaura PostgreSQL (`pg_restore --clean`), vacía Fuseki y carga el N-Quads, vacía y restaura las distribuciones, y arranca de nuevo los servicios. Probado en local: copia, borrado de los tres almacenes y restauración, con los mismos recuentos de cuádruples, usuarios y ficheros y el login funcionando. Las copias están en el mismo disco que los datos: sincronízalas a otro sitio dentro de la UE (decisión pendiente del responsable).
+Comprueba las sumas, para el backend y el proxy, restaura PostgreSQL (`pg_restore --clean`), vacía Fuseki y carga el N-Quads, vacía y restaura las distribuciones, y arranca de nuevo los servicios. Probado en local: copia, borrado de los tres almacenes y restauración, con los mismos recuentos de cuádruples, usuarios y ficheros y el login funcionando. **Restaurar en un servidor nuevo.** Prepara el servidor como en «Preparar el servidor», copia el `.env` (por tu canal seguro; no está en las copias) y la carpeta de la copia (`scp -r`), levanta la pila vacía con el «Primer arranque» **sin** `load-semantic` ni `create-admin`, y ejecuta `restore.sh --yes <carpeta>` sobre ella. Los usuarios, los datos y las distribuciones vuelven con la copia. Los DNS tienen que apuntar ya al servidor nuevo (Caddy emite certificados nuevos). Probado en local: pila borrada con sus volúmenes, levantada vacía y restaurada desde una carpeta copiada (895 cuádruples, 1 usuario, 9 ficheros, login y RDF correctos). Usa el mismo `JWT_SECRET` que el servidor viejo si quieres que las sesiones abiertas sigan valiendo.
+
+**Marcha atrás de una actualización.** Antes de actualizar, `backup.sh` (ya forma parte de «Actualizar»). Si la versión nueva falla:
+
+```bash
+git switch --detach <etiqueta-o-commit-anterior>
+export APP_COMMIT=$(git rev-parse --short HEAD)
+docker compose up -d --build --wait --wait-timeout 900
+```
+
+Esto vuelve al código anterior conservando los datos, y vale si la actualización no cambió el esquema de la base de datos. Las migraciones de Alembic solo avanzan: si la versión nueva aplicó una migración, el código viejo no funcionará con ese esquema, y entonces hay que volver a la versión anterior **y** restaurar la copia previa a la actualización con `restore.sh` (se pierden los cambios hechos desde esa copia). Probado en local: cambio a un commit anterior y vuelta con la pila funcionando y los datos intactos; la restauración, como arriba. No se ha probado una migración real hacia atrás.
+
+Las copias están en el mismo disco que los datos: sincronízalas a otro sitio dentro de la UE (decisión pendiente del responsable).
 
 ### Probar el despliegue en local
 
