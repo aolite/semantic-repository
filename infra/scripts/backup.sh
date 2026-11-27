@@ -14,7 +14,8 @@
 #   SHA256SUMS             sumas de comprobación de los tres ficheros
 #
 # Variables de entorno (todas opcionales):
-#   BACKUP_DIR             carpeta de destino (por defecto $HOME/itot-backups)
+#   BACKUP_DIR             carpeta de destino (por defecto $HOME/itot-backups). También se lee
+#                          de .env (solo esta y la siguiente; el entorno tiene prioridad)
 #   BACKUP_RETENTION_DAYS  días que se conservan las copias (por defecto 14). Siempre queda la
 #                          copia más reciente, aunque sea más antigua
 #   COMPOSE_FILE           ficheros de Compose separados por ":" (por defecto, el local más el
@@ -22,16 +23,27 @@
 #   COMPOSE_PROJECT_NAME   proyecto de Compose (por defecto el que decida Compose: `itot`)
 #
 # Las credenciales (usuario de PostgreSQL, contraseña de admin de Fuseki) se leen del entorno de
-# los propios contenedores: el script no lee .env ni guarda ningún secreto.
+# los propios contenedores: del .env el script solo lee las dos variables de arriba y no guarda
+# ningún secreto.
+#
+# No copia el volumen caddy-data (certificados y clave de cuenta ACME): se vuelven a emitir solos.
 # Ejemplo de cron (diario a las 03:30, con el registro en un fichero):
-#   30 3 * * * cd /srv/semantic-repository && infra/scripts/backup.sh >> /var/log/itot-backup.log 2>&1
+#   30 3 * * * cd /srv/semantic-repository && infra/scripts/backup.sh >> $HOME/itot-backup.log 2>&1
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_DIR"
 
+# Lee solo BACKUP_DIR y BACKUP_RETENTION_DAYS de .env (sin hacer `source` del fichero): una línea
+# `NOMBRE=valor`, con o sin comillas. Una variable ya definida en el entorno tiene prioridad.
+env_value() {
+  [ -f .env ] || return 0
+  sed -n "s/^$1=//p" .env | tail -n 1 | sed -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'\$/\1/"
+}
+BACKUP_DIR="${BACKUP_DIR:-$(env_value BACKUP_DIR)}"
 BACKUP_DIR="${BACKUP_DIR:-$HOME/itot-backups}"
-RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-14}"
+RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-$(env_value BACKUP_RETENTION_DAYS)}"
+RETENTION_DAYS="${RETENTION_DAYS:-14}"
 export COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.yml:docker-compose.prod.yml}"
 
 log() { printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }

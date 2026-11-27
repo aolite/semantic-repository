@@ -93,4 +93,13 @@
 	handle {
 		reverse_proxy backend:8000
 	}
+
+	# Errores que genera el propio proxy (413 por tamaño, 502/503 si el backend no responde):
+	# no pasan por el backend, así que no llevarían CORS y el navegador los mostraría como un
+	# fallo de red en lugar del código real. Los errores del backend ya traen sus cabeceras.
+	handle_errors {
+		header Access-Control-Allow-Origin "https://{$FRONTEND_HOST}"
+		header Vary Origin
+		respond "{http.error.status_code} {http.error.status_text}" {http.error.status_code}
+	}
 }

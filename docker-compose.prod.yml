@@ -89,7 +89,7 @@ services:
       # Vacío (y no el valor por defecto de Compose) para que F-UJI evalúe BASE_URI.
       FAIR_TARGET_BASE_URL: ""
       # Pellet (razonador): heap de su JVM.
-      REASONER_JAVA_MEMORY_MB: "1024"
+      REASONER_JAVA_MEMORY_MB: ${REASONER_JAVA_MEMORY_MB:-1024}
       # Detrás del proxy la IP del cliente llega en X-Forwarded-For. El backend solo es
       # alcanzable desde el proxy y desde F-UJI (sin puertos en el host), y Caddy descarta
       # el X-Forwarded-For que traiga el cliente, así que se confía en él.
