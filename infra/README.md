@@ -264,7 +264,7 @@ Requiere **Docker Compose 2.24.4 o superior** (etiquetas `!reset` y `!override`)
 
 Son cifras de partida, sin carga real: ajústalas en el piloto con `docker stats`. Un contenedor que supera su límite se reinicia (`restart: unless-stopped`).
 
-**IP del cliente.** Detrás del proxy, el backend recibe la IP real en `X-Forwarded-For`; el Compose fija `FORWARDED_ALLOW_IPS=*` (el backend no es alcanzable desde fuera del Compose y Caddy descarta el `X-Forwarded-For` que traiga el cliente). Así el límite de SPARQL anónimo y el bloqueo de login son por cliente y no del proxy entero.
+**IP del cliente.** Detrás del proxy, el backend recibe la IP real en `X-Forwarded-For`. Caddy, el backend y el frontend comparten la red `proxy-net` (subred fija `10.254.77.0/24`, fuera de los rangos habituales de Docker; si choca con una red del servidor, cámbiala en `docker-compose.prod.yml`), y Caddy está solo en ella con la IP fija `10.254.77.2`. El backend lleva `FORWARDED_ALLOW_IPS=10.254.77.2` (nunca `*`): uvicorn solo acepta la cabecera de esa IP, de modo que ningún otro contenedor (F-UJI, que tiene salida a internet, ni los demás) puede elegir su IP. Caddy sustituye el `X-Forwarded-For` del cliente (no se configura `trusted_proxies`). Así el límite de SPARQL anónimo y el bloqueo de login son por cliente y no del proxy entero. Comprobado en local: con el proxy el backend ve la IP del cliente aunque este mande un `X-Forwarded-For` falso, y una petición directa a `backend:8000` desde F-UJI con la cabecera falsificada se registra con la IP de F-UJI.
 
 ### Requisitos del VPS
 
