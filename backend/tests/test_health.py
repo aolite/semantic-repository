@@ -1,19 +1,59 @@
+import tomllib
 from collections.abc import Iterator
 
 import httpx
+import pytest
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 from sqlalchemy.exc import OperationalError
 
-from app.config import Settings
+from app import PYPROJECT_PATH, __version__
+from app.config import Settings, get_settings
 from app.db import get_db
 from app.routers.health import check_fuseki
 from app.schemas import ComponentStatus
 
 
-def test_liveness(client: TestClient) -> None:
+@pytest.fixture(autouse=True)
+def _clear_settings_cache() -> Iterator[None]:
+    """Las pruebas de ``APP_COMMIT`` cambian el entorno: que no quede en la caché."""
+    yield
+    get_settings.cache_clear()
+
+
+def _pyproject_version() -> str:
+    with PYPROJECT_PATH.open("rb") as handle:
+        return tomllib.load(handle)["project"]["version"]
+
+
+def test_liveness(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("APP_COMMIT", raising=False)
+    get_settings.cache_clear()
     response = client.get("/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    # Solo estos tres campos: ni rutas, ni variables, ni versiones de dependencias.
+    assert response.json() == {"status": "ok", "version": _pyproject_version(), "commit": None}
+
+
+def test_version_has_a_single_source(client: TestClient) -> None:
+    assert __version__ == _pyproject_version()
+    assert client.get("/openapi.json").json()["info"]["version"] == __version__
+
+
+@pytest.mark.parametrize(("raw", "expected"), [("a1b2c3d", "a1b2c3d"), ("  ", None), ("", None)])
+def test_liveness_reports_app_commit(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, raw: str, expected: str | None
+) -> None:
+    monkeypatch.setenv("APP_COMMIT", raw)
+    get_settings.cache_clear()
+    assert client.get("/health").json()["commit"] == expected
+
+
+@pytest.mark.parametrize("raw", ["abc def", "x" * 65, "<script>"])
+def test_invalid_app_commit_is_rejected(monkeypatch: pytest.MonkeyPatch, raw: str) -> None:
+    monkeypatch.setenv("APP_COMMIT", raw)
+    with pytest.raises(ValidationError):
+        Settings()
 
 
 def test_readiness_ok(client: TestClient) -> None:

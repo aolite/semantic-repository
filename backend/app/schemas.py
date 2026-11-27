@@ -6,6 +6,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app import __version__
 from app.models import Role
 from app.security import PASSWORD_MIN_LENGTH, has_control_chars
 from app.uris import SLUG_PATTERN, DomainSlug
@@ -64,7 +65,19 @@ class ComponentStatus(BaseModel):
 
 
 class HealthStatus(BaseModel):
+    """El proceso está vivo, con la versión desplegada (y nada más)."""
+
     status: Literal["ok"]
+    # Con valor por defecto (siempre se devuelven) para que el contrato no los exija al
+    # cliente que aún no los conoce (PENDING_FRONTEND en tests/test_contracts_fase2.py).
+    version: str = Field(
+        default=__version__,
+        description="Versión del backend (`project.version` de pyproject.toml)",
+    )
+    commit: str | None = Field(
+        default=None,
+        description="Commit desplegado (variable `APP_COMMIT`); `null` si no se ha indicado",
+    )
 
 
 class ReadinessStatus(BaseModel):

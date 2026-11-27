@@ -1,4 +1,8 @@
-"""Health checks: vivo (``/health``) y listo (``/health/ready``)."""
+"""Health checks: vivo (``/health``) y listo (``/health/ready``).
+
+``/health`` publica también la versión del backend y el commit desplegado (``APP_COMMIT``),
+y nada más: ni rutas, ni variables, ni versiones de dependencias.
+"""
 
 from collections.abc import Callable
 from typing import Annotated
@@ -7,6 +11,7 @@ import httpx
 from fastapi import APIRouter, Depends, Response, status
 from sqlalchemy import text
 
+from app import __version__
 from app.config import Settings
 from app.deps import DbDep, SettingsDep
 from app.schemas import ComponentStatus, HealthStatus, ReadinessStatus
@@ -42,9 +47,13 @@ def get_fuseki_checker() -> FusekiChecker:
     return check_fuseki
 
 
-@router.get("", response_model=HealthStatus, summary="El proceso está vivo")
-def liveness() -> HealthStatus:
-    return HealthStatus(status="ok")
+@router.get(
+    "",
+    response_model=HealthStatus,
+    summary="El proceso está vivo, con la versión y el commit desplegados",
+)
+def liveness(settings: SettingsDep) -> HealthStatus:
+    return HealthStatus(status="ok", version=__version__, commit=settings.app_commit)
 
 
 @router.get(

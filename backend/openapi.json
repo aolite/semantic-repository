@@ -11,7 +11,7 @@
         "tags": [
           "health"
         ],
-        "summary": "El proceso está vivo",
+        "summary": "El proceso está vivo, con la versión y el commit desplegados",
         "operationId": "liveness_health_get",
         "responses": {
           "200": {
@@ -9056,13 +9056,32 @@
             "type": "string",
             "const": "ok",
             "title": "Status"
+          },
+          "version": {
+            "type": "string",
+            "title": "Version",
+            "description": "Versión del backend (`project.version` de pyproject.toml)",
+            "default": "0.1.0"
+          },
+          "commit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commit",
+            "description": "Commit desplegado (variable `APP_COMMIT`); `null` si no se ha indicado"
           }
         },
         "type": "object",
         "required": [
           "status"
         ],
-        "title": "HealthStatus"
+        "title": "HealthStatus",
+        "description": "El proceso está vivo, con la versión desplegada (y nada más)."
       },
       "ImportRef": {
         "properties": {
